@@ -12,9 +12,20 @@ import { requireSession } from "../middleware/session";
 import { requireActiveIdentity } from "../auth/rbac.middleware";
 import { NotFoundError, ValidationError } from "../errors";
 import { isValidRole } from "../../../shared/schemas";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 export function usersRouter(c: Container): Router {
   const router = Router();
+
+  router.get("/docs/openapi.yaml", (_req, res, next) => {
+    try {
+      res.type("text/yaml").send(readFileSync(resolve(process.cwd(), "docs/API_SPEC.yaml"), "utf8"));
+    } catch (err) { next(err); }
+  });
+  router.get("/docs", (_req, res) => {
+    res.type("html").send(`<!doctype html><html><head><title>BEL API</title></head><body><div id="swagger-ui"></div><script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script><script>window.ui=SwaggerUIBundle({url:'/docs/openapi.yaml',dom_id:'#swagger-ui',persistAuthorization:true})</script></body></html>`);
+  });
 
   // POST /auth/login — managed-device session, no public signup.
   router.post("/auth/login", async (req, res, next) => {

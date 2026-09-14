@@ -9,7 +9,5 @@ const port = Number(process.env.PORT ?? 4000);
 createApp().listen(port, () => {
   console.log(`[backend] listening on http://localhost:${port}`);
   console.log("[backend] chain adapter: MockBlockchainAdapter (see src/container.ts)");
-  if (process.env.BEL_DEV_SESSIONS !== "false") {
-    console.log("[backend] dev sessions ON — send x-bel-employee-id and x-bel-role headers");
-  }
+  console.log("[backend] authentication: bearer sessions; development credentials are accepted only through /auth/login");
 });

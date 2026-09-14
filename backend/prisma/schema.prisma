@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum IdentityStatus { ACTIVE SUSPENDED REVOKED }
+enum WalletStatus { PENDING ACTIVE REVOKED }
+enum DeviceStatus { ACTIVE REVOKED }
+enum GrantStatus { ACTIVE REVOKED EXPIRED }
+
+model Identity {
+  identityId String @id
+  employeeId String @unique
+  fullName String
+  role String
+  department String
+  status IdentityStatus
+  createdAt DateTime
+  user User?
+  devices Device[]
+  wallets Wallet[]
+  grants AuthorizationGrant[] @relation("GrantTarget")
+  granted AuthorizationGrant[] @relation("Grantor")
+}
+
+model User {
+  employeeId String @id
+  identityId String @unique
+  walletAddress String
+  role String
+  department String
+  status IdentityStatus
+  identity Identity @relation(fields: [identityId], references: [identityId])
+}
+
+model Device {
+  deviceId String @id
+  identityId String
+  status DeviceStatus
+  registeredAt DateTime
+  revokedAt DateTime?
+  identity Identity @relation(fields: [identityId], references: [identityId])
+  credentials Credential[]
+}
+
+model Credential {
+  id String @id
+  verifier String @unique
+  deviceId String
+  active Boolean @default(true)
+  device Device @relation(fields: [deviceId], references: [deviceId])
+}
+
+model Wallet {
+  address String @id
+  identityId String
+  deviceId String
+  status WalletStatus
+  activatedAt DateTime?
+  revokedAt DateTime?
+  revokedReason String?
+  identity Identity @relation(fields: [identityId], references: [identityId])
+}
+
+model Session {
+  tokenHash String @id
+  identityId String
+  deviceId String
+  walletAddress String
+  expiresAt DateTime
+  revokedAt DateTime?
+}
+
+model AuthorizationGrant {
+  authorizationGrantId String @id
+  actorIdentityId String
+  resourceType String
+  resourceId String
+  action String
+  grantedByIdentityId String
+  issuedAt DateTime
+  expiresAt DateTime?
+  status GrantStatus
+  target Identity @relation("GrantTarget", fields: [actorIdentityId], references: [identityId])
+  grantor Identity @relation("Grantor", fields: [grantedByIdentityId], references: [identityId])
+}

@@ -105,12 +105,11 @@ install, because the current sources are interfaces plus a
 dependency-free test skeleton. `forge-std` is installed on demand via
 `scripts/setup-contracts.sh` when tests need cheatcodes.
 
-### ADR-012: Dev sessions are header-based until Person 1 replaces them
-`backend/src/middleware/session.ts` reads `x-bel-employee-id` and
-`x-bel-role` so every role can be exercised before real authentication
-exists. It is a shim with one function to replace, and it can be turned
-off with `BEL_DEV_SESSIONS=false`. **It must not reach any deployed
-environment** — see THREAT_MODEL.md.
+### ADR-012: Development authentication uses bearer sessions
+Protected requests are authenticated only with a server-issued bearer
+session created by `/auth/login`. Development credentials are hashed and
+verified through the same device/identity/wallet checks as future managed
+device credentials. Client-supplied `x-bel-*` identity headers are ignored.
 
 ### ADR-013: LICENSE is unresolved
 The root LICENSE asserts internal-use-only while the Solidity files
