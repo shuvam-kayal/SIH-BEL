@@ -1,0 +1,5 @@
+-r requirements.txt
+# Add benchmarking/plotting dependencies here as the Phase 8 spike needs
+# them (e.g. matplotlib for latency charts, networkx for partition
+# modelling). Keep them OUT of requirements.txt so the simulator stays
+# runnable with zero installs.

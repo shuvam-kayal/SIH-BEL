@@ -1,0 +1,246 @@
+/* Shell styling for the operator console. Tokens first so Person 6 can
+   restyle by editing this block alone. No web-font fetches: the target
+   is a managed BEL workstation, which may not reach the public net. */
+
+:root {
+  --bg: #121a20;
+  --surface: #18232b;
+  --line: #2a3a45;
+  --ink: #dde6ec;
+  --ink-muted: #8ca0ad;
+  --accent: #5aa9c9;
+  --ok: #5fa968;
+  --warn: #c9922f;
+  --alert: #c05b4d;
+
+  --sans: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --step: 8px;
+  --rail: 200px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 calc(var(--step) * 2);
+}
+
+h2 {
+  font-size: 22px;
+}
+
+h3 {
+  font-size: 16px;
+  color: var(--ink-muted);
+}
+
+p {
+  max-width: 68ch;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- login --- */
+
+.gate {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: calc(var(--step) * 3);
+  text-align: center;
+}
+
+.gate button {
+  margin-top: var(--step);
+  padding: calc(var(--step) * 1.25) calc(var(--step) * 3);
+  background: var(--accent);
+  border: none;
+  border-radius: 3px;
+  color: #0d1419;
+  font-weight: 600;
+}
+
+.gate button[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* --- shell --- */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--step);
+  padding: calc(var(--step) * 1.5) calc(var(--step) * 3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.wordmark {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  gap: var(--step);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.divider {
+  width: 1px;
+  height: 14px;
+  background: var(--line);
+}
+
+.wallet {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.ghost {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 4px 10px;
+  color: var(--ink-muted);
+}
+
+.ghost:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.back {
+  margin-bottom: calc(var(--step) * 2);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.rail {
+  width: var(--rail);
+  flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  padding: calc(var(--step) * 2) var(--step);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.railItem {
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  padding: 8px 12px;
+  text-align: left;
+  color: var(--ink-muted);
+  border-radius: 0 3px 3px 0;
+}
+
+.railItem:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.railItem.active {
+  border-left-color: var(--accent);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.content {
+  flex: 1;
+  padding: calc(var(--step) * 4);
+  min-width: 0;
+}
+
+.content ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--line);
+  max-width: 860px;
+}
+
+.content li {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.content li button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.content li button:hover {
+  color: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .body {
+    flex-direction: column;
+  }
+
+  .rail {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .content {
+    padding: calc(var(--step) * 2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

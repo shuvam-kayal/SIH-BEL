@@ -1,0 +1,35 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+
+# Frontend build tooling
+frontend/dist/
+.vite/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/lib/
+contracts/broadcast/
+contracts/artifacts/
+
+# Deployed addresses and ABIs are COMMITTED on purpose (see
+# contracts/abis/README.md) — do not add them here.
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Generated caches/build output
+.vite/
+.coverage/
+.pytest_cache/
+*.tsbuildinfo
+*.log

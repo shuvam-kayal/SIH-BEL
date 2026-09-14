@@ -1,0 +1,39 @@
+# Reviewer routing for Phase 10. A PR touching someone's module needs
+# that person's review; a PR touching docs/ or shared/ needs broader
+# agreement, because those are the frozen contracts everyone builds on.
+#
+# Replace the placeholders with real GitHub/GitLab handles on day one.
+
+# Frozen interfaces — changing these affects all six workstreams.
+/docs/                      @person1 @person2 @person3 @person4 @person5 @person6
+/shared/                    @person1 @person2 @person3 @person5
+
+# Identity, auth, RBAC
+/backend/src/auth/          @person1
+/backend/src/users/         @person1
+/backend/src/middleware/    @person1
+/shared/rbac/               @person1
+
+# Assets and NFT lifecycle
+/backend/src/assets/        @person2
+/contracts/src/IAssetRegistry.sol @person2 @person5
+
+# Jobs and maintenance
+/backend/src/jobs/          @person3
+/contracts/src/IJobManager.sol   @person3 @person5
+
+# Consensus
+/blockchain/                @person4
+/docs/CONSENSUS_SPEC.md     @person4
+
+# Smart contracts
+/contracts/                 @person5
+
+# Frontend
+/frontend/                  @person6
+/mocks/mock-api/            @person6
+
+# Build, CI, infra — whoever owns the toolchain that week
+/.github/                   @person1
+/infra/                     @person1
+/scripts/                   @person1

@@ -1,0 +1,13 @@
+Copyright (c) 2026 Bharat Electronics Limited. All rights reserved.
+
+PLACEHOLDER — CONFIRM BEFORE FIRST EXTERNAL RELEASE.
+
+This repository is internal work product. It is provided to project
+members for development purposes only. No licence to copy, distribute,
+sublicense or make derivative works is granted here.
+
+Note for the team: the Solidity sources currently carry
+`SPDX-License-Identifier: MIT` headers, which contradicts the terms
+above. Either change those headers or replace this file with the terms
+your organisation actually intends. Record the decision as an ADR in
+docs/DECISIONS.md. Do not leave this unresolved past the first release.

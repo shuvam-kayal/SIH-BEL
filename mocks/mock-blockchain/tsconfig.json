@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "index.ts",
+    "../../shared/**/*.ts",
+    "../../backend/src/adapters/*.ts"
+  ]
+}

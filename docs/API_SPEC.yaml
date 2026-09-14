@@ -1,0 +1,726 @@
+openapi: 3.0.0
+info:
+  title: BEL Platform API
+  version: 1.0.0
+  description: Frozen REST contract for base-v1. Frontend and backend use shared/api.ts
+    for compile-time shapes.
+components:
+  schemas:
+    Error:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    Role:
+      type: string
+      enum:
+      - ADMIN
+      - MANAGER
+      - ENGINEER
+      - TECHNICIAN
+      - AUDITOR
+      - ISSUER
+      - VERIFIER
+    User:
+      type: object
+      required:
+      - employeeId
+      - identityId
+      - walletAddress
+      - role
+      - department
+      - status
+      properties:
+        employeeId:
+          type: string
+        identityId:
+          type: string
+        walletAddress:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        department:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - SUSPENDED
+          - REVOKED
+    Identity:
+      type: object
+      required:
+      - identityId
+      - employeeId
+      - fullName
+      - role
+      - department
+      - status
+      - createdAt
+      properties:
+        identityId:
+          type: string
+        employeeId:
+          type: string
+        fullName:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        department:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - SUSPENDED
+          - REVOKED
+        createdAt:
+          type: string
+          format: date-time
+    Wallet:
+      type: object
+      required:
+      - address
+      - identityId
+      - deviceId
+      - status
+      - activatedAt
+      - revokedAt
+      - revokedReason
+      properties:
+        address:
+          type: string
+        identityId:
+          type: string
+        deviceId:
+          type: string
+        status:
+          type: string
+          enum:
+          - PENDING
+          - ACTIVE
+          - REVOKED
+        activatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedReason:
+          type: string
+          nullable: true
+    Asset:
+      type: object
+      required:
+      - assetId
+      - nftId
+      - assetType
+      - ownerId
+      - custodianId
+      - parentAssetId
+      - status
+      properties:
+        assetId:
+          type: string
+        nftId:
+          type: string
+        assetType:
+          type: string
+        ownerId:
+          type: string
+        custodianId:
+          type: string
+        parentAssetId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - IN_MAINTENANCE
+          - DECOMMISSIONED
+    Job:
+      type: object
+      required:
+      - jobId
+      - assetId
+      - createdBy
+      - assignedTo
+      - verifierId
+      - status
+      - priority
+      - createdAt
+      - completedAt
+      properties:
+        jobId:
+          type: string
+        assetId:
+          type: string
+        createdBy:
+          type: string
+        assignedTo:
+          type: string
+        verifierId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+          - CREATED
+          - ASSIGNED
+          - IN_PROGRESS
+          - COMPLETED
+          - VERIFIED
+          - REJECTED
+        priority:
+          type: string
+          enum:
+          - LOW
+          - MEDIUM
+          - HIGH
+          - CRITICAL
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+    AuditEvent:
+      type: object
+      required:
+      - eventId
+      - txId
+      - entityType
+      - entityId
+      - action
+      - actorIdentityId
+      - timestamp
+      properties:
+        eventId:
+          type: string
+        txId:
+          type: string
+        entityType:
+          type: string
+          enum:
+          - ASSET
+          - JOB
+          - IDENTITY
+          - WALLET
+        entityId:
+          type: string
+        action:
+          type: string
+        actorIdentityId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    Validator:
+      type: object
+      required:
+      - validatorId
+      - publicKey
+      - status
+      - joinedAt
+      properties:
+        validatorId:
+          type: string
+        publicKey:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+          - SLASHED
+        joinedAt:
+          type: string
+          format: date-time
+    BlockchainStatus:
+      type: object
+      required:
+      - height
+      - healthy
+      - finalityLag
+      - lastFinalizedHeight
+      properties:
+        height:
+          type: integer
+        healthy:
+          type: boolean
+        finalityLag:
+          type: integer
+        lastFinalizedHeight:
+          type: integer
+    Session:
+      type: object
+      required:
+      - user
+      - token
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        token:
+          type: string
+    Device:
+      type: object
+      required:
+      - deviceId
+      - identityId
+      - status
+      - registeredAt
+      - revokedAt
+      properties:
+        deviceId:
+          type: string
+        identityId:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - REVOKED
+        registeredAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+paths:
+  /auth/login:
+    post:
+      summary: Login from a managed BEL workstation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - deviceCredential
+              properties:
+                deviceCredential:
+                  type: string
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+  /admin/users:
+    post:
+      summary: Provision employee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - employeeId
+              - fullName
+              - role
+              - department
+              properties:
+                employeeId:
+                  type: string
+                fullName:
+                  type: string
+                role:
+                  $ref: '#/components/schemas/Role'
+                department:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - identity
+                - user
+                properties:
+                  identity:
+                    $ref: '#/components/schemas/Identity'
+                  user:
+                    $ref: '#/components/schemas/User'
+  /admin/users/{id}/revoke-wallet:
+    post:
+      summary: Revoke wallet
+      parameters:
+      - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - reason
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Wallet revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - wallet
+                properties:
+                  wallet:
+                    $ref: '#/components/schemas/Wallet'
+  /admin/users/{id}/activate-wallet:
+    post:
+      summary: Activate replacement wallet
+      parameters:
+      - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - deviceId
+              - walletAddress
+              properties:
+                deviceId:
+                  type: string
+                walletAddress:
+                  type: string
+      responses:
+        '200':
+          description: Wallet activated
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - wallet
+                properties:
+                  wallet:
+                    $ref: '#/components/schemas/Wallet'
+  /users/me:
+    get:
+      summary: Current user
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /users/{id}:
+    get:
+      summary: User by employee id
+      parameters:
+      - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /assets:
+    get:
+      responses:
+        '200':
+          description: Asset list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Asset'
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - assetType
+              - ownerId
+              - custodianId
+              properties:
+                assetId:
+                  type: string
+                assetType:
+                  type: string
+                ownerId:
+                  type: string
+                custodianId:
+                  type: string
+                parentAssetId:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+  /assets/{id}:
+    get:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+  /assets/{id}/transfer:
+    post:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - newOwnerId
+              properties:
+                newOwnerId:
+                  type: string
+                newCustodianId:
+                  type: string
+      responses:
+        '200':
+          description: Asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+  /jobs:
+    get:
+      responses:
+        '200':
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - assetId
+              - priority
+              properties:
+                assetId:
+                  type: string
+                priority:
+                  type: string
+                  enum:
+                  - LOW
+                  - MEDIUM
+                  - HIGH
+                  - CRITICAL
+                verifierId:
+                  type: string
+      responses:
+        '201':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /jobs/{id}/assign:
+    post:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - technicianId
+              properties:
+                technicianId:
+                  type: string
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /jobs/{id}/start:
+    post:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /jobs/{id}/complete:
+    post:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - evidenceHash
+              properties:
+                evidenceHash:
+                  type: string
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /jobs/{id}/approve:
+    post:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /jobs/{id}/reject:
+    post:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - reason
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /audit/assets/{id}:
+    get:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Audit list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEvent'
+  /blockchain/status:
+    get:
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockchainStatus'
+  /blockchain/validators:
+    get:
+      responses:
+        '200':
+          description: Validators
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Validator'
+  /blockchain/committee/{height}:
+    get:
+      parameters:
+      - name: height
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Committee
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - height
+                - validatorIds
+                properties:
+                  height:
+                    type: integer
+                  validatorIds:
+                    type: array
+                    items:
+                      type: string
+  /jobs/{id}:
+    get:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

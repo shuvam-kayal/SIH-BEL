@@ -1,0 +1,4 @@
+# Person 4's toolchain. The simulator itself is stdlib-only on purpose —
+# it must run on any machine without setup. These are for testing and
+# for the Phase 8 benchmark write-up.
+pytest>=8.0

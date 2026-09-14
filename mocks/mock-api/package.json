@@ -1,0 +1,11 @@
+{
+  "name": "@bel/mock-api",
+  "version": "1.0.0",
+  "description": "Mock implementation of docs/API_SPEC.yaml. Person 6 builds the entire frontend against this, swapped for the real backend at integration time (Phase 12).",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": { ".": "./index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json" }
+}

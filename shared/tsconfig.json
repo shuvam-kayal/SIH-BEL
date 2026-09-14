@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "types": []
+  },
+  "include": ["types/**/*.ts", "enums/**/*.ts", "schemas/**/*.ts", "rbac/**/*.ts"]
+}

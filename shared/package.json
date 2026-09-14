@@ -1,0 +1,19 @@
+{
+  "name": "@bel/shared",
+  "version": "1.0.0",
+  "description": "Frozen cross-cutting types, enums and validators (Phase 2). Consumed as TypeScript source by every other workspace.",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./api": "./api.ts",
+    "./enums": "./enums/index.ts",
+    "./schemas": "./schemas/index.ts",
+    "./rbac": "./rbac/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

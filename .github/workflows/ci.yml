@@ -1,0 +1,78 @@
+# Phase 10 merge gate. A pull request cannot merge unless every job here
+# is green. Keep the jobs independent so one team member's red build
+# doesn't block an unrelated module's PR.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+jobs:
+  typescript:
+    name: Typecheck and test (shared, backend, frontend, mocks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test --workspace=bel-backend
+      - run: npm test --workspace=bel-frontend --if-present
+      - run: npm run build --workspace=bel-frontend
+
+  contracts:
+    name: Build and test contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Install forge-std if any test imports it
+        working-directory: contracts
+        run: |
+          if grep -rq 'forge-std' test script 2>/dev/null; then
+            forge install foundry-rs/forge-std --no-git
+          fi
+      - run: forge build
+        working-directory: contracts
+      - run: forge test -vv
+        working-directory: contracts
+      - name: Check formatting
+        run: forge fmt --check
+        working-directory: contracts
+        continue-on-error: true
+
+  consensus:
+    name: Consensus simulator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r blockchain/requirements.txt
+      - run: python -m pytest blockchain/tests -q
+
+  specs:
+    name: Specification documents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pyyaml
+      - name: API_SPEC.yaml must stay parseable
+        run: python -c "import yaml,sys; yaml.safe_load(open('docs/API_SPEC.yaml')); print('API_SPEC.yaml OK')"
+      - name: The six frozen documents must exist
+        run: |
+          for f in SYSTEM_SPEC RBAC_MATRIX DATA_MODEL CONTRACT_SPEC CONSENSUS_SPEC ARCHITECTURE BASELINE_FREEZE; do
+            test -f "docs/$f.md" || { echo "Missing docs/$f.md"; exit 1; }
+          done
+          echo "All frozen documents present."

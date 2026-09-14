@@ -1,0 +1,11 @@
+{
+  "name": "@bel/mock-blockchain",
+  "version": "1.0.0",
+  "description": "In-memory BlockchainService implementation. Swapped for RealBlockchainService at Phase 12 without touching call sites.",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": { ".": "./index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json" }
+}

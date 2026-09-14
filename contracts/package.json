@@ -1,0 +1,14 @@
+{
+  "name": "bel-contracts",
+  "version": "1.0.0",
+  "description": "Solidity registries for identity, roles, assets, jobs and audit. Foundry toolchain.",
+  "private": true,
+  "scripts": {
+    "setup": "bash ../scripts/setup-contracts.sh",
+    "build": "forge build",
+    "test": "bash ../scripts/test-contracts.sh",
+    "fmt": "forge fmt",
+    "abis": "bash ../scripts/generate-abis.sh",
+    "deploy:local": "forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast"
+  }
+}
