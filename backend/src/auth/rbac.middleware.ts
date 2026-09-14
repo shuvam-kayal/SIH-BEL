@@ -11,6 +11,7 @@ import type { NextFunction, Request, Response } from "express";
 import { can, type Action, type PermissionContext } from "../../../shared/rbac";
 import type { Role } from "../../../shared/types";
 import { ForbiddenError, UnauthorizedError } from "../errors";
+import { identityStore } from "../users/identity.store";
 
 /**
  * Resolves the extra context an AUTH or OWN cell needs. Routes supply
@@ -61,8 +62,10 @@ export function requireActiveIdentity(req: Request, _res: Response, next: NextFu
   if (req.user.status !== "ACTIVE") {
     return next(new ForbiddenError(`Identity is ${req.user.status}`));
   }
-  // TODO(Person 1): also check wallet status — a REVOKED wallet must not
-  // transact even when the underlying identity is still ACTIVE
-  // (SYSTEM_SPEC.md: roles belong to identity, not wallet).
+  const wallet = identityStore.wallets.get(req.user.walletAddress);
+  const device = wallet ? identityStore.devices.get(wallet.deviceId) : undefined;
+  if (!wallet || wallet.identityId !== req.user.identityId || wallet.status !== "ACTIVE" || !device || device.status !== "ACTIVE") {
+    return next(new ForbiddenError("Wallet or device is not active"));
+  }
   next();
 }

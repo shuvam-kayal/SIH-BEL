@@ -75,9 +75,9 @@ describe("permission enforcement at the HTTP boundary", () => {
       .post("/admin/users")
       .set(as("ADMIN"))
       .send({ identityId: "DID:BEL:9", employeeId: "EMP009", role: "TECHNICIAN", status: "ACTIVE" });
-    // Passes RBAC, then hits the unimplemented service.
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe("NOT_IMPLEMENTED");
+    expect(res.status).toBe(201);
+    expect(res.body.identity.employeeId).toBe("EMP009");
+    expect(res.body.user.status).toBe("ACTIVE");
   });
 });
 
