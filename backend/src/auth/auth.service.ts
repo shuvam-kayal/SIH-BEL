@@ -6,11 +6,12 @@
 import { randomUUID } from "node:crypto";
 import { User } from "../../../shared/types";
 import { ForbiddenError, UnauthorizedError } from "../errors";
-import { identityStore, IdentityStore } from "../users/identity.store";
+import { hashCredential, identityStore, IdentityStore } from "../users/identity.store";
 
 export interface AuthService {
   login(deviceCredential: string): Promise<{ user: User; token: string }>;
   validateSession(token: string): Promise<User | null>;
+  logout(token: string): Promise<void>;
 }
 
 export class AuthServiceImpl implements AuthService {
@@ -18,7 +19,7 @@ export class AuthServiceImpl implements AuthService {
 
   async login(deviceCredential: string): Promise<{ user: User; token: string }> {
     if (!deviceCredential.trim()) throw new UnauthorizedError("Invalid device credential");
-    const deviceId = this.store.credentials.get(deviceCredential);
+    const deviceId = this.store.credentials.get(hashCredential(deviceCredential));
     if (!deviceId) throw new UnauthorizedError("Invalid device credential");
     const device = this.store.devices.get(deviceId);
     const identity = device ? this.store.identities.get(device.identityId) : undefined;
@@ -29,13 +30,15 @@ export class AuthServiceImpl implements AuthService {
     }
     if (identity.status !== "ACTIVE") throw new ForbiddenError(`Identity is ${identity.status}`);
     const token = `bel_${randomUUID()}`;
-    this.store.sessions.set(token, { token, identityId: identity.identityId, deviceId: device.deviceId });
+    const ttl = Number(process.env.BEL_SESSION_TTL_SECONDS ?? 3600);
+    this.store.sessions.set(token, { token, identityId: identity.identityId, deviceId: device.deviceId, walletAddress: wallet.address, expiresAt: Date.now() + Math.max(60, ttl) * 1000 });
     return { user: { ...user, walletAddress: wallet.address, role: identity.role, status: identity.status }, token };
   }
 
   async validateSession(token: string): Promise<User | null> {
     const session = this.store.sessions.get(token);
     if (!session) return null;
+    if (session.expiresAt <= Date.now()) { this.store.sessions.delete(token); return null; }
     const identity = this.store.identities.get(session.identityId);
     const device = this.store.devices.get(session.deviceId);
     const wallet = identity ? this.store.walletForIdentity(identity.identityId, "ACTIVE") : undefined;
@@ -46,4 +49,6 @@ export class AuthServiceImpl implements AuthService {
     }
     return { ...user, walletAddress: wallet.address, role: identity.role, status: identity.status };
   }
+
+  async logout(token: string): Promise<void> { this.store.sessions.delete(token); }
 }

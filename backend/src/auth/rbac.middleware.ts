@@ -29,6 +29,12 @@ export function requirePermission(action: Action, resolveContext?: ContextResolv
       const ctx = resolveContext ? await resolveContext(req) : {};
       const context: PermissionContext = { actorId: req.user.identityId, ...ctx };
 
+      const wallet = identityStore.wallets.get(req.user.walletAddress);
+      const device = wallet ? identityStore.devices.get(wallet.deviceId) : undefined;
+      if (req.user.status !== "ACTIVE" || !wallet || wallet.identityId !== req.user.identityId || wallet.status !== "ACTIVE" || !device || device.status !== "ACTIVE") {
+        return next(new ForbiddenError("Identity, device, or wallet is not active"));
+      }
+
       if (!can(req.user.role, action, context)) {
         return next(
           new ForbiddenError(`Role ${req.user.role} may not perform ${action}`)

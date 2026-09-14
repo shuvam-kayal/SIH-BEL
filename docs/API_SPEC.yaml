@@ -5,6 +5,11 @@ info:
   description: Frozen REST contract for base-v1. Frontend and backend use shared/api.ts
     for compile-time shapes.
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: session
   schemas:
     Error:
       type: object
@@ -724,3 +729,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /auth/logout:
+    post:
+      summary: Revoke the current bearer session
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Session revoked
+  /admin/users/{id}/devices:
+    post:
+      summary: Register a managed device for an identity
+    get:
+      summary: List managed devices for an identity
+  /admin/devices/{deviceId}/revoke:
+    post:
+      summary: Revoke a managed device and its active wallet
+  /admin/users/{id}/wallets:
+    post:
+      summary: Register a pending wallet for an identity
+    get:
+      summary: List wallets for an identity
+  /admin/users/{id}/role:
+    post:
+      summary: Assign or change an identity role
+  /admin/users/{id}/grants:
+    post:
+      summary: Create an AUTH authorization grant
+    get:
+      summary: List authorization grants
+  /admin/users/{id}/grants/{grantId}/revoke:
+    post:
+      summary: Revoke an authorization grant

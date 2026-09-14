@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
-import type { Device, Identity, User, Wallet } from "../../../shared/types";
+import { createHash, randomUUID } from "node:crypto";
+import type { AuthorizationGrant, Device, Identity, User, Wallet } from "../../../shared/types";
 
-export type SessionRecord = { token: string; identityId: string; deviceId: string };
+export type SessionRecord = { token: string; identityId: string; deviceId: string; walletAddress: string; expiresAt: number };
+export const hashCredential = (credential: string): string => createHash("sha256").update(credential).digest("hex");
 
 /**
  * The development backend has no database yet.  This store is deliberately
@@ -15,6 +16,7 @@ export class IdentityStore {
   readonly wallets = new Map<string, Wallet>();
   readonly credentials = new Map<string, string>();
   readonly sessions = new Map<string, SessionRecord>();
+  readonly grants = new Map<string, AuthorizationGrant>();
 
   nextIdentityId(): string {
     return `DID:BEL:${randomUUID()}`;
@@ -46,6 +48,7 @@ export class IdentityStore {
     this.wallets.clear();
     this.credentials.clear();
     this.sessions.clear();
+    this.grants.clear();
   }
 }
 

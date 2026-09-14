@@ -4,15 +4,27 @@
 // do NOT assert business behaviour: that arrives with each owner's
 // implementation, and these tests should still pass then.
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app";
+import { createContainer } from "../src/container";
 
-const app = createApp();
+const container = createContainer();
+const app = createApp(container);
+const tokens: Record<string, string> = {};
 
 const as = (role: string, employeeId = "EMP001") => ({
-  "x-bel-employee-id": employeeId,
-  "x-bel-role": role,
+  Authorization: `Bearer ${tokens[role]}`,
+});
+
+beforeAll(async () => {
+  for (const role of ["ADMIN", "MANAGER", "ENGINEER", "TECHNICIAN", "AUDITOR", "ISSUER", "VERIFIER"] as const) {
+    const employeeId = `SEED-${role}`;
+    await container.users.createUser({ employeeId, fullName: role, role, department: "TEST" });
+    await container.users.registerDevice(employeeId, `${employeeId}-DEVICE`, `${employeeId}-CREDENTIAL`);
+    await container.users.activateWallet(employeeId, `${employeeId}-DEVICE`);
+    tokens[role] = (await container.auth.login(`${employeeId}-CREDENTIAL`)).token;
+  }
 });
 
 describe("infrastructure", () => {
@@ -39,7 +51,7 @@ describe("sessions", () => {
   it("returns the caller's own identity", async () => {
     const res = await request(app).get("/users/me").set(as("ENGINEER"));
     expect(res.status).toBe(200);
-    expect(res.body.employeeId).toBe("EMP001");
+    expect(res.body.employeeId).toBe("SEED-ENGINEER");
     expect(res.body.role).toBe("ENGINEER");
   });
 });
@@ -49,7 +61,7 @@ describe("permission enforcement at the HTTP boundary", () => {
     const res = await request(app)
       .post("/admin/users")
       .set(as("MANAGER"))
-      .send({ identityId: "DID:BEL:9", employeeId: "EMP009", role: "TECHNICIAN", status: "ACTIVE" });
+      .send({ employeeId: "EMP009", fullName: "Employee 009", department: "TEST", role: "TECHNICIAN" });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe("FORBIDDEN");
   });
@@ -74,7 +86,7 @@ describe("permission enforcement at the HTTP boundary", () => {
     const res = await request(app)
       .post("/admin/users")
       .set(as("ADMIN"))
-      .send({ identityId: "DID:BEL:9", employeeId: "EMP009", role: "TECHNICIAN", status: "ACTIVE" });
+      .send({ employeeId: "EMP009", fullName: "Employee 009", department: "TEST", role: "TECHNICIAN" });
     expect(res.status).toBe(201);
     expect(res.body.identity.employeeId).toBe("EMP009");
     expect(res.body.user.status).toBe("ACTIVE");

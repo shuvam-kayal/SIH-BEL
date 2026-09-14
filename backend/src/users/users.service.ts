@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { CreateUserResponse } from "../../../shared/api";
-import type { Device, Identity, Role, User, Wallet } from "../../../shared/types";
+import type { AuthorizationGrant, Device, Identity, Role, User, Wallet } from "../../../shared/types";
+import type { Action } from "../../../shared/rbac";
 import { ROLES } from "../../../shared/enums";
 import { BlockchainService } from "../adapters/BlockchainService";
 import { ForbiddenError, HttpError, NotFoundError, ValidationError } from "../errors";
-import { identityStore, IdentityStore } from "./identity.store";
+import { hashCredential, identityStore, IdentityStore } from "./identity.store";
 
 export type CreateIdentityInput = Partial<Identity> & Pick<Identity, "employeeId" | "role">;
 
@@ -18,6 +19,12 @@ export interface UsersService {
   assignRole(actorId: string, userId: string, role: Role): Promise<User>;
   getById(id: string): Promise<User | null>;
   getIdentity(id: string): Promise<Identity | null>;
+  createGrant(actorId: string, targetId: string, input: { resourceType: "ASSET" | "JOB"; resourceId: string; action: Action; expiresAt?: string | null }): Promise<AuthorizationGrant>;
+  listGrants(targetId: string): Promise<AuthorizationGrant[]>;
+  revokeGrant(actorId: string, grantId: string): Promise<AuthorizationGrant>;
+  validateGrant(grantId: string, actorId: string, resourceId: string, action: Action): boolean;
+  listDevices(userId: string): Promise<Device[]>;
+  listWallets(userId: string): Promise<Wallet[]>;
 }
 
 const SYSTEM_IDENTITY = "DID:BEL:SYSTEM";
@@ -86,7 +93,7 @@ export class UsersServiceImpl implements UsersService {
       revokedAt: null,
     };
     this.store.devices.set(deviceId, device);
-    this.store.credentials.set(credential, deviceId);
+    this.store.credentials.set(hashCredential(credential), deviceId);
     return { ...device };
   }
 
@@ -168,6 +175,47 @@ export class UsersServiceImpl implements UsersService {
   async getIdentity(id: string): Promise<Identity | null> {
     const identity = this.store.identityForUserId(id);
     return identity ? { ...identity } : null;
+  }
+
+  async listDevices(userId: string): Promise<Device[]> {
+    const identity = this.requireIdentity(userId);
+    return [...this.store.devices.values()].filter((device) => device.identityId === identity.identityId).map((device) => ({ ...device }));
+  }
+
+  async listWallets(userId: string): Promise<Wallet[]> {
+    const identity = this.requireIdentity(userId);
+    return [...this.store.wallets.values()].filter((wallet) => wallet.identityId === identity.identityId).map((wallet) => ({ ...wallet }));
+  }
+
+  async createGrant(actorId: string, targetId: string, input: { resourceType: "ASSET" | "JOB"; resourceId: string; action: Action; expiresAt?: string | null }): Promise<AuthorizationGrant> {
+    const actor = this.requireIdentity(actorId);
+    const target = this.requireIdentity(targetId);
+    if (actor.status !== "ACTIVE" || target.status !== "ACTIVE") throw new ForbiddenError("Inactive identity cannot grant authorization");
+    if (input.action !== "TRANSFER_ASSET") throw new ForbiddenError("Only AUTH actions may be granted");
+    const grant: AuthorizationGrant = { authorizationGrantId: `GRANT-${randomUUID()}`, actorIdentityId: target.identityId, resourceType: input.resourceType, resourceId: input.resourceId, action: input.action, grantedByIdentityId: actor.identityId, issuedAt: new Date().toISOString(), expiresAt: input.expiresAt ?? null, status: "ACTIVE" };
+    this.store.grants.set(grant.authorizationGrantId, grant);
+    return { ...grant };
+  }
+
+  async listGrants(targetId: string): Promise<AuthorizationGrant[]> {
+    const identity = this.requireIdentity(targetId);
+    return [...this.store.grants.values()].filter((grant) => grant.actorIdentityId === identity.identityId).map((grant) => ({ ...grant }));
+  }
+
+  async revokeGrant(actorId: string, grantId: string): Promise<AuthorizationGrant> {
+    const actor = this.requireIdentity(actorId);
+    const grant = this.store.grants.get(grantId);
+    if (!grant) throw new NotFoundError(`No grant ${grantId}`);
+    if (grant.grantedByIdentityId !== actor.identityId && actor.role !== "ADMIN") throw new ForbiddenError("Only the grantor or admin may revoke a grant");
+    grant.status = "REVOKED";
+    return { ...grant };
+  }
+
+  validateGrant(grantId: string, actorId: string, resourceId: string, action: Action): boolean {
+    const grant = this.store.grants.get(grantId);
+    if (!grant || grant.status !== "ACTIVE" || grant.actorIdentityId !== actorId || grant.resourceId !== resourceId || grant.action !== action) return false;
+    if (grant.expiresAt && Date.parse(grant.expiresAt) <= Date.now()) { grant.status = "EXPIRED"; return false; }
+    return true;
   }
 
   private requireIdentity(id: string): Identity {

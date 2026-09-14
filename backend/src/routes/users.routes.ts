@@ -7,10 +7,11 @@
 
 import { Router } from "express";
 import type { Container } from "../container";
-import { requirePermission } from "../auth/rbac.middleware";
+import { requirePermission, requireRole } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
+import { requireActiveIdentity } from "../auth/rbac.middleware";
 import { NotFoundError, ValidationError } from "../errors";
-import { validateIdentity } from "../../../shared/schemas";
+import { isValidRole } from "../../../shared/schemas";
 
 export function usersRouter(c: Container): Router {
   const router = Router();
@@ -35,7 +36,11 @@ export function usersRouter(c: Container): Router {
     requirePermission("CREATE_EMPLOYEE"),
     async (req, res, next) => {
       try {
-        const errors = validateIdentity(req.body);
+        const errors: string[] = [];
+        if (typeof req.body?.employeeId !== "string" || !req.body.employeeId.trim()) errors.push("employeeId is required");
+        if (typeof req.body?.fullName !== "string" || !req.body.fullName.trim()) errors.push("fullName is required");
+        if (typeof req.body?.department !== "string" || !req.body.department.trim()) errors.push("department is required");
+        if (!isValidRole(req.body?.role)) errors.push("role is invalid");
         if (errors.length) throw new ValidationError(errors);
         res.status(201).json(await c.users.createUser(req.body));
       } catch (err) {
@@ -48,6 +53,7 @@ export function usersRouter(c: Container): Router {
   router.post(
     "/admin/users/:id/revoke-wallet",
     requireSession,
+    requireActiveIdentity,
     requirePermission("REVOKE_WALLET"),
     async (req, res, next) => {
       try {
@@ -69,6 +75,7 @@ export function usersRouter(c: Container): Router {
   router.post(
     "/admin/users/:id/activate-wallet",
     requireSession,
+    requireActiveIdentity,
     requirePermission("ACTIVATE_WALLET"),
     async (req, res, next) => {
       try {
@@ -82,6 +89,42 @@ export function usersRouter(c: Container): Router {
       }
     }
   );
+
+  router.post("/auth/logout", requireSession, async (req, res, next) => {
+    try {
+      const token = req.header("authorization")!.slice(7).trim();
+      await c.auth.logout(token);
+      res.status(204).send();
+    } catch (err) { next(err); }
+  });
+
+  router.post("/admin/users/:id/devices", requireSession, requirePermission("CREATE_EMPLOYEE"), async (req, res, next) => {
+    try { res.status(201).json(await c.users.registerDevice(req.params.id, req.body?.deviceId, req.body?.credential)); } catch (err) { next(err); }
+  });
+  router.get("/admin/users/:id/devices", requireSession, requirePermission("CREATE_EMPLOYEE"), async (req, res, next) => {
+    try { res.json(await c.users.listDevices(req.params.id)); } catch (err) { next(err); }
+  });
+  router.post("/admin/devices/:deviceId/revoke", requireSession, requirePermission("REVOKE_WALLET"), async (req, res, next) => {
+    try { res.json(await c.users.revokeDevice(req.params.deviceId)); } catch (err) { next(err); }
+  });
+  router.post("/admin/users/:id/wallets", requireSession, requirePermission("ACTIVATE_WALLET"), async (req, res, next) => {
+    try { res.status(201).json(await c.users.registerWallet(req.params.id, req.body?.deviceId, req.body?.walletAddress)); } catch (err) { next(err); }
+  });
+  router.get("/admin/users/:id/wallets", requireSession, requirePermission("CREATE_EMPLOYEE"), async (req, res, next) => {
+    try { res.json(await c.users.listWallets(req.params.id)); } catch (err) { next(err); }
+  });
+  router.post("/admin/users/:id/role", requireSession, requirePermission("CREATE_EMPLOYEE"), async (req, res, next) => {
+    try { res.json(await c.users.assignRole(req.user!.identityId, req.params.id, req.body?.role)); } catch (err) { next(err); }
+  });
+  router.post("/admin/users/:id/grants", requireSession, requireRole("ADMIN"), async (req, res, next) => {
+    try { res.status(201).json(await c.users.createGrant(req.user!.identityId, req.params.id, req.body)); } catch (err) { next(err); }
+  });
+  router.get("/admin/users/:id/grants", requireSession, requirePermission("CREATE_EMPLOYEE"), async (req, res, next) => {
+    try { res.json(await c.users.listGrants(req.params.id)); } catch (err) { next(err); }
+  });
+  router.post("/admin/users/:id/grants/:grantId/revoke", requireSession, requirePermission("CREATE_EMPLOYEE"), async (req, res, next) => {
+    try { res.json(await c.users.revokeGrant(req.user!.identityId, req.params.grantId)); } catch (err) { next(err); }
+  });
 
   // GET /users/me
   router.get("/users/me", requireSession, (req, res) => {
