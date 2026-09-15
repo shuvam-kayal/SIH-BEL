@@ -6,8 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { User } from "../../../shared/types";
 import { ForbiddenError, UnauthorizedError } from "../errors";
-import { hashCredential, identityStore, IdentityStore } from "../users/identity.store";
-import { createMemoryRepositories } from "../users/repository-implementations";
+import { hashCredential } from "../users/identity.store";
 import type { IdentityRepositories } from "../users/repositories";
 
 export interface AuthService {
@@ -19,9 +18,7 @@ export interface AuthService {
 export class AuthServiceImpl implements AuthService {
   private readonly repositories: IdentityRepositories;
 
-  constructor(repositories?: IdentityRepositories | IdentityStore) {
-    this.repositories = repositories instanceof IdentityStore ? createMemoryRepositories(repositories) : repositories ?? createMemoryRepositories(identityStore);
-  }
+  constructor(repositories: IdentityRepositories) { this.repositories = repositories; }
 
   async login(deviceCredential: string): Promise<{ user: User; token: string }> {
     if (!deviceCredential.trim()) throw new UnauthorizedError("Invalid device credential");

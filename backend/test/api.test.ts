@@ -8,8 +8,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
+import { createMemoryRepositories } from "../src/users/repository-implementations";
 
-const container = createContainer();
+const container = createContainer(undefined, { repositories: createMemoryRepositories() });
 const app = createApp(container);
 const tokens: Record<string, string> = {};
 
@@ -80,6 +81,20 @@ describe("permission enforcement at the HTTP boundary", () => {
       .set(as("ENGINEER"))
       .send({ newOwnerId: "DID:BEL:2" });
     expect(res.status).toBe(403);
+  });
+
+  it("allows an engineer through CREATE_JOB while denying a technician", async () => {
+    const allowed = await request(app).post("/jobs").set(as("ENGINEER")).send({ assetId: "AST-001", priority: "LOW" });
+    expect(allowed.status).toBe(501); // service is intentionally owned by Person 3; the RBAC gate passed.
+    const denied = await request(app).post("/jobs").set(as("TECHNICIAN")).send({ assetId: "AST-001", priority: "LOW" });
+    expect(denied.status).toBe(403);
+  });
+
+  it("allows a technician through PERFORM_MAINTENANCE while denying an auditor", async () => {
+    const allowed = await request(app).post("/jobs/JOB-001/start").set(as("TECHNICIAN"));
+    expect(allowed.status).toBe(501); // service is intentionally owned by Person 3; the RBAC gate passed.
+    const denied = await request(app).post("/jobs/JOB-001/start").set(as("AUDITOR"));
+    expect(denied.status).toBe(403);
   });
 
   it("lets an admin past the permission gate", async () => {

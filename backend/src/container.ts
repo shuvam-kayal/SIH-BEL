@@ -31,9 +31,13 @@ export type Container = {
 export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; prisma?: PrismaClient };
 
 export function createContainer(chain: BlockchainService = new MockBlockchainAdapter(), options: ContainerOptions = {}): Container {
-  // The integrity adapter is likewise injectable; the real permissioned-chain
-  // adapter replaces MemoryIntegrityAdapter when that chain endpoint exists.
-  const prisma = options.prisma ?? (options.repositories ? undefined : process.env.DATABASE_URL ? new PrismaClient() : undefined);
+  // Development may use the recording adapter, but production must provide
+  // an explicit durable adapter backed by the permissioned blockchain.
+  const production = process.env.BEL_ENV === "production";
+  if (production && (!process.env.DATABASE_URL || !options.integrity || options.repositories)) {
+    throw new Error("Production requires DATABASE_URL and an explicit durable integrity adapter");
+  }
+  const prisma = options.prisma ?? (process.env.DATABASE_URL ? new PrismaClient() : undefined);
   const repositories = options.repositories ?? (prisma ? createPrismaRepositories(prisma) : createMemoryRepositories());
   const integrity = options.integrity ?? new MemoryIntegrityAdapter();
   return {

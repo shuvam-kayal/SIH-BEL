@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
+import { createContainer } from "../src/container";
 import { canonicalStateHash, commitState, MemoryIntegrityAdapter } from "../src/integrity/integrity";
 import { AuthServiceImpl } from "../src/auth/auth.service";
 import { UsersServiceImpl } from "../src/users/users.service";
-import { clearIdentityStore } from "../src/users/identity.store";
+import { clearIdentityStore, identityStore } from "../src/users/identity.store";
+import { createMemoryRepositories } from "../src/users/repository-implementations";
 
 describe("security-critical integrity commitments", () => {
   it("creates an injectable commitment without secrets", async () => {
     clearIdentityStore();
     const adapter = new MemoryIntegrityAdapter();
-    const users = new UsersServiceImpl(new MockBlockchainAdapter(), undefined, adapter);
-    const created = await users.createUser({ employeeId: "INTEGRITY-001", fullName: "Integrity Test", role: "ENGINEER", department: "TEST" });
-    await users.registerDevice("INTEGRITY-001", "INTEGRITY-DEVICE", "plain-device-secret");
+    const container = createContainer(new MockBlockchainAdapter(), { repositories: createMemoryRepositories(identityStore), integrity: adapter });
+    const created = await container.users.createUser({ employeeId: "INTEGRITY-001", fullName: "Integrity Test", role: "ENGINEER", department: "TEST" });
+    await container.users.registerDevice("INTEGRITY-001", "INTEGRITY-DEVICE", "plain-device-secret");
     const identityCommitment = adapter.commitments.find((item) => item.eventType === "IDENTITY_CREATE");
     expect(identityCommitment).toMatchObject({ entityType: "IDENTITY", entityId: created.identity.identityId, eventType: "IDENTITY_CREATE", version: 1 });
     expect(JSON.stringify(adapter.commitments)).not.toContain("plain-device-secret");
@@ -32,13 +34,25 @@ describe("security-critical integrity commitments", () => {
   it("keeps token and credential data outside commitments", async () => {
     clearIdentityStore();
     const adapter = new MemoryIntegrityAdapter();
-    const users = new UsersServiceImpl(new MockBlockchainAdapter(), undefined, adapter);
-    const auth = new AuthServiceImpl();
+    const repositories = createMemoryRepositories(identityStore);
+    const users = new UsersServiceImpl(new MockBlockchainAdapter(), repositories, adapter);
+    const auth = new AuthServiceImpl(repositories);
     await users.createUser({ employeeId: "INTEGRITY-002", fullName: "Integrity Test", role: "ENGINEER", department: "TEST" });
     await users.registerDevice("INTEGRITY-002", "INTEGRITY-DEVICE-2", "credential-not-on-chain");
     await users.activateWallet("INTEGRITY-002", "INTEGRITY-DEVICE-2");
     const session = await auth.login("credential-not-on-chain");
     expect(JSON.stringify(adapter.commitments)).not.toContain(session.token);
     expect(JSON.stringify(adapter.commitments)).not.toContain("credential-not-on-chain");
+  });
+
+  it("fails closed when production has no durable integrity adapter", () => {
+    const previous = process.env.BEL_ENV;
+    process.env.BEL_ENV = "production";
+    try {
+      expect(() => createContainer()).toThrow("Production requires DATABASE_URL and an explicit durable integrity adapter");
+    } finally {
+      if (previous === undefined) delete process.env.BEL_ENV;
+      else process.env.BEL_ENV = previous;
+    }
   });
 });

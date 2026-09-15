@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
 import { UsersServiceImpl } from "../src/users/users.service";
 import { clearIdentityStore } from "../src/users/identity.store";
+import { identityStore } from "../src/users/identity.store";
+import { createMemoryRepositories } from "../src/users/repository-implementations";
 
 describe("authorization grant foundation", () => {
   let users: UsersServiceImpl;
   let adminId: string;
   let engineerId: string;
   beforeEach(async () => {
-    clearIdentityStore(); users = new UsersServiceImpl(new MockBlockchainAdapter());
+    clearIdentityStore(); users = new UsersServiceImpl(new MockBlockchainAdapter(), createMemoryRepositories(identityStore));
     adminId = (await users.createUser({ employeeId: "GRANT-ADMIN", fullName: "Admin", role: "ADMIN", department: "TEST" })).identity.identityId;
     engineerId = (await users.createUser({ employeeId: "GRANT-ENGINEER", fullName: "Engineer", role: "ENGINEER", department: "TEST" })).identity.identityId;
   });

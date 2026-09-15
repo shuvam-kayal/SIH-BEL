@@ -3,6 +3,7 @@ import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
 import { AuthServiceImpl } from "../src/auth/auth.service";
 import { UsersServiceImpl } from "../src/users/users.service";
 import { clearIdentityStore, identityStore } from "../src/users/identity.store";
+import { createMemoryRepositories } from "../src/users/repository-implementations";
 
 describe("identity, authentication, and wallet lifecycle", () => {
   const chain = new MockBlockchainAdapter();
@@ -11,8 +12,9 @@ describe("identity, authentication, and wallet lifecycle", () => {
 
   beforeEach(() => {
     clearIdentityStore();
-    users = new UsersServiceImpl(chain);
-    auth = new AuthServiceImpl();
+    const repositories = createMemoryRepositories(identityStore);
+    users = new UsersServiceImpl(chain, repositories);
+    auth = new AuthServiceImpl(repositories);
   });
 
   async function provision(employeeId: string, role: "ADMIN" | "ENGINEER" = "ENGINEER") {

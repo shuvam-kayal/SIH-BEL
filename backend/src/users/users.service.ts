@@ -6,8 +6,7 @@ import { ROLES } from "../../../shared/enums";
 import { BlockchainService } from "../adapters/BlockchainService";
 import { commitState, type IntegrityAdapter } from "../integrity/integrity";
 import { ForbiddenError, HttpError, NotFoundError, ValidationError } from "../errors";
-import { hashCredential, identityStore, IdentityStore } from "./identity.store";
-import { createMemoryRepositories } from "./repository-implementations";
+import { hashCredential } from "./identity.store";
 import type { IdentityRepositories } from "./repositories";
 
 export type CreateIdentityInput = Partial<Identity> & Pick<Identity, "employeeId" | "role">;
@@ -36,9 +35,7 @@ class ConflictError extends HttpError { constructor(message: string) { super(409
 export class UsersServiceImpl implements UsersService {
   private readonly repositories: IdentityRepositories;
   private readonly versions = new Map<string, number>();
-  constructor(private readonly chain: BlockchainService, repositories?: IdentityRepositories | IdentityStore, private readonly integrity?: IntegrityAdapter) {
-    this.repositories = repositories instanceof IdentityStore ? createMemoryRepositories(repositories) : repositories ?? createMemoryRepositories(identityStore);
-  }
+  constructor(private readonly chain: BlockchainService, repositories: IdentityRepositories, private readonly integrity?: IntegrityAdapter) { this.repositories = repositories; }
 
   async createUser(input: CreateIdentityInput): Promise<CreateUserResponse> {
     if (!input.employeeId || !ROLES.includes(input.role)) throw new ValidationError(["employeeId and a valid role are required"]);
