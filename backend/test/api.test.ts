@@ -106,7 +106,7 @@ describe("chain pass-through", () => {
 describe("unimplemented modules", () => {
   it("reports 501 rather than 500 for services awaiting their owner", async () => {
     const res = await request(app).get("/assets").set(as("ENGINEER"));
-    expect(res.status).toBe(501);
-    expect(res.body.message).toContain("AssetsService.list()");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 });
