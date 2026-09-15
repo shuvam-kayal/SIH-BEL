@@ -75,6 +75,17 @@ suite("PostgreSQL persistence integration", () => {
     expect(await container.users.validateGrant(grant.authorizationGrantId, (await container.users.getIdentity(employeeId))!.identityId, "ASSET-INTEGRATION", "TRANSFER_ASSET")).toBe(true);
     await container.users.revokeGrant(adminId, grant.authorizationGrantId);
     expect(await container.users.validateGrant(grant.authorizationGrantId, (await container.users.getIdentity(employeeId))!.identityId, "ASSET-INTEGRATION", "TRANSFER_ASSET")).toBe(false);
+    await expect(container.prisma!.authorizationGrant.create({ data: {
+      authorizationGrantId: "GRANT-INTEGRATION-INVALID-IDENTITY",
+      actorIdentityId: "DID:BEL:DOES-NOT-EXIST",
+      resourceType: "ASSET",
+      resourceId: "ASSET-INTEGRATION",
+      action: "TRANSFER_ASSET",
+      grantedByIdentityId: adminId,
+      issuedAt: new Date(),
+      expiresAt: null,
+      status: "ACTIVE",
+    } as any })).rejects.toThrow();
     const app = createApp(container);
     const revokeWallet = await request(app)
       .post(`/admin/users/${employeeId}/revoke-wallet`)

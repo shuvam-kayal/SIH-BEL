@@ -47,7 +47,7 @@ export class AuthServiceImpl implements AuthService {
     const device = await this.repositories.devices.findById(session.deviceId);
     const wallet = await this.repositories.wallets.findByAddress(session.walletAddress);
     const user = identity ? await this.repositories.users.findByIdentityId(identity.identityId) : null;
-    if (!identity || !user || !device || device.status !== "ACTIVE" || identity.status !== "ACTIVE" || !wallet || wallet.deviceId !== device.deviceId) {
+    if (!identity || !user || !device || device.status !== "ACTIVE" || identity.status !== "ACTIVE" || !wallet || wallet.status !== "ACTIVE" || wallet.deviceId !== device.deviceId) {
       await this.repositories.sessions.delete(token);
       return null;
     }

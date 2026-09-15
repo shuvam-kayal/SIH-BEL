@@ -37,7 +37,7 @@ export class PrismaUserRepository implements UserRepository {
 export class PrismaDeviceRepository implements DeviceRepository {
   constructor(private readonly prisma: PrismaClient) {}
   async findById(deviceId: string) { return mapDevice(await this.prisma.device.findUnique({ where: { deviceId } })); }
-  async listByIdentityId(identityId: string) { return (await this.prisma.device.findMany({ where: { identityId }, orderBy: { registeredAt: "asc" } })).map((row: any) => mapDevice(row)); }
+  async listByIdentityId(identityId: string) { return (await this.prisma.device.findMany({ where: { identityId }, orderBy: { registeredAt: "asc" } })).map((row: any) => mapDevice(row)!); }
   async save(device: Device) {
     await this.prisma.device.upsert({ where: { deviceId: device.deviceId }, create: deviceData(device), update: deviceData(device) });
   }
@@ -46,7 +46,7 @@ export class PrismaDeviceRepository implements DeviceRepository {
 export class PrismaWalletRepository implements WalletRepository {
   constructor(private readonly prisma: PrismaClient) {}
   async findByAddress(address: string) { return mapWallet(await this.prisma.wallet.findUnique({ where: { address } })); }
-  async listByIdentityId(identityId: string) { return (await this.prisma.wallet.findMany({ where: { identityId }, orderBy: { address: "asc" } })).map((row: any) => mapWallet(row)); }
+  async listByIdentityId(identityId: string) { return (await this.prisma.wallet.findMany({ where: { identityId }, orderBy: { address: "asc" } })).map((row: any) => mapWallet(row)!); }
   async save(wallet: Wallet) {
     await this.prisma.wallet.upsert({ where: { address: wallet.address }, create: walletData(wallet), update: walletData(wallet) });
   }
@@ -156,6 +156,6 @@ const walletData = (value: Wallet) => ({ address: value.address, identityId: val
 const grantData = (value: AuthorizationGrant) => ({ authorizationGrantId: value.authorizationGrantId, actorIdentityId: value.actorIdentityId, resourceType: value.resourceType, resourceId: value.resourceId, action: value.action, grantedByIdentityId: value.grantedByIdentityId, issuedAt: asDate(value.issuedAt), expiresAt: value.expiresAt ? asDate(value.expiresAt) : null, status: value.status });
 const mapIdentity = (row: any): Identity | null => row ? { ...row, createdAt: asIso(row.createdAt) } : null;
 const mapUser = (row: any): User | null => row ? { ...row } : null;
-const mapDevice = (row: any): Device => ({ ...row, registeredAt: asIso(row.registeredAt), revokedAt: row.revokedAt ? asIso(row.revokedAt) : null });
-const mapWallet = (row: any): Wallet => ({ ...row, activatedAt: row.activatedAt ? asIso(row.activatedAt) : null, revokedAt: row.revokedAt ? asIso(row.revokedAt) : null });
+const mapDevice = (row: any): Device | null => row ? { ...row, registeredAt: asIso(row.registeredAt), revokedAt: row.revokedAt ? asIso(row.revokedAt) : null } : null;
+const mapWallet = (row: any): Wallet | null => row ? { ...row, activatedAt: row.activatedAt ? asIso(row.activatedAt) : null, revokedAt: row.revokedAt ? asIso(row.revokedAt) : null } : null;
 const mapGrant = (row: any): AuthorizationGrant | null => row ? { ...row, issuedAt: asIso(row.issuedAt), expiresAt: row.expiresAt ? asIso(row.expiresAt) : null } : null;
