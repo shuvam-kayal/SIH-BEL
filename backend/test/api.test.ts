@@ -9,6 +9,8 @@ import request from "supertest";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
 import { createMemoryRepositories } from "../src/users/repository-implementations";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const container = createContainer(undefined, { repositories: createMemoryRepositories() });
 const app = createApp(container);
@@ -39,6 +41,20 @@ describe("infrastructure", () => {
     const res = await request(app).get("/nope");
     expect(res.status).toBe(404);
     expect(res.body.code).toBe("NOT_FOUND");
+  });
+
+  it("serves the repository OpenAPI document from any working directory", async () => {
+    const spec = await request(app).get("/docs/openapi.yaml");
+    expect(spec.status).toBe(200);
+    expect(spec.type).toBe("text/yaml");
+    expect(spec.text).toBe(readFileSync(fileURLToPath(new URL("../../docs/API_SPEC.yaml", import.meta.url)), "utf8"));
+  });
+
+  it("serves the Swagger UI shell pointing at the OpenAPI document", async () => {
+    const docs = await request(app).get("/docs");
+    expect(docs.status).toBe(200);
+    expect(docs.text).toContain("SwaggerUIBundle");
+    expect(docs.text).toContain("/docs/openapi.yaml");
   });
 });
 

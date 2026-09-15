@@ -13,14 +13,18 @@ import { requireActiveIdentity } from "../auth/rbac.middleware";
 import { NotFoundError, ValidationError } from "../errors";
 import { isValidRole } from "../../../shared/schemas";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Resolve from this module's repository location, not process.cwd(). The
+// backend may be started from the repo root, backend workspace, or a test.
+const OPENAPI_SPEC_PATH = fileURLToPath(new URL("../../../docs/API_SPEC.yaml", import.meta.url));
 
 export function usersRouter(c: Container): Router {
   const router = Router();
 
   router.get("/docs/openapi.yaml", (_req, res, next) => {
     try {
-      res.type("text/yaml").send(readFileSync(resolve(process.cwd(), "docs/API_SPEC.yaml"), "utf8"));
+      res.type("text/yaml").send(readFileSync(OPENAPI_SPEC_PATH, "utf8"));
     } catch (err) { next(err); }
   });
   router.get("/docs", (_req, res) => {
