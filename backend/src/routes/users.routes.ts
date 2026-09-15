@@ -72,7 +72,7 @@ export function usersRouter(c: Container): Router {
         if (typeof reason !== "string" || reason.trim() === "") {
           throw new ValidationError(["reason is required to revoke a wallet"]);
         }
-        res.json(await c.users.revokeWallet(req.params.id, reason));
+        res.json({ wallet: await c.users.revokeWallet(req.params.id, reason) });
       } catch (err) {
         next(err);
       }
@@ -94,7 +94,7 @@ export function usersRouter(c: Container): Router {
         if (typeof deviceId !== "string") {
           throw new ValidationError(["deviceId is required to bind a wallet"]);
         }
-        res.json(await c.users.activateWallet(req.params.id, deviceId));
+        res.json({ wallet: await c.users.activateWallet(req.params.id, deviceId, typeof req.body?.walletAddress === "string" ? req.body.walletAddress : undefined) });
       } catch (err) {
         next(err);
       }

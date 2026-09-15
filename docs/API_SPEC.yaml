@@ -4,6 +4,8 @@ info:
   version: 1.0.0
   description: Frozen REST contract for base-v1. Frontend and backend use shared/api.ts
     for compile-time shapes.
+security:
+- bearerAuth: []
 components:
   securitySchemes:
     bearerAuth:
@@ -312,6 +314,7 @@ paths:
   /auth/login:
     post:
       summary: Login from a managed BEL workstation
+      security: []
       requestBody:
         required: true
         content:
@@ -409,12 +412,12 @@ paths:
               type: object
               required:
               - deviceId
-              - walletAddress
               properties:
                 deviceId:
                   type: string
                 walletAddress:
                   type: string
+                  description: Optional pending/replacement wallet address. If omitted, the backend creates one.
       responses:
         '200':
           description: Wallet activated

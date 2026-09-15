@@ -36,6 +36,7 @@ describe("identity, authentication, and wallet lifecycle", () => {
 
   it("rejects invalid, suspended, and revoked-wallet logins", async () => {
     await provision("EMP002");
+    const existingSession = await auth.login("EMP002-CREDENTIAL");
     await expect(auth.login("wrong")).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     const identity = identityStore.identities.get("DID:BEL:SYSTEM");
     expect(identity).toBeUndefined();
@@ -43,6 +44,7 @@ describe("identity, authentication, and wallet lifecycle", () => {
     const employee = identityStore.users.get("EMP002")!;
     identityStore.identities.get(employee.identityId)!.status = "SUSPENDED";
     await expect(auth.login("EMP002-CREDENTIAL")).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await auth.validateSession(existingSession.token)).toBeNull();
     identityStore.identities.get(employee.identityId)!.status = "ACTIVE";
     await users.revokeWallet("EMP002", "lost device");
     await expect(auth.login("EMP002-CREDENTIAL")).rejects.toMatchObject({ code: "UNAUTHORIZED" });

@@ -4,7 +4,7 @@
 import type { NextFunction, Request, Response } from "express";
 import type { User } from "../../../shared/types";
 import { UnauthorizedError } from "../errors";
-import { AuthServiceImpl } from "../auth/auth.service";
+import type { AuthService } from "../auth/auth.service";
 
 declare global {
   namespace Express {
@@ -14,17 +14,17 @@ declare global {
   }
 }
 
-const auth = new AuthServiceImpl();
-
-async function resolveUser(req: Request): Promise<User | undefined> {
+async function resolveUser(req: Request, auth: AuthService): Promise<User | undefined> {
   const header = req.header("authorization");
   if (!header?.startsWith("Bearer ")) return undefined;
   return (await auth.validateSession(header.slice(7).trim())) ?? undefined;
 }
 
 /** Attaches req.user when a valid bearer session is present. Never rejects. */
-export async function attachSession(req: Request, _res: Response, next: NextFunction) {
-  try { req.user = await resolveUser(req); next(); } catch (error) { next(error); }
+export function attachSession(auth: AuthService) {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    try { req.user = await resolveUser(req, auth); next(); } catch (error) { next(error); }
+  };
 }
 
 /** Rejects the request when no session is present. */

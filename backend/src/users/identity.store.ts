@@ -5,9 +5,8 @@ export type SessionRecord = { token: string; identityId: string; deviceId: strin
 export const hashCredential = (credential: string): string => createHash("sha256").update(credential).digest("hex");
 
 /**
- * The development backend has no database yet.  This store is deliberately
- * small, process-local, and behind the users/auth services so replacing it
- * with a repository does not change the API or authorization rules.
+ * Small process-local state used only by explicit in-memory repositories in
+ * unit tests. The normal container selects Prisma when DATABASE_URL exists.
  */
 export class IdentityStore {
   readonly identities = new Map<string, Identity>();

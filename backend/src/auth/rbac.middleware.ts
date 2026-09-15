@@ -11,7 +11,6 @@ import type { NextFunction, Request, Response } from "express";
 import { can, type Action, type PermissionContext } from "../../../shared/rbac";
 import type { Role } from "../../../shared/types";
 import { ForbiddenError, UnauthorizedError } from "../errors";
-import { identityStore } from "../users/identity.store";
 
 /**
  * Resolves the extra context an AUTH or OWN cell needs. Routes supply
@@ -28,12 +27,6 @@ export function requirePermission(action: Action, resolveContext?: ContextResolv
     try {
       const ctx = resolveContext ? await resolveContext(req) : {};
       const context: PermissionContext = { actorId: req.user.identityId, ...ctx };
-
-      const wallet = identityStore.wallets.get(req.user.walletAddress);
-      const device = wallet ? identityStore.devices.get(wallet.deviceId) : undefined;
-      if (req.user.status !== "ACTIVE" || !wallet || wallet.identityId !== req.user.identityId || wallet.status !== "ACTIVE" || !device || device.status !== "ACTIVE") {
-        return next(new ForbiddenError("Identity, device, or wallet is not active"));
-      }
 
       if (!can(req.user.role, action, context)) {
         return next(
@@ -67,11 +60,6 @@ export function requireActiveIdentity(req: Request, _res: Response, next: NextFu
   if (!req.user) return next(new UnauthorizedError());
   if (req.user.status !== "ACTIVE") {
     return next(new ForbiddenError(`Identity is ${req.user.status}`));
-  }
-  const wallet = identityStore.wallets.get(req.user.walletAddress);
-  const device = wallet ? identityStore.devices.get(wallet.deviceId) : undefined;
-  if (!wallet || wallet.identityId !== req.user.identityId || wallet.status !== "ACTIVE" || !device || device.status !== "ACTIVE") {
-    return next(new ForbiddenError("Wallet or device is not active"));
   }
   next();
 }

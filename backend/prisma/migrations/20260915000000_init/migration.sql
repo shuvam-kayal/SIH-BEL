@@ -11,3 +11,5 @@ ALTER TABLE "User" ADD CONSTRAINT "User_identityId_fkey" FOREIGN KEY ("identityI
 ALTER TABLE "Device" ADD CONSTRAINT "Device_identityId_fkey" FOREIGN KEY ("identityId") REFERENCES "Identity"("identityId");
 ALTER TABLE "Credential" ADD CONSTRAINT "Credential_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device"("deviceId");
 ALTER TABLE "Wallet" ADD CONSTRAINT "Wallet_identityId_fkey" FOREIGN KEY ("identityId") REFERENCES "Identity"("identityId");
+ALTER TABLE "AuthorizationGrant" ADD CONSTRAINT "AuthorizationGrant_actorIdentityId_fkey" FOREIGN KEY ("actorIdentityId") REFERENCES "Identity"("identityId");
+ALTER TABLE "AuthorizationGrant" ADD CONSTRAINT "AuthorizationGrant_grantedByIdentityId_fkey" FOREIGN KEY ("grantedByIdentityId") REFERENCES "Identity"("identityId");

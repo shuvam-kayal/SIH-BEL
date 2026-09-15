@@ -42,6 +42,21 @@ CONSENSUS_SPEC.md, DATA_MODEL.md) — this file is the map connecting them.
 └─────────────────────────────────────────────────────────┘
 ```
 
+## Operational persistence and integrity
+
+The backend is the only application-layer component that accesses BEL's
+internal PostgreSQL instance. PostgreSQL is the mutable operational state
+store for identities, devices, credentials, wallets, sessions, and grants;
+it is never exposed directly to the frontend and is not treated as immutable.
+
+The backend services depend on repository interfaces. The normal container
+selects Prisma repositories when `DATABASE_URL` is configured, while unit
+tests explicitly inject in-memory repositories. Security-critical mutations
+also pass a minimum canonical state through `IntegrityAdapter`, which emits
+a deterministic SHA-256 commitment for an external permissioned-blockchain
+anchor. The adapter is intentionally injectable while the blockchain team
+provides the durable chain implementation.
+
 ## Why this shape
 
 - **Frontend never touches contracts directly.** This keeps wallet/key

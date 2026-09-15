@@ -21,7 +21,7 @@
     "bootstrap:dev": "tsx scripts/bootstrap-dev.ts",
     "db:migrate": "prisma migrate deploy --schema backend/prisma/schema.prisma",
     "db:seed": "tsx scripts/bootstrap-dev.ts",
-    "test:integration": "npm run test --workspace=bel-backend -- --testNamePattern=integration",
+    "test:integration": "node scripts/run-integration.mjs",
     "test:contracts": "npm run test --workspace=bel-contracts",
     "test:consensus": "python3 -m pytest blockchain/tests -q"
   },

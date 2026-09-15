@@ -7,10 +7,28 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum IdentityStatus { ACTIVE SUSPENDED REVOKED }
-enum WalletStatus { PENDING ACTIVE REVOKED }
-enum DeviceStatus { ACTIVE REVOKED }
-enum GrantStatus { ACTIVE REVOKED EXPIRED }
+enum IdentityStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum WalletStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+enum DeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum GrantStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
 
 model Identity {
   identityId String @id
