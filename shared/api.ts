@@ -1,6 +1,6 @@
 // Frozen application API and blockchain adapter contracts.
 // All six workstreams consume these types. Change only through an ADR + spec update.
-import type { Asset, AuditEvent, Block, Identity, Job, Transaction, User, Validator, Wallet } from "./types";
+import type { Asset, AuditEvent, Block, Identity, Job, Transaction, User, Validator, Wallet, Device, ProvisioningChallenge } from "./types";
 import type { JobPriority, Role } from "./enums";
 
 export type ApiErrorCode = "VALIDATION_FAILED" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "NOT_IMPLEMENTED" | "INTERNAL_ERROR";
@@ -9,6 +9,19 @@ export type Session = { user: User; token: string };
 
 export type CreateUserRequest = { employeeId: string; fullName: string; role: Role; department: string };
 export type CreateUserResponse = { identity: Identity; user: User };
+export type InitializeAccountRequest = {
+  fullName: string;
+  employeeId?: string;
+  department?: string;
+  deviceId: string;
+  publicKey: string;
+  walletAddress: string;
+  challengeId: string;
+  signature: string;
+  deviceMetadata: Record<string, unknown>;
+};
+export type ProvisioningChallengeRequest = { deviceId: string; deviceMetadata: Record<string, unknown> };
+export type PendingRegistration = { identity: Identity; device: Device; wallet: Wallet };
 export type ActivateWalletRequest = { deviceId: string; walletAddress: string };
 export type WalletActionResponse = { wallet: Wallet };
 export type CreateAssetRequest = { assetId?: string; assetType: string; ownerId: string; custodianId: string; parentAssetId?: string | null };

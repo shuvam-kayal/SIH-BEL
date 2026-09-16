@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import type { AuthorizationGrant, Device, Identity, User, Wallet } from "../../../shared/types";
+import type { AuthorizationGrant, Device, Identity, ProvisioningChallenge, User, Wallet } from "../../../shared/types";
 import type {
   AuthorizationGrantRepository,
   CredentialRepository,
   DeviceRepository,
   IdentityRepository,
   IdentityRepositories,
+  ProvisioningChallengeRepository,
   SessionRepository,
   UserRepository,
   WalletRepository,
@@ -20,6 +21,7 @@ export class PrismaIdentityRepository implements IdentityRepository {
   constructor(private readonly prisma: PrismaClient) {}
   async findById(id: string) { return mapIdentity(await this.prisma.identity.findUnique({ where: { identityId: id } })); }
   async findByEmployeeId(employeeId: string) { return mapIdentity(await this.prisma.identity.findUnique({ where: { employeeId } })); }
+  async listByStatus(status: Identity["status"]) { return (await this.prisma.identity.findMany({ where: { status }, orderBy: { createdAt: "asc" } })).map((row: any) => mapIdentity(row)!); }
   async save(identity: Identity) {
     await this.prisma.identity.upsert({ where: { identityId: identity.identityId }, create: identityData(identity), update: identityData(identity) });
   }
@@ -49,6 +51,14 @@ export class PrismaWalletRepository implements WalletRepository {
   async listByIdentityId(identityId: string) { return (await this.prisma.wallet.findMany({ where: { identityId }, orderBy: { address: "asc" } })).map((row: any) => mapWallet(row)!); }
   async save(wallet: Wallet) {
     await this.prisma.wallet.upsert({ where: { address: wallet.address }, create: walletData(wallet), update: walletData(wallet) });
+  }
+}
+
+export class PrismaProvisioningChallengeRepository implements ProvisioningChallengeRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+  async findById(challengeId: string) { return mapChallenge(await this.prisma.provisioningChallenge.findUnique({ where: { challengeId } })); }
+  async save(challenge: ProvisioningChallenge) {
+    await this.prisma.provisioningChallenge.upsert({ where: { challengeId: challenge.challengeId }, create: challengeData(challenge), update: challengeData(challenge) });
   }
 }
 
@@ -97,7 +107,7 @@ export class PrismaAuthorizationGrantRepository implements AuthorizationGrantRep
 }
 
 export function createPrismaRepositories(prisma: PrismaClient): IdentityRepositories {
-  return { identities: new PrismaIdentityRepository(prisma), users: new PrismaUserRepository(prisma), devices: new PrismaDeviceRepository(prisma), wallets: new PrismaWalletRepository(prisma), credentials: new PrismaCredentialRepository(prisma), sessions: new PrismaSessionRepository(prisma), grants: new PrismaAuthorizationGrantRepository(prisma) };
+  return { identities: new PrismaIdentityRepository(prisma), users: new PrismaUserRepository(prisma), devices: new PrismaDeviceRepository(prisma), wallets: new PrismaWalletRepository(prisma), credentials: new PrismaCredentialRepository(prisma), sessions: new PrismaSessionRepository(prisma), grants: new PrismaAuthorizationGrantRepository(prisma), challenges: new PrismaProvisioningChallengeRepository(prisma) };
 }
 
 /** Test/development adapters with the same ports as the Prisma adapters. */
@@ -105,6 +115,7 @@ class MemoryIdentityRepository implements IdentityRepository {
   constructor(private readonly store: IdentityStore) {}
   async findById(id: string) { return this.store.identities.get(id) ? { ...this.store.identities.get(id)! } : null; }
   async findByEmployeeId(employeeId: string) { return [...this.store.identities.values()].find((item) => item.employeeId === employeeId) ? { ...[...this.store.identities.values()].find((item) => item.employeeId === employeeId)! } : null; }
+  async listByStatus(status: Identity["status"]) { return [...this.store.identities.values()].filter((item) => item.status === status).map((item) => ({ ...item })); }
   async save(value: Identity) { this.store.identities.set(value.identityId, { ...value }); }
 }
 class MemoryUserRepository implements UserRepository {
@@ -145,17 +156,25 @@ class MemoryGrantRepository implements AuthorizationGrantRepository {
   async save(value: AuthorizationGrant) { this.store.grants.set(value.authorizationGrantId, { ...value }); }
 }
 
-export function createMemoryRepositories(store: IdentityStore = new IdentityStore()): IdentityRepositories {
-  return { identities: new MemoryIdentityRepository(store), users: new MemoryUserRepository(store), devices: new MemoryDeviceRepository(store), wallets: new MemoryWalletRepository(store), credentials: new MemoryCredentialRepository(store), sessions: new MemorySessionRepository(store), grants: new MemoryGrantRepository(store) };
+class MemoryProvisioningChallengeRepository implements ProvisioningChallengeRepository {
+  private readonly challenges = new Map<string, ProvisioningChallenge>();
+  async findById(id: string) { const value = this.challenges.get(id); return value ? { ...value, metadata: value.metadata ? { ...value.metadata } : value.metadata } : null; }
+  async save(value: ProvisioningChallenge) { this.challenges.set(value.challengeId, { ...value, metadata: value.metadata ? { ...value.metadata } : value.metadata }); }
 }
 
-const identityData = (value: Identity) => ({ identityId: value.identityId, employeeId: value.employeeId, fullName: value.fullName, role: value.role, department: value.department, status: value.status, createdAt: asDate(value.createdAt) });
+export function createMemoryRepositories(store: IdentityStore = new IdentityStore()): IdentityRepositories {
+  return { identities: new MemoryIdentityRepository(store), users: new MemoryUserRepository(store), devices: new MemoryDeviceRepository(store), wallets: new MemoryWalletRepository(store), credentials: new MemoryCredentialRepository(store), sessions: new MemorySessionRepository(store), grants: new MemoryGrantRepository(store), challenges: new MemoryProvisioningChallengeRepository() };
+}
+
+const identityData = (value: Identity) => ({ identityId: value.identityId, employeeId: value.employeeId, fullName: value.fullName, role: value.role, department: value.department, status: value.status, createdAt: asDate(value.createdAt), verifiedAt: value.verifiedAt ? asDate(value.verifiedAt) : null, verifiedBy: value.verifiedBy ?? null });
 const userData = (value: User) => ({ employeeId: value.employeeId, identityId: value.identityId, walletAddress: value.walletAddress, role: value.role, department: value.department, status: value.status });
-const deviceData = (value: Device) => ({ deviceId: value.deviceId, identityId: value.identityId, status: value.status, registeredAt: asDate(value.registeredAt), revokedAt: value.revokedAt ? asDate(value.revokedAt) : null });
-const walletData = (value: Wallet) => ({ address: value.address, identityId: value.identityId, deviceId: value.deviceId, status: value.status, activatedAt: value.activatedAt ? asDate(value.activatedAt) : null, revokedAt: value.revokedAt ? asDate(value.revokedAt) : null, revokedReason: value.revokedReason });
+const deviceData = (value: Device) => ({ deviceId: value.deviceId, identityId: value.identityId, status: value.status, registeredAt: asDate(value.registeredAt), activatedAt: value.activatedAt ? asDate(value.activatedAt) : null, revokedAt: value.revokedAt ? asDate(value.revokedAt) : null, publicKey: value.publicKey ?? null, metadata: value.metadata as any });
+const walletData = (value: Wallet) => ({ address: value.address, identityId: value.identityId, deviceId: value.deviceId, status: value.status, activatedAt: value.activatedAt ? asDate(value.activatedAt) : null, revokedAt: value.revokedAt ? asDate(value.revokedAt) : null, revokedReason: value.revokedReason, publicKey: value.publicKey ?? null });
 const grantData = (value: AuthorizationGrant) => ({ authorizationGrantId: value.authorizationGrantId, actorIdentityId: value.actorIdentityId, resourceType: value.resourceType, resourceId: value.resourceId, action: value.action, grantedByIdentityId: value.grantedByIdentityId, issuedAt: asDate(value.issuedAt), expiresAt: value.expiresAt ? asDate(value.expiresAt) : null, status: value.status });
-const mapIdentity = (row: any): Identity | null => row ? { ...row, createdAt: asIso(row.createdAt) } : null;
+const challengeData = (value: ProvisioningChallenge) => ({ challengeId: value.challengeId, deviceId: value.deviceId, challenge: value.challenge, purpose: value.purpose, expiresAt: asDate(value.expiresAt), usedAt: value.usedAt ? asDate(value.usedAt) : null, metadata: value.metadata as any });
+const mapIdentity = (row: any): Identity | null => row ? { ...row, createdAt: asIso(row.createdAt), verifiedAt: row.verifiedAt ? asIso(row.verifiedAt) : null, verifiedBy: row.verifiedBy ?? null } : null;
 const mapUser = (row: any): User | null => row ? { ...row } : null;
-const mapDevice = (row: any): Device | null => row ? { ...row, registeredAt: asIso(row.registeredAt), revokedAt: row.revokedAt ? asIso(row.revokedAt) : null } : null;
+const mapDevice = (row: any): Device | null => row ? { ...row, registeredAt: asIso(row.registeredAt), activatedAt: row.activatedAt ? asIso(row.activatedAt) : null, revokedAt: row.revokedAt ? asIso(row.revokedAt) : null, metadata: row.metadata ?? null } : null;
 const mapWallet = (row: any): Wallet | null => row ? { ...row, activatedAt: row.activatedAt ? asIso(row.activatedAt) : null, revokedAt: row.revokedAt ? asIso(row.revokedAt) : null } : null;
 const mapGrant = (row: any): AuthorizationGrant | null => row ? { ...row, issuedAt: asIso(row.issuedAt), expiresAt: row.expiresAt ? asIso(row.expiresAt) : null } : null;
+const mapChallenge = (row: any): ProvisioningChallenge | null => row ? { ...row, expiresAt: asIso(row.expiresAt), usedAt: row.usedAt ? asIso(row.usedAt) : null, metadata: row.metadata ?? null } : null;

@@ -28,20 +28,79 @@ export function usersRouter(c: Container): Router {
     } catch (err) { next(err); }
   });
   router.get("/docs", (_req, res) => {
-    res.type("html").send(`<!doctype html><html><head><title>BEL API</title></head><body><div id="swagger-ui"></div><script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script><script>window.ui=SwaggerUIBundle({url:'/docs/openapi.yaml',dom_id:'#swagger-ui',persistAuthorization:true})</script></body></html>`);
+    res.type("html").send(`<!doctype html>
+<html>
+<head>
+  <title>BEL API</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/swagger-ui-dist/swagger-ui.css"
+  />
+</head>
+<body>
+  <div id="swagger-ui"></div>
+
+  <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "/docs/openapi.yaml",
+      dom_id: "#swagger-ui",
+      persistAuthorization: true
+    });
+  </script>
+</body>
+</html>`);
   });
 
   // POST /auth/login — managed-device session, no public signup.
+  router.post("/auth/login-challenge", async (req, res, next) => {
+    try {
+      if (typeof req.body?.deviceId !== "string") throw new ValidationError(["deviceId must be a string"]);
+      res.status(201).json(await c.auth.requestAuthenticationChallenge(req.body.deviceId));
+    } catch (err) { next(err); }
+  });
+
   router.post("/auth/login", async (req, res, next) => {
     try {
       const credential = req.body?.deviceCredential;
-      if (typeof credential !== "string") {
-        throw new ValidationError(["deviceCredential must be a string"]);
+      if (typeof credential === "string") {
+        res.json(await c.auth.login(credential));
+      } else if (typeof req.body?.deviceId === "string" && typeof req.body?.challengeId === "string" && typeof req.body?.publicKey === "string" && typeof req.body?.signature === "string") {
+        res.json(await c.auth.login({ deviceId: req.body.deviceId, challengeId: req.body.challengeId, publicKey: req.body.publicKey, signature: req.body.signature }));
+      } else {
+        throw new ValidationError(["deviceCredential or device proof fields are required"]);
       }
-      res.json(await c.auth.login(credential));
     } catch (err) {
       next(err);
     }
+  });
+
+  // Device-side onboarding. The private key is deliberately not part of
+  // either request; it must remain inside the managed device wallet.
+  router.post("/auth/provisioning-challenge", async (req, res, next) => {
+    try {
+      res.status(201).json(await c.users.requestProvisioningChallenge({ deviceId: req.body?.deviceId, deviceMetadata: req.body?.deviceMetadata }));
+    } catch (err) { next(err); }
+  });
+
+  router.post("/auth/initialize-account", async (req, res, next) => {
+    try {
+      res.status(202).json(await c.users.initializeAccount(req.body));
+    } catch (err) { next(err); }
+  });
+
+  router.get("/admin/registrations/pending", requireSession, requireRole("ADMIN"), async (_req, res, next) => {
+    try { res.json(await c.users.listPendingRegistrations()); } catch (err) { next(err); }
+  });
+
+  router.post("/admin/users/:id/verify", requireSession, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      res.json(await c.users.verifyRegistration(req.user!.identityId, req.params.id, { employeeId: req.body?.employeeId, department: req.body?.department }));
+    } catch (err) { next(err); }
+  });
+
+  router.post("/admin/users/:id/activate", requireSession, requireRole("ADMIN"), async (req, res, next) => {
+    try { res.json(await c.users.activateRegistration(req.user!.identityId, req.params.id)); } catch (err) { next(err); }
   });
 
   // POST /admin/users — Admin only (RBAC_MATRIX: Create employee).

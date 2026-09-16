@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum IdentityStatus {
+  PENDING
   ACTIVE
   SUSPENDED
   REVOKED
@@ -20,6 +21,7 @@ enum WalletStatus {
 }
 
 enum DeviceStatus {
+  PENDING
   ACTIVE
   REVOKED
 }
@@ -32,12 +34,14 @@ enum GrantStatus {
 
 model Identity {
   identityId String @id
-  employeeId String @unique
+  employeeId String? @unique
   fullName String
-  role String
-  department String
+  role String?
+  department String?
   status IdentityStatus
   createdAt DateTime
+  verifiedAt DateTime?
+  verifiedBy String?
   user User?
   devices Device[]
   wallets Wallet[]
@@ -60,7 +64,10 @@ model Device {
   identityId String
   status DeviceStatus
   registeredAt DateTime
+  activatedAt DateTime?
   revokedAt DateTime?
+  publicKey String?
+  metadata Json?
   identity Identity @relation(fields: [identityId], references: [identityId])
   credentials Credential[]
 }
@@ -81,7 +88,18 @@ model Wallet {
   activatedAt DateTime?
   revokedAt DateTime?
   revokedReason String?
+  publicKey String?
   identity Identity @relation(fields: [identityId], references: [identityId])
+}
+
+model ProvisioningChallenge {
+  challengeId String @id
+  deviceId String
+  challenge String @unique
+  purpose String
+  expiresAt DateTime
+  usedAt DateTime?
+  metadata Json?
 }
 
 model Session {

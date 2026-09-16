@@ -32,14 +32,19 @@ export type Identity = {
   department: string;
   status: IdentityStatus;
   createdAt: string;
+  verifiedAt?: string | null;
+  verifiedBy?: string | null;
 };
 
 export type Device = {
   deviceId: string;
   identityId: string;
-  status: "ACTIVE" | "REVOKED";
+  status: "PENDING" | "ACTIVE" | "REVOKED";
   registeredAt: string;
+  activatedAt?: string | null;
   revokedAt: string | null;
+  publicKey?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type Wallet = {
@@ -50,6 +55,17 @@ export type Wallet = {
   activatedAt: string | null;
   revokedAt: string | null;
   revokedReason: string | null;
+  publicKey?: string | null;
+};
+
+export type ProvisioningChallenge = {
+  challengeId: string;
+  deviceId: string;
+  challenge: string;
+  purpose: "WALLET_INITIALIZATION" | "AUTHENTICATION";
+  expiresAt: string;
+  usedAt: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type AuthorizationGrant = {

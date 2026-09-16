@@ -12,7 +12,7 @@ export const ROLES = [
 ] as const;
 export type Role = (typeof ROLES)[number];
 
-export const IDENTITY_STATUSES = ["ACTIVE", "SUSPENDED", "REVOKED"] as const;
+export const IDENTITY_STATUSES = ["PENDING", "ACTIVE", "SUSPENDED", "REVOKED"] as const;
 export type IdentityStatus = (typeof IDENTITY_STATUSES)[number];
 
 export const WALLET_STATUSES = ["PENDING", "ACTIVE", "REVOKED"] as const;
