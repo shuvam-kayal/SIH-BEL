@@ -1,6 +1,6 @@
 import { createPublicKey, randomBytes, randomUUID, verify } from "node:crypto";
 import type { CreateUserResponse, InitializeAccountRequest, PendingRegistration, ProvisioningChallengeRequest } from "../../../shared/api";
-import type { AuthorizationGrant, Device, Identity, ProvisioningChallenge, Role, User, Wallet } from "../../../shared/types";
+import type { AuthorizationGrant, Device, Identity, PendingIdentity, ProvisioningChallenge, Role, User, Wallet } from "../../../shared/types";
 import type { Action } from "../../../shared/rbac";
 import { ROLES } from "../../../shared/enums";
 import { BlockchainService } from "../adapters/BlockchainService";
@@ -116,7 +116,7 @@ export class UsersServiceImpl implements UsersService {
       createdAt: new Date().toISOString(),
       verifiedAt: null,
       verifiedBy: null,
-    } as unknown as Identity;
+    } as unknown as PendingIdentity;
     const device: Device = {
       deviceId: input.deviceId.trim(), identityId: identity.identityId, status: "PENDING",
       registeredAt: identity.createdAt, activatedAt: null, revokedAt: null,
@@ -126,7 +126,7 @@ export class UsersServiceImpl implements UsersService {
       address: input.walletAddress.trim(), identityId: identity.identityId, deviceId: device.deviceId,
       status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null, publicKey: input.publicKey,
     };
-    await this.repositories.identities.save(identity);
+    await this.repositories.identities.save(identity as unknown as Identity);
     await this.repositories.devices.save(device);
     await this.repositories.wallets.save(wallet);
     challenge.usedAt = new Date().toISOString();
@@ -143,7 +143,7 @@ export class UsersServiceImpl implements UsersService {
     for (const identity of identities) {
       const device = (await this.repositories.devices.listByIdentityId(identity.identityId)).find((item) => item.status === "PENDING");
       const wallet = (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "PENDING");
-      if (device && wallet) result.push({ identity, device, wallet });
+      if (device && wallet) result.push({ identity: identity as unknown as PendingIdentity, device, wallet });
     }
     return result;
   }

@@ -49,6 +49,11 @@ internal PostgreSQL instance. PostgreSQL is the mutable operational state
 store for identities, devices, credentials, wallets, sessions, and grants;
 it is never exposed directly to the frontend and is not treated as immutable.
 
+Prisma schema and migration SQL are repository artifacts and must be committed;
+`*.sql` must not be ignored. Other workstreams depend on shared types, API
+contracts, and service interfaces rather than reading Person 1's Prisma tables
+directly.
+
 The backend services depend on repository interfaces. The normal container
 selects Prisma repositories when `DATABASE_URL` is configured, while unit
 tests explicitly inject in-memory repositories. Security-critical mutations
@@ -57,12 +62,52 @@ a deterministic SHA-256 commitment for an external permissioned-blockchain
 anchor. The adapter is intentionally injectable while the blockchain team
 provides the durable chain implementation.
 
+## Current Person 1 data and trust paths
+
+```text
+Frontend
+    ↓ REST
+Person 1 Auth/API
+    ↓
+Identity / Device / Wallet services
+    ↓
+Repository interfaces
+    ↓
+Prisma
+    ↓
+PostgreSQL
+```
+
+The managed-device wallet path is separate:
+
+```text
+Managed-device wallet component
+    ↓ private key remains local
+Public key + address + signature/proof
+    ↓
+Person 1 backend
+```
+
+Critical lifecycle mutations follow:
+
+```text
+Critical lifecycle mutation
+    ↓
+SHA-256 integrity commitment
+    ↓
+IntegrityAdapter
+    ↓
+Permissioned blockchain integration
+```
+
+PostgreSQL is mutable operational state. The blockchain is the tamper-evident historical/integrity layer. The device private key never leaves the managed device. The current `DeviceAttestationAdapter` is an abstraction with mock/rejecting implementations; it is not proof that production hardware attestation or secure-enclave storage exists.
+
 ## Why this shape
 
-- **Frontend never touches contracts directly.** This keeps wallet/key
-  handling and transaction construction in one place (the backend), and
-  means the frontend's only integration risk is a REST contract, not a
-  chain client version.
+- **Frontend never touches contracts directly.** The frontend invokes the
+  backend API and the managed-device wallet interface; the device wallet
+  component handles private-key operations locally. The frontend's chain
+  integration surface remains the REST contract, not a chain client version.
 - **Backend depends on an interface, not an implementation.** The
   `BlockchainService` interface (`backend/src/adapters`) is the seam
   that lets Persons 1–3 build and test against a mock chain
@@ -90,4 +135,5 @@ early rather than falling through the cracks:
   for debugging a failed transaction end-to-end).
 - **Key management on the managed workstation** (how a Wallet's private
   key is generated/stored/rotated on-device — touches Person 1's auth
-  work and Person 4/5's chain work).
+  work and Person 4/5's chain work). The backend protocol is defined, but
+  hardware-backed secure storage remains future device-side work.

@@ -36,6 +36,16 @@ export type Identity = {
   verifiedBy?: string | null;
 };
 
+/** Public contract for the pending onboarding response. Pending fields are
+ * intentionally nullable until administrator verification; active Identity
+ * consumers continue to use the non-null verified shape above. */
+export type PendingIdentity = Omit<Identity, "employeeId" | "role" | "department" | "status"> & {
+  employeeId: string | null;
+  role: Role | null;
+  department: string | null;
+  status: "PENDING";
+};
+
 export type Device = {
   deviceId: string;
   identityId: string;

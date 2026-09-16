@@ -47,7 +47,7 @@ export class AuthServiceImpl implements AuthService {
     const user = identity ? await this.repositories.users.findByIdentityId(identity.identityId) : null;
     const wallets = identity ? await this.repositories.wallets.listByIdentityId(identity.identityId) : [];
     const wallet = wallets.find((item) => item.status === "ACTIVE");
-    if (!device || device.status !== "ACTIVE" || !identity || !user || !wallet || wallet.deviceId !== device.deviceId) {
+    if (!device || device.status !== "ACTIVE" || !identity || !identity.employeeId || !identity.role || !identity.department || !user || !wallet || wallet.deviceId !== device.deviceId) {
       throw new UnauthorizedError("Device, identity, or wallet is not active");
     }
     if (identity.status !== "ACTIVE") throw new ForbiddenError(`Identity is ${identity.status}`);
@@ -65,7 +65,7 @@ export class AuthServiceImpl implements AuthService {
     const identity = device ? await this.repositories.identities.findById(device.identityId) : null;
     const user = identity ? await this.repositories.users.findByIdentityId(identity.identityId) : null;
     const wallet = identity ? (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "ACTIVE" && item.deviceId === input.deviceId) : null;
-    if (!device || device.status !== "ACTIVE" || !identity || identity.status !== "ACTIVE" || !user || !wallet || !device.publicKey || device.publicKey !== input.publicKey) throw new UnauthorizedError("Device, identity, or wallet is not active");
+    if (!device || device.status !== "ACTIVE" || !identity || !identity.employeeId || !identity.role || !identity.department || identity.status !== "ACTIVE" || !user || !wallet || !device.publicKey || device.publicKey !== input.publicKey) throw new UnauthorizedError("Device, identity, or wallet is not active");
     if (!this.verifyProof(challenge.challenge, device.publicKey, input.signature)) throw new UnauthorizedError("Invalid authentication proof");
     challenge.usedAt = new Date().toISOString(); await this.repositories.challenges.save(challenge);
     const token = `bel_${randomUUID()}`;
@@ -90,7 +90,7 @@ export class AuthServiceImpl implements AuthService {
     const device = await this.repositories.devices.findById(session.deviceId);
     const wallet = await this.repositories.wallets.findByAddress(session.walletAddress);
     const user = identity ? await this.repositories.users.findByIdentityId(identity.identityId) : null;
-    if (!identity || !user || !device || device.status !== "ACTIVE" || identity.status !== "ACTIVE" || !wallet || wallet.status !== "ACTIVE" || wallet.deviceId !== device.deviceId) {
+    if (!identity || !identity.employeeId || !identity.role || !identity.department || !user || !device || device.status !== "ACTIVE" || identity.status !== "ACTIVE" || !wallet || wallet.status !== "ACTIVE" || wallet.deviceId !== device.deviceId) {
       await this.repositories.sessions.delete(token);
       return null;
     }

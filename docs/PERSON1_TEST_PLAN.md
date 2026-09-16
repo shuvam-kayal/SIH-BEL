@@ -47,4 +47,21 @@ Commitments contain state hashes and minimum event metadata, not plaintext crede
 
 ## Environment
 
-Required for the real backend: `DATABASE_URL`, `BEL_ENV`, and optionally `BEL_SESSION_TTL_SECONDS`. Development bootstrap additionally requires `BEL_DEV_BOOTSTRAP=true` and optionally `BEL_BOOTSTRAP_CREDENTIAL`. PostgreSQL remains an internal BEL service and must not be exposed through frontend configuration.
+Required for the real backend: `DATABASE_URL`, `BEL_ENV`, and optionally `BEL_SESSION_TTL_SECONDS`. Development bootstrap additionally requires `BEL_DEV_BOOTSTRAP=true`, `BEL_BOOTSTRAP_CREDENTIAL`, `BEL_BOOTSTRAP_WALLET_ADDRESS`, and `BEL_BOOTSTRAP_PUBLIC_KEY`. PostgreSQL remains an internal BEL service and must not be exposed through frontend configuration.
+
+## E. Employee self-initialization and proof tests
+
+The Person 1 suite must also cover:
+
+- eligible device attestation creates PENDING identity/device/wallet;
+- spoofed `managedDevice`/network metadata is rejected without adapter approval;
+- challenge expiry, wrong-device challenge, invalid signature, malformed public key, and replay are rejected;
+- private-key fields are rejected and private-key material never appears in persistence, API responses, commitments, or logs;
+- pending identity/device/wallet cannot request or complete normal login;
+- administrator-only verification, employee ID/department assignment, role assignment, and activation;
+- proof-based login after activation and bearer-session revalidation;
+- wallet and device replacement preserves identity, revokes old credentials, and invalidates old sessions;
+- PostgreSQL restart preserves pending registrations, verification, activation, and revocation;
+- integrity commitments exist for initialization, device/wallet registration, verification, role assignment, activation, and revocation.
+
+The current `DeviceAttestationAdapter` is a mock/rejecting seam in tests. These tests must not claim that hardware-backed secure storage or production device attestation exists.
