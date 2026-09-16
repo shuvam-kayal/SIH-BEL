@@ -5,6 +5,7 @@ import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
 import { clearIdentityStore, identityStore } from "../src/users/identity.store";
 import { createMemoryRepositories } from "../src/users/repository-implementations";
+import { MockDeviceAttestationAdapter } from "../src/devices/device-attestation";
 
 describe("employee self-initialization protocol", () => {
   let container: ReturnType<typeof createContainer>;
@@ -13,11 +14,13 @@ describe("employee self-initialization protocol", () => {
 
   beforeEach(async () => {
     clearIdentityStore();
-    container = createContainer(undefined, { repositories: createMemoryRepositories(identityStore) });
+    const attestation = new MockDeviceAttestationAdapter(["BEL-DEVICE-001", "BEL-DEVICE-002", "BEL-DEVICE-003"]);
+    container = createContainer(undefined, { repositories: createMemoryRepositories(identityStore), attestation });
     app = createApp(container);
     await container.users.createUser({ employeeId: "BOOTSTRAP-ADMIN", fullName: "BEL Admin", role: "ADMIN", department: "PLATFORM" });
-    await container.users.registerDevice("BOOTSTRAP-ADMIN", "BOOTSTRAP-ADMIN-DEVICE", "bootstrap-admin-credential");
-    await container.users.activateWallet("BOOTSTRAP-ADMIN", "BOOTSTRAP-ADMIN-DEVICE");
+    await container.users.registerDevice("BOOTSTRAP-ADMIN", "BOOTSTRAP-ADMIN-DEVICE", "bootstrap-admin-credential", "PUBLIC-BOOTSTRAP-ADMIN");
+    await container.users.registerWallet("BOOTSTRAP-ADMIN", "BOOTSTRAP-ADMIN-DEVICE", "0xTEST-BOOTSTRAP-ADMIN");
+    await container.users.activateWallet("BOOTSTRAP-ADMIN", "BOOTSTRAP-ADMIN-DEVICE", "0xTEST-BOOTSTRAP-ADMIN");
     adminToken = (await container.auth.login("bootstrap-admin-credential")).token;
   });
 
@@ -53,12 +56,14 @@ describe("employee self-initialization protocol", () => {
     expect(response.body.identity.role).toBeNull();
     expect(response.body.device.status).toBe("PENDING");
     expect(response.body.wallet.status).toBe("PENDING");
+    expect(response.body.wallet.address).toBe("0xPUBLIC-ADA-001");
+    expect(response.body.wallet.address).not.toMatch(/^0xBEL/);
     expect(JSON.stringify(response.body)).not.toContain("privateKey");
     expect(response.body).not.toHaveProperty("privateKey");
   });
 
   it("rejects ineligible devices, private-key fields, and replayed challenges", async () => {
-    const rejected = await request(app).post("/auth/provisioning-challenge").send({ deviceId: "UNTRUSTED", deviceMetadata: { managedDevice: false, onBelNetwork: true } });
+    const rejected = await request(app).post("/auth/provisioning-challenge").send({ deviceId: "UNTRUSTED", deviceMetadata: { managedDevice: true, onBelNetwork: true } });
     expect(rejected.status).toBe(403);
 
     const keys = keyMaterial();
@@ -108,5 +113,12 @@ describe("employee self-initialization protocol", () => {
     });
     expect(login.status).toBe(200);
     expect(login.body.user.employeeId).toBe("EMP-003");
+  });
+
+  it("does not create a wallet for the old admin seed path", async () => {
+    await container.users.createUser({ employeeId: "NO-FAKE-WALLET", fullName: "No Fake Wallet", role: "ENGINEER", department: "TEST" });
+    await container.users.registerDevice("NO-FAKE-WALLET", "NO-FAKE-WALLET-DEVICE", "no-fake-credential", "PUBLIC-NO-FAKE");
+    expect(await container.users.listWallets("NO-FAKE-WALLET")).toHaveLength(0);
+    await expect(container.users.activateWallet("NO-FAKE-WALLET", "NO-FAKE-WALLET-DEVICE")).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

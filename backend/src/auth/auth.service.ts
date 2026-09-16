@@ -38,6 +38,7 @@ export class AuthServiceImpl implements AuthService {
 
   async login(deviceCredential: string | LoginProofInput): Promise<{ user: User; token: string }> {
     if (typeof deviceCredential !== "string") return this.loginWithProof(deviceCredential);
+    if (process.env.BEL_ENV === "production") throw new ForbiddenError("Legacy device-credential login is disabled in production");
     if (!deviceCredential.trim()) throw new UnauthorizedError("Invalid device credential");
     const deviceId = await this.repositories.credentials.findDeviceId(hashCredential(deviceCredential));
     if (!deviceId) throw new UnauthorizedError("Invalid device credential");

@@ -21,10 +21,6 @@ export class IdentityStore {
     return `DID:BEL:${randomUUID()}`;
   }
 
-  nextWalletAddress(): string {
-    return `0xBEL${randomUUID().replaceAll("-", "").slice(0, 40)}`;
-  }
-
   userForIdentity(identityId: string): User | undefined {
     return [...this.users.values()].find((user) => user.identityId === identityId);
   }

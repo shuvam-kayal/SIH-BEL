@@ -13,7 +13,7 @@ describe("security-critical integrity commitments", () => {
     const adapter = new MemoryIntegrityAdapter();
     const container = createContainer(new MockBlockchainAdapter(), { repositories: createMemoryRepositories(identityStore), integrity: adapter });
     const created = await container.users.createUser({ employeeId: "INTEGRITY-001", fullName: "Integrity Test", role: "ENGINEER", department: "TEST" });
-    await container.users.registerDevice("INTEGRITY-001", "INTEGRITY-DEVICE", "plain-device-secret");
+    await container.users.registerDevice("INTEGRITY-001", "INTEGRITY-DEVICE", "plain-device-secret", "PUBLIC-INTEGRITY-001");
     const identityCommitment = adapter.commitments.find((item) => item.eventType === "IDENTITY_CREATE");
     expect(identityCommitment).toMatchObject({ entityType: "IDENTITY", entityId: created.identity.identityId, eventType: "IDENTITY_CREATE", version: 1 });
     expect(JSON.stringify(adapter.commitments)).not.toContain("plain-device-secret");
@@ -38,8 +38,9 @@ describe("security-critical integrity commitments", () => {
     const users = new UsersServiceImpl(new MockBlockchainAdapter(), repositories, adapter);
     const auth = new AuthServiceImpl(repositories);
     await users.createUser({ employeeId: "INTEGRITY-002", fullName: "Integrity Test", role: "ENGINEER", department: "TEST" });
-    await users.registerDevice("INTEGRITY-002", "INTEGRITY-DEVICE-2", "credential-not-on-chain");
-    await users.activateWallet("INTEGRITY-002", "INTEGRITY-DEVICE-2");
+    await users.registerDevice("INTEGRITY-002", "INTEGRITY-DEVICE-2", "credential-not-on-chain", "PUBLIC-INTEGRITY-002");
+    await users.registerWallet("INTEGRITY-002", "INTEGRITY-DEVICE-2", "0xTEST-INTEGRITY-002");
+    await users.activateWallet("INTEGRITY-002", "INTEGRITY-DEVICE-2", "0xTEST-INTEGRITY-002");
     const session = await auth.login("credential-not-on-chain");
     expect(JSON.stringify(adapter.commitments)).not.toContain(session.token);
     expect(JSON.stringify(adapter.commitments)).not.toContain("credential-not-on-chain");

@@ -24,8 +24,9 @@ beforeAll(async () => {
   for (const role of ["ADMIN", "MANAGER", "ENGINEER", "TECHNICIAN", "AUDITOR", "ISSUER", "VERIFIER"] as const) {
     const employeeId = `SEED-${role}`;
     await container.users.createUser({ employeeId, fullName: role, role, department: "TEST" });
-    await container.users.registerDevice(employeeId, `${employeeId}-DEVICE`, `${employeeId}-CREDENTIAL`);
-    await container.users.activateWallet(employeeId, `${employeeId}-DEVICE`);
+    await container.users.registerDevice(employeeId, `${employeeId}-DEVICE`, `${employeeId}-CREDENTIAL`, `PUBLIC-${employeeId}`);
+    await container.users.registerWallet(employeeId, `${employeeId}-DEVICE`, `0xTEST-${employeeId}`);
+    await container.users.activateWallet(employeeId, `${employeeId}-DEVICE`, `0xTEST-${employeeId}`);
     tokens[role] = (await container.auth.login(`${employeeId}-CREDENTIAL`)).token;
   }
 });

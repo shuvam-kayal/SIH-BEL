@@ -8,6 +8,9 @@ async function main() {
 
   const container = createContainer();
   const credential = process.env.BEL_BOOTSTRAP_CREDENTIAL ?? "dev-admin-001";
+  const walletAddress = process.env.BEL_BOOTSTRAP_WALLET_ADDRESS;
+  const publicKey = process.env.BEL_BOOTSTRAP_PUBLIC_KEY;
+  if (!walletAddress || !publicKey) throw new Error("Development bootstrap requires BEL_BOOTSTRAP_WALLET_ADDRESS and BEL_BOOTSTRAP_PUBLIC_KEY");
   try {
     await container.prisma?.$connect();
     const existing = await container.users.getById("ADMIN-001");
@@ -15,8 +18,9 @@ async function main() {
       console.log("ADMIN-001 already bootstrapped");
     } else {
       await container.users.createUser({ employeeId: "ADMIN-001", fullName: "BEL Development Administrator", role: "ADMIN", department: "PLATFORM" });
-      await container.users.registerDevice("ADMIN-001", "BEL-DEV-ADMIN-001", credential);
-      const wallet = await container.users.activateWallet("ADMIN-001", "BEL-DEV-ADMIN-001");
+      await container.users.registerDevice("ADMIN-001", "BEL-DEV-ADMIN-001", credential, publicKey);
+      await container.users.registerWallet("ADMIN-001", "BEL-DEV-ADMIN-001", walletAddress);
+      const wallet = await container.users.activateWallet("ADMIN-001", "BEL-DEV-ADMIN-001", walletAddress);
       console.log(JSON.stringify({ employeeId: "ADMIN-001", deviceId: "BEL-DEV-ADMIN-001", credential, walletAddress: wallet.address }));
     }
   } finally {

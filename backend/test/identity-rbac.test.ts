@@ -19,18 +19,20 @@ describe("identity, authentication, and wallet lifecycle", () => {
 
   async function provision(employeeId: string, role: "ADMIN" | "ENGINEER" = "ENGINEER") {
     const result = await users.createUser({ employeeId, fullName: employeeId, role, department: "TEST" });
-    await users.registerDevice(employeeId, `${employeeId}-DEVICE`, `${employeeId}-CREDENTIAL`);
-    const wallet = await users.activateWallet(employeeId, `${employeeId}-DEVICE`);
+    await users.registerDevice(employeeId, `${employeeId}-DEVICE`, `${employeeId}-CREDENTIAL`, `PUBLIC-${employeeId}`);
+    await users.registerWallet(employeeId, `${employeeId}-DEVICE`, `0xTEST-${employeeId}`);
+    const wallet = await users.activateWallet(employeeId, `${employeeId}-DEVICE`, `0xTEST-${employeeId}`);
     return { ...result, wallet };
   }
 
   it("provisions an identity before a wallet and authenticates a bound device", async () => {
     const result = await users.createUser({ employeeId: "EMP001", fullName: "Ada", role: "ENGINEER", department: "R&D" });
     expect(result.identity.identityId).toBe(result.user.identityId);
-    expect(identityStore.walletForIdentity(result.identity.identityId)?.status).toBe("PENDING");
+    expect(identityStore.walletForIdentity(result.identity.identityId)).toBeUndefined();
 
-    await users.registerDevice("EMP001", "DEV-001", "credential-001");
-    const wallet = await users.activateWallet("EMP001", "DEV-001");
+    await users.registerDevice("EMP001", "DEV-001", "credential-001", "PUBLIC-EMP001");
+    await users.registerWallet("EMP001", "DEV-001", "0xTEST-EMP001");
+    const wallet = await users.activateWallet("EMP001", "DEV-001", "0xTEST-EMP001");
     const session = await auth.login("credential-001");
     expect(session.user.walletAddress).toBe(wallet.address);
     expect(await auth.validateSession(session.token)).toMatchObject({ employeeId: "EMP001" });
@@ -55,8 +57,9 @@ describe("identity, authentication, and wallet lifecycle", () => {
   it("rejects duplicate employees and preserves identity across wallet rotation", async () => {
     const first = await provision("EMP003");
     await expect(users.createUser({ employeeId: "EMP003", fullName: "Other", role: "ENGINEER", department: "TEST" })).rejects.toMatchObject({ code: "CONFLICT" });
-    await users.registerDevice("EMP003", "DEV-003B", "credential-003b");
-    const replacement = await users.activateWallet("EMP003", "DEV-003B");
+    await users.registerDevice("EMP003", "DEV-003B", "credential-003b", "PUBLIC-EMP003B");
+    await users.registerWallet("EMP003", "DEV-003B", "0xTEST-EMP003B");
+    const replacement = await users.activateWallet("EMP003", "DEV-003B", "0xTEST-EMP003B");
     expect(replacement.address).not.toBe(first.wallet.address);
     expect((await users.getById("EMP003"))!.identityId).toBe(first.identity.identityId);
     expect(identityStore.wallets.get(first.wallet.address)!.status).toBe("REVOKED");

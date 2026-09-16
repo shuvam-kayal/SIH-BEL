@@ -14,6 +14,7 @@ import { UsersServiceImpl, type UsersService } from "./users/users.service";
 import { createMemoryRepositories, createPrismaRepositories } from "./users/repository-implementations";
 import type { IdentityRepositories } from "./users/repositories";
 import { MemoryIntegrityAdapter, type IntegrityAdapter } from "./integrity/integrity";
+import { RejectingDeviceAttestationAdapter, type DeviceAttestationAdapter } from "./devices/device-attestation";
 
 export type Container = {
   chain: BlockchainService;
@@ -25,10 +26,11 @@ export type Container = {
   blockchain: BlockchainController;
   repositories: IdentityRepositories;
   integrity: IntegrityAdapter;
+  attestation: DeviceAttestationAdapter;
   prisma?: PrismaClient;
 };
 
-export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; prisma?: PrismaClient };
+export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; attestation?: DeviceAttestationAdapter; prisma?: PrismaClient };
 
 export function createContainer(chain: BlockchainService = new MockBlockchainAdapter(), options: ContainerOptions = {}): Container {
   // Development may use the recording adapter, but production must provide
@@ -40,13 +42,15 @@ export function createContainer(chain: BlockchainService = new MockBlockchainAda
   const prisma = options.prisma ?? (process.env.DATABASE_URL ? new PrismaClient() : undefined);
   const repositories = options.repositories ?? (prisma ? createPrismaRepositories(prisma) : createMemoryRepositories());
   const integrity = options.integrity ?? new MemoryIntegrityAdapter();
+  const attestation = options.attestation ?? new RejectingDeviceAttestationAdapter();
   return {
     chain,
     repositories,
     integrity,
+    attestation,
     prisma,
     auth: new AuthServiceImpl(repositories),
-    users: new UsersServiceImpl(chain, repositories, integrity),
+    users: new UsersServiceImpl(chain, repositories, integrity, attestation),
     assets: new AssetsServiceImpl(chain),
     jobs: new JobsServiceImpl(chain),
     audit: new AuditServiceImpl(),

@@ -35,14 +35,16 @@ suite("PostgreSQL persistence integration", () => {
     await container.prisma?.$connect();
     const admin = await container.users.createUser({ employeeId: "INTEGRATION-ADMIN", fullName: "Integration Admin", role: "ADMIN", department: "TEST" });
     adminId = admin.identity.identityId;
-    await container.users.registerDevice("INTEGRATION-ADMIN", "INTEGRATION-ADMIN-DEVICE", "integration-admin-secret");
-    await container.users.activateWallet("INTEGRATION-ADMIN", "INTEGRATION-ADMIN-DEVICE");
+    await container.users.registerDevice("INTEGRATION-ADMIN", "INTEGRATION-ADMIN-DEVICE", "integration-admin-secret", "PUBLIC-INTEGRATION-ADMIN");
+    await container.users.registerWallet("INTEGRATION-ADMIN", "INTEGRATION-ADMIN-DEVICE", "0xTEST-INTEGRATION-ADMIN");
+    await container.users.activateWallet("INTEGRATION-ADMIN", "INTEGRATION-ADMIN-DEVICE", "0xTEST-INTEGRATION-ADMIN");
     adminToken = (await container.auth.login("integration-admin-secret")).token;
 
     employeeId = "INTEGRATION-EMPLOYEE";
     await container.users.createUser({ employeeId, fullName: "Integration Employee", role: "ENGINEER", department: "TEST" });
-    await container.users.registerDevice(employeeId, "INTEGRATION-EMPLOYEE-DEVICE", "integration-employee-secret");
-    const wallet = await container.users.activateWallet(employeeId, "INTEGRATION-EMPLOYEE-DEVICE");
+    await container.users.registerDevice(employeeId, "INTEGRATION-EMPLOYEE-DEVICE", "integration-employee-secret", "PUBLIC-INTEGRATION-EMPLOYEE");
+    await container.users.registerWallet(employeeId, "INTEGRATION-EMPLOYEE-DEVICE", "0xTEST-INTEGRATION-EMPLOYEE");
+    const wallet = await container.users.activateWallet(employeeId, "INTEGRATION-EMPLOYEE-DEVICE", "0xTEST-INTEGRATION-EMPLOYEE");
     employeeWallet = wallet.address;
     employeeToken = (await container.auth.login("integration-employee-secret")).token;
   });
@@ -97,8 +99,9 @@ suite("PostgreSQL persistence integration", () => {
     expect((await request(app).get("/users/me").set("Authorization", `Bearer ${employeeToken}`)).status).toBe(401);
     await expect(container.auth.login("integration-employee-secret")).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 
-    await container.users.registerDevice(employeeId, "INTEGRATION-EMPLOYEE-REPLACEMENT", "integration-employee-replacement-secret");
-    await container.users.activateWallet(employeeId, "INTEGRATION-EMPLOYEE-REPLACEMENT");
+    await container.users.registerDevice(employeeId, "INTEGRATION-EMPLOYEE-REPLACEMENT", "integration-employee-replacement-secret", "PUBLIC-INTEGRATION-REPLACEMENT");
+    await container.users.registerWallet(employeeId, "INTEGRATION-EMPLOYEE-REPLACEMENT", "0xTEST-INTEGRATION-REPLACEMENT");
+    await container.users.activateWallet(employeeId, "INTEGRATION-EMPLOYEE-REPLACEMENT", "0xTEST-INTEGRATION-REPLACEMENT");
     const revokeDevice = await request(app).post("/admin/devices/INTEGRATION-EMPLOYEE-REPLACEMENT/revoke").set("Authorization", `Bearer ${adminToken}`);
     expect(revokeDevice.status).toBe(200);
     expect((await container.users.listDevices(employeeId)).find((item) => item.deviceId === "INTEGRATION-EMPLOYEE-REPLACEMENT")?.status).toBe("REVOKED");

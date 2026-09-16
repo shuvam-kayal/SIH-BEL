@@ -154,10 +154,11 @@ export function usersRouter(c: Container): Router {
     async (req, res, next) => {
       try {
         const deviceId = req.body?.deviceId;
-        if (typeof deviceId !== "string") {
-          throw new ValidationError(["deviceId is required to bind a wallet"]);
+        const walletAddress = req.body?.walletAddress;
+        if (typeof deviceId !== "string" || typeof walletAddress !== "string" || !walletAddress.trim()) {
+          throw new ValidationError(["deviceId and device-generated walletAddress are required"]);
         }
-        res.json({ wallet: await c.users.activateWallet(req.params.id, deviceId, typeof req.body?.walletAddress === "string" ? req.body.walletAddress : undefined) });
+        res.json({ wallet: await c.users.activateWallet(req.params.id, deviceId, walletAddress) });
       } catch (err) {
         next(err);
       }
@@ -173,7 +174,7 @@ export function usersRouter(c: Container): Router {
   });
 
   router.post("/admin/users/:id/devices", requireSession, requirePermission("CREATE_EMPLOYEE"), async (req, res, next) => {
-    try { res.status(201).json(await c.users.registerDevice(req.params.id, req.body?.deviceId, req.body?.credential)); } catch (err) { next(err); }
+    try { res.status(201).json(await c.users.registerDevice(req.params.id, req.body?.deviceId, req.body?.credential, req.body?.publicKey)); } catch (err) { next(err); }
   });
   router.get("/admin/users/:id/devices", requireSession, requirePermission("CREATE_EMPLOYEE"), async (req, res, next) => {
     try { res.json(await c.users.listDevices(req.params.id)); } catch (err) { next(err); }

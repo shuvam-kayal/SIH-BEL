@@ -8,11 +8,12 @@ import { commitState, type IntegrityAdapter } from "../integrity/integrity";
 import { ForbiddenError, HttpError, NotFoundError, ValidationError } from "../errors";
 import { hashCredential } from "./identity.store";
 import type { IdentityRepositories } from "./repositories";
+import { RejectingDeviceAttestationAdapter, type DeviceAttestationAdapter, type DeviceAttestationResult } from "../devices/device-attestation";
 
 export type CreateIdentityInput = Omit<Partial<Identity>, "employeeId" | "role"> & { employeeId: string; role: Role };
 export interface UsersService {
   createUser(input: CreateIdentityInput): Promise<CreateUserResponse>;
-  registerDevice(userId: string, deviceId: string, credential?: string): Promise<Device>;
+  registerDevice(userId: string, deviceId: string, credential?: string, publicKey?: string): Promise<Device>;
   revokeDevice(deviceId: string): Promise<Device>;
   registerWallet(userId: string, deviceId: string, address?: string): Promise<Wallet>;
   revokeWallet(userId: string, reason: string): Promise<Wallet>;
@@ -40,7 +41,8 @@ class ConflictError extends HttpError { constructor(message: string) { super(409
 export class UsersServiceImpl implements UsersService {
   private readonly repositories: IdentityRepositories;
   private readonly versions = new Map<string, number>();
-  constructor(private readonly chain: BlockchainService, repositories: IdentityRepositories, private readonly integrity?: IntegrityAdapter) { this.repositories = repositories; }
+  constructor(private readonly chain: BlockchainService, repositories: IdentityRepositories, private readonly integrity?: IntegrityAdapter, attestation?: DeviceAttestationAdapter) { this.repositories = repositories; this.attestation = attestation ?? new RejectingDeviceAttestationAdapter(); }
+  private readonly attestation: DeviceAttestationAdapter;
 
   async createUser(input: CreateIdentityInput): Promise<CreateUserResponse> {
     if (!input.employeeId || !ROLES.includes(input.role)) throw new ValidationError(["employeeId and a valid role are required"]);
@@ -48,12 +50,7 @@ export class UsersServiceImpl implements UsersService {
     if (input.identityId && await this.repositories.identities.findById(input.identityId)) throw new ConflictError(`Identity ${input.identityId} already exists`);
     const identity: Identity = { identityId: input.identityId ?? `DID:BEL:${randomUUID()}`, employeeId: input.employeeId, fullName: input.fullName ?? input.employeeId, role: input.role, department: input.department ?? "UNSPECIFIED", status: input.status ?? "ACTIVE", createdAt: input.createdAt ?? new Date().toISOString() };
     await this.repositories.identities.save(identity);
-    // Deprecated admin-seeded compatibility path. New employee onboarding
-    // never enters here and always supplies a device-generated public address
-    // through initializeAccount(). The placeholder is replaced on activation.
-    const legacyPendingWallet: Wallet = { address: `PENDING:${identity.identityId}`, identityId: identity.identityId, deviceId: "PENDING", status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null, publicKey: null };
-    await this.repositories.wallets.save(legacyPendingWallet);
-    const user = this.toUser(identity, legacyPendingWallet.address);
+    const user = this.toUser(identity, "");
     await this.repositories.users.save(user);
     await this.commit("IDENTITY", identity.identityId, "IDENTITY_CREATE", identity.identityId, { entityType: "IDENTITY", entityId: identity.identityId, status: identity.status, role: identity.role });
     await this.submit("IDENTITY_CREATE", identity, { identityId: identity.identityId, status: identity.status, role: identity.role });
@@ -64,7 +61,9 @@ export class UsersServiceImpl implements UsersService {
 
   async requestProvisioningChallenge(input: ProvisioningChallengeRequest): Promise<ProvisioningChallenge> {
     if (!input?.deviceId?.trim()) throw new ValidationError(["deviceId is required"]);
-    this.requireEligibleDevice(input.deviceMetadata);
+    if (!input.deviceMetadata || typeof input.deviceMetadata !== "object") throw new ValidationError(["deviceMetadata is required"]);
+    const attestation = await this.attestDevice(input.deviceId, input.deviceMetadata);
+    this.requireAttestation(attestation);
     const now = Date.now();
     const challenge: ProvisioningChallenge = {
       challengeId: randomUUID(),
@@ -73,7 +72,7 @@ export class UsersServiceImpl implements UsersService {
       purpose: "WALLET_INITIALIZATION",
       expiresAt: new Date(now + 5 * 60 * 1000).toISOString(),
       usedAt: null,
-      metadata: { ...input.deviceMetadata },
+      metadata: { attestation: attestation.evidence ?? {}, managedDevice: attestation.managedDevice, networkApproved: attestation.networkApproved },
     };
     await this.repositories.challenges.save(challenge);
     return { ...challenge, metadata: challenge.metadata ? { ...challenge.metadata } : null };
@@ -90,7 +89,8 @@ export class UsersServiceImpl implements UsersService {
     if (typeof input?.signature !== "string" || !input.signature.trim()) errors.push("signature is required");
     if (!input?.deviceMetadata || typeof input.deviceMetadata !== "object") errors.push("deviceMetadata is required");
     if (errors.length) throw new ValidationError(errors);
-    this.requireEligibleDevice(input.deviceMetadata);
+    const attestation = await this.attestDevice(input.deviceId, input.deviceMetadata);
+    this.requireAttestation(attestation);
 
     const challenge = await this.repositories.challenges.findById(input.challengeId);
     if (!challenge || challenge.purpose !== "WALLET_INITIALIZATION") throw new ValidationError(["challenge is invalid"]);
@@ -120,7 +120,7 @@ export class UsersServiceImpl implements UsersService {
     const device: Device = {
       deviceId: input.deviceId.trim(), identityId: identity.identityId, status: "PENDING",
       registeredAt: identity.createdAt, activatedAt: null, revokedAt: null,
-      publicKey: input.publicKey, metadata: { ...input.deviceMetadata },
+      publicKey: input.publicKey, metadata: { attestation: attestation.evidence ?? {}, managedDevice: attestation.managedDevice, networkApproved: attestation.networkApproved },
     };
     const wallet: Wallet = {
       address: input.walletAddress.trim(), identityId: identity.identityId, deviceId: device.deviceId,
@@ -182,13 +182,13 @@ export class UsersServiceImpl implements UsersService {
     return { identity: { ...identity }, device: { ...device }, wallet: { ...wallet } };
   }
 
-  async registerDevice(userId: string, deviceId: string, credential = deviceId): Promise<Device> {
+  async registerDevice(userId: string, deviceId: string, credential = deviceId, publicKey?: string): Promise<Device> {
     if (!deviceId?.trim() || !credential?.trim()) throw new ValidationError(["deviceId and credential are required"]);
     const identity = this.requireIdentity(await this.resolveIdentity(userId));
     const existing = await this.repositories.devices.findById(deviceId);
     if (existing && existing.identityId !== identity.identityId) throw new ConflictError(`Device ${deviceId} is already registered`);
     if (existing?.status === "ACTIVE") throw new ConflictError(`Device ${deviceId} is already active`);
-    const device: Device = { deviceId, identityId: identity.identityId, status: "ACTIVE", registeredAt: existing?.registeredAt ?? new Date().toISOString(), revokedAt: null };
+    const device: Device = { deviceId, identityId: identity.identityId, status: "ACTIVE", registeredAt: existing?.registeredAt ?? new Date().toISOString(), activatedAt: new Date().toISOString(), revokedAt: null, publicKey: publicKey ?? existing?.publicKey ?? null };
     await this.repositories.devices.save(device);
     await this.repositories.credentials.save(hashCredential(credential), deviceId);
     await this.commit("DEVICE", deviceId, "DEVICE_REGISTER", identity.identityId, { entityType: "DEVICE", entityId: deviceId, identityId: identity.identityId, status: device.status });
@@ -205,12 +205,14 @@ export class UsersServiceImpl implements UsersService {
     return { ...device };
   }
 
-  async registerWallet(userId: string, deviceId: string, address = `0xBEL${randomUUID().replaceAll("-", "").slice(0, 40)}`): Promise<Wallet> {
+  async registerWallet(userId: string, deviceId: string, address?: string): Promise<Wallet> {
+    if (!address?.trim()) throw new ValidationError(["device-generated walletAddress is required"]);
     const identity = this.requireIdentity(await this.resolveIdentity(userId)); this.requireActiveIdentity(identity);
     const device = await this.repositories.devices.findById(deviceId);
     if (!device || device.identityId !== identity.identityId || device.status !== "ACTIVE") throw new ForbiddenError("Device is not active for this identity");
+    if (!device.publicKey) throw new ForbiddenError("A device-generated public key is required to register a wallet");
     if (await this.repositories.wallets.findByAddress(address)) throw new ConflictError(`Wallet ${address} already exists`);
-    const wallet: Wallet = { address, identityId: identity.identityId, deviceId, status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null }; await this.repositories.wallets.save(wallet); return { ...wallet };
+    const wallet: Wallet = { address: address.trim(), identityId: identity.identityId, deviceId, status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null, publicKey: device.publicKey ?? null }; await this.repositories.wallets.save(wallet); return { ...wallet };
   }
 
   async revokeWallet(userId: string, reason: string): Promise<Wallet> {
@@ -224,12 +226,14 @@ export class UsersServiceImpl implements UsersService {
   }
 
   async activateWallet(userId: string, deviceId: string, address?: string): Promise<Wallet> {
+    if (!address?.trim()) throw new ValidationError(["device-generated walletAddress is required"]);
     const identity = this.requireIdentity(await this.resolveIdentity(userId)); this.requireActiveIdentity(identity);
     const device = await this.repositories.devices.findById(deviceId);
     if (!device || device.identityId !== identity.identityId || device.status !== "ACTIVE") throw new ForbiddenError("Device is not active for this identity");
-    const existing = address ? await this.repositories.wallets.findByAddress(address) : null;
+    const existing = await this.repositories.wallets.findByAddress(address.trim());
     if (existing && existing.identityId !== identity.identityId) throw new ForbiddenError("Wallet belongs to another identity");
-    const wallet = existing ?? (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "PENDING") ?? { address: address ?? `0xBEL${randomUUID().replaceAll("-", "").slice(0, 40)}`, identityId: identity.identityId, deviceId, status: "PENDING" as const, activatedAt: null, revokedAt: null, revokedReason: null };
+    if (!existing || existing.identityId !== identity.identityId || existing.deviceId !== deviceId || existing.status !== "PENDING") throw new NotFoundError("No pending wallet registered for this device and public address");
+    const wallet = existing;
     for (const current of await this.repositories.wallets.listByIdentityId(identity.identityId)) if (current.status === "ACTIVE" && current.address !== wallet.address) { await this.revokeWalletObject(current, "Replaced by wallet activation"); await this.commit("WALLET", current.address, "WALLET_REVOKE", identity.identityId, { entityType: "WALLET", entityId: current.address, identityId: current.identityId, deviceId: current.deviceId, status: current.status, reason: current.revokedReason }); }
     wallet.deviceId = deviceId; wallet.status = "ACTIVE"; wallet.activatedAt = new Date().toISOString(); wallet.revokedAt = null; wallet.revokedReason = null; await this.repositories.wallets.save(wallet);
     const user = await this.repositories.users.findByIdentityId(identity.identityId); if (user) { user.walletAddress = wallet.address; await this.repositories.users.save(user); }
@@ -269,12 +273,12 @@ export class UsersServiceImpl implements UsersService {
   private requireIdentity(identity: Identity | null): Identity { if (!identity) throw new NotFoundError("No identity"); return identity; }
   private requireActiveIdentity(identity: Identity): void { if (identity.status !== "ACTIVE") throw new ForbiddenError(`Identity is ${identity.status}`); }
   private toUser(identity: Identity, walletAddress: string): User { return { employeeId: identity.employeeId ?? "", identityId: identity.identityId, walletAddress, role: identity.role ?? "ENGINEER", department: identity.department ?? "UNSPECIFIED", status: identity.status }; }
-  private requireEligibleDevice(metadata: Record<string, unknown> | null | undefined): void {
+  private async attestDevice(deviceId: string, metadata: Record<string, unknown>): Promise<DeviceAttestationResult> {
     if (Object.keys(metadata ?? {}).some((key) => /private.?key|mnemonic|seed.?phrase/i.test(key))) throw new ValidationError(["private-key material is not accepted"]);
-    const managed = metadata?.managedDevice === true || metadata?.deviceManaged === true;
-    const internal = metadata?.onBelNetwork === true || metadata?.belNetwork === "INTERNAL" || metadata?.network === "BEL_INTERNAL";
-    const vpn = metadata?.approvedVpn === true || metadata?.belVpn === "APPROVED" || metadata?.network === "BEL_VPN";
-    if (!managed || (!internal && !vpn)) throw new ForbiddenError("Initialization requires a BEL-managed device on the internal network or an approved BEL VPN");
+    return this.attestation.attest({ deviceId, metadata });
+  }
+  private requireAttestation(result: DeviceAttestationResult): void {
+    if (!result.verified || !result.managedDevice || !result.networkApproved) throw new ForbiddenError("Device attestation was not approved");
   }
   private verifyProvisioningProof(challenge: string, publicKey: string, signature: string): boolean {
     try {
