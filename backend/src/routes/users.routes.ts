@@ -10,7 +10,7 @@ import type { Container } from "../container";
 import { requirePermission, requireRole } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
 import { requireActiveIdentity } from "../auth/rbac.middleware";
-import { NotFoundError, ValidationError } from "../errors";
+import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { isValidRole } from "../../../shared/schemas";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -110,6 +110,7 @@ export function usersRouter(c: Container): Router {
     requirePermission("CREATE_EMPLOYEE"),
     async (req, res, next) => {
       try {
+        if (process.env.BEL_ENV === "production") throw new ForbiddenError("Legacy administrator user creation is disabled in production; use account initialization");
         const errors: string[] = [];
         if (typeof req.body?.employeeId !== "string" || !req.body.employeeId.trim()) errors.push("employeeId is required");
         if (typeof req.body?.fullName !== "string" || !req.body.fullName.trim()) errors.push("fullName is required");

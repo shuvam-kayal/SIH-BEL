@@ -3,7 +3,7 @@
 import type { Asset, AuditEvent, Block, Identity, Job, PendingIdentity, Transaction, User, Validator, Wallet, Device, ProvisioningChallenge } from "./types";
 import type { JobPriority, Role } from "./enums";
 
-export type ApiErrorCode = "VALIDATION_FAILED" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "NOT_IMPLEMENTED" | "INTERNAL_ERROR";
+export type ApiErrorCode = "VALIDATION_FAILED" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "NOT_IMPLEMENTED" | "INTERNAL_ERROR";
 export type ApiError = { code: ApiErrorCode; message: string };
 export type Session = { user: User; token: string };
 export type LoginProofRequest = { deviceId: string; challengeId: string; publicKey: string; signature: string };
@@ -27,7 +27,6 @@ export type VerifyRegistrationRequest = { employeeId: string; department: string
 export type AssignRoleRequest = { role: Role };
 export type RegisterDeviceRequest = { deviceId: string; credential?: string; publicKey?: string };
 export type RegisterWalletRequest = { deviceId: string; walletAddress: string };
-export type RevokeDeviceResponse = { device: Device };
 export type ActivateWalletRequest = { deviceId: string; walletAddress: string };
 export type WalletActionResponse = { wallet: Wallet };
 export type CreateAssetRequest = { assetId?: string; assetType: string; ownerId: string; custodianId: string; parentAssetId?: string | null };
@@ -52,10 +51,11 @@ export interface ApiClient {
   getDevices(userId: string): Promise<Device[]>;
   registerWallet(userId: string, input: RegisterWalletRequest): Promise<Wallet>;
   getWallets(userId: string): Promise<Wallet[]>;
-  revokeDevice(deviceId: string): Promise<RevokeDeviceResponse>;
+  revokeDevice(deviceId: string): Promise<Device>;
   createUser(input: CreateUserRequest): Promise<CreateUserResponse>;
   revokeWallet(userId: string, reason: string): Promise<WalletActionResponse>;
   activateWallet(userId: string, input: ActivateWalletRequest): Promise<WalletActionResponse>;
+  logout(): Promise<void>;
   getMe(): Promise<User>;
   getUser(id: string): Promise<User | null>;
   getAssets(): Promise<Asset[]>;

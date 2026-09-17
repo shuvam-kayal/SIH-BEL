@@ -123,6 +123,19 @@ describe("permission enforcement at the HTTP boundary", () => {
     expect(res.body.identity.employeeId).toBe("EMP009");
     expect(res.body.user.status).toBe("ACTIVE");
   });
+
+  it("rejects the legacy direct-admin creation path in production", async () => {
+    const previous = process.env.BEL_ENV;
+    process.env.BEL_ENV = "production";
+    try {
+      const res = await request(app).post("/admin/users").set(as("ADMIN")).send({ employeeId: "PROD-BYPASS", fullName: "No Bypass", department: "TEST", role: "ENGINEER" });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe("FORBIDDEN");
+    } finally {
+      if (previous === undefined) delete process.env.BEL_ENV;
+      else process.env.BEL_ENV = previous;
+    }
+  });
 });
 
 describe("request validation", () => {

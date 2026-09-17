@@ -85,6 +85,14 @@ describe("employee self-initialization protocol", () => {
     expect((await request(app).post("/auth/initialize-account").send(body)).status).toBe(409);
   });
 
+  it("rejects private-key material nested in device metadata", async () => {
+    const response = await request(app).post("/auth/provisioning-challenge").send({
+      deviceId: "BEL-DEVICE-001",
+      deviceMetadata: { hardware: { wallet: { privateKey: "secret" } } },
+    });
+    expect(response.status).toBe(400);
+  });
+
   it("keeps the registration pending until an administrator verifies, assigns, and activates it", async () => {
     const keys = keyMaterial();
     const challenge = (await request(app).post("/auth/provisioning-challenge").send({ deviceId: "BEL-DEVICE-003", deviceMetadata: eligible })).body;
@@ -119,6 +127,6 @@ describe("employee self-initialization protocol", () => {
     await container.users.createUser({ employeeId: "NO-FAKE-WALLET", fullName: "No Fake Wallet", role: "ENGINEER", department: "TEST" });
     await container.users.registerDevice("NO-FAKE-WALLET", "NO-FAKE-WALLET-DEVICE", "no-fake-credential", "PUBLIC-NO-FAKE");
     expect(await container.users.listWallets("NO-FAKE-WALLET")).toHaveLength(0);
-    await expect(container.users.activateWallet("NO-FAKE-WALLET", "NO-FAKE-WALLET-DEVICE")).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(container.users.activateWallet("NO-FAKE-WALLET", "NO-FAKE-WALLET-DEVICE", "")).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

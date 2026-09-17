@@ -15,9 +15,9 @@ export interface UsersService {
   createUser(input: CreateIdentityInput): Promise<CreateUserResponse>;
   registerDevice(userId: string, deviceId: string, credential?: string, publicKey?: string): Promise<Device>;
   revokeDevice(deviceId: string): Promise<Device>;
-  registerWallet(userId: string, deviceId: string, address?: string): Promise<Wallet>;
+  registerWallet(userId: string, deviceId: string, address: string): Promise<Wallet>;
   revokeWallet(userId: string, reason: string): Promise<Wallet>;
-  activateWallet(userId: string, deviceId: string, address?: string): Promise<Wallet>;
+  activateWallet(userId: string, deviceId: string, address: string): Promise<Wallet>;
   assignRole(actorId: string, userId: string, role: Role): Promise<User>;
   getById(id: string): Promise<User | null>;
   getIdentity(id: string): Promise<Identity | null>;
@@ -205,7 +205,7 @@ export class UsersServiceImpl implements UsersService {
     return { ...device };
   }
 
-  async registerWallet(userId: string, deviceId: string, address?: string): Promise<Wallet> {
+  async registerWallet(userId: string, deviceId: string, address: string): Promise<Wallet> {
     if (!address?.trim()) throw new ValidationError(["device-generated walletAddress is required"]);
     const identity = this.requireIdentity(await this.resolveIdentity(userId)); this.requireActiveIdentity(identity);
     const device = await this.repositories.devices.findById(deviceId);
@@ -225,7 +225,7 @@ export class UsersServiceImpl implements UsersService {
     await this.submit("WALLET_REVOKE", identity, { address: wallet.address, reason }); return { ...wallet };
   }
 
-  async activateWallet(userId: string, deviceId: string, address?: string): Promise<Wallet> {
+  async activateWallet(userId: string, deviceId: string, address: string): Promise<Wallet> {
     if (!address?.trim()) throw new ValidationError(["device-generated walletAddress is required"]);
     const identity = this.requireIdentity(await this.resolveIdentity(userId)); this.requireActiveIdentity(identity);
     const device = await this.repositories.devices.findById(deviceId);
@@ -274,7 +274,14 @@ export class UsersServiceImpl implements UsersService {
   private requireActiveIdentity(identity: Identity): void { if (identity.status !== "ACTIVE") throw new ForbiddenError(`Identity is ${identity.status}`); }
   private toUser(identity: Identity, walletAddress: string): User { return { employeeId: identity.employeeId ?? "", identityId: identity.identityId, walletAddress, role: identity.role ?? "ENGINEER", department: identity.department ?? "UNSPECIFIED", status: identity.status }; }
   private async attestDevice(deviceId: string, metadata: Record<string, unknown>): Promise<DeviceAttestationResult> {
-    if (Object.keys(metadata ?? {}).some((key) => /private.?key|mnemonic|seed.?phrase/i.test(key))) throw new ValidationError(["private-key material is not accepted"]);
+    const sensitiveKey = (key: string): boolean => /private.?key|secret.?key|mnemonic|seed(?:.?phrase)?|backup/i.test(key);
+    const containsSensitiveKey = (value: unknown, seen = new Set<object>()): boolean => {
+      if (!value || typeof value !== "object") return false;
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return Object.entries(value as Record<string, unknown>).some(([key, child]) => sensitiveKey(key) || containsSensitiveKey(child, seen));
+    };
+    if (containsSensitiveKey(metadata)) throw new ValidationError(["private-key material is not accepted"]);
     return this.attestation.attest({ deviceId, metadata });
   }
   private requireAttestation(result: DeviceAttestationResult): void {
