@@ -34,3 +34,10 @@ not populated in the original matrix draft. Interim assignment above:
 ramp for identities and assets entering the system); `VERIFIER` overlaps
 with the maintenance-verification step alongside Manager/Engineer/Auditor.
 **This mapping is frozen for base-v1. Any change requires an ADR and synchronized changes to shared/rbac plus contract tests.**
+
+## Lifecycle enforcement notes
+
+- A `PENDING` identity cannot perform normal protected operations or establish an active session.
+- A role is authoritative only after administrator verification/assignment; employee-provided onboarding data never grants a role or privilege.
+- Authentication and authorization re-evaluate identity, device, and wallet status. A PENDING or REVOKED device/wallet is not trusted for active access.
+- Revoking a wallet or device invalidates applicable active sessions while preserving the persistent identity and historical records.

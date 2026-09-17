@@ -1,16 +1,10 @@
-// Development session shim. SYSTEM_SPEC.md assumes a BEL-managed
-// workstation with a device-bound credential, so there is deliberately
-// no password flow here to "finish" — Person 1 replaces the body of
-// resolveUser() with real device/session verification and everything
-// downstream (rbac.middleware, routes) keeps working unchanged.
-//
-// Until then the dev shim reads x-bel-employee-id / x-bel-role headers
-// so the frontend and API tests can exercise every role.
+// Bearer-session middleware. Device credentials are exchanged only at the
+// public login endpoint; protected requests are resolved from server state.
 
 import type { NextFunction, Request, Response } from "express";
-import { ROLES } from "../../../shared/enums";
-import type { Role, User } from "../../../shared/types";
+import type { User } from "../../../shared/types";
 import { UnauthorizedError } from "../errors";
+import type { AuthService } from "../auth/auth.service";
 
 declare global {
   namespace Express {
@@ -20,31 +14,17 @@ declare global {
   }
 }
 
-const devSessionsEnabled = () => process.env.BEL_DEV_SESSIONS !== "false";
-
-function resolveUser(req: Request): User | undefined {
-  // TODO(Person 1): replace with managed-device credential verification
-  // and a real session store. See backend/src/auth/auth.service.ts.
-  if (!devSessionsEnabled()) return undefined;
-
-  const employeeId = req.header("x-bel-employee-id");
-  const role = req.header("x-bel-role") as Role | undefined;
-  if (!employeeId || !role || !ROLES.includes(role)) return undefined;
-
-  return {
-    employeeId,
-    identityId: req.header("x-bel-identity-id") ?? `DID:BEL:${employeeId}`,
-    walletAddress: req.header("x-bel-wallet") ?? "0xDevWallet",
-    role,
-    department: req.header("x-bel-department") ?? "UNSPECIFIED",
-    status: "ACTIVE",
-  };
+async function resolveUser(req: Request, auth: AuthService): Promise<User | undefined> {
+  const header = req.header("authorization");
+  if (!header?.startsWith("Bearer ")) return undefined;
+  return (await auth.validateSession(header.slice(7).trim())) ?? undefined;
 }
 
-/** Attaches req.user when a session is present. Never rejects. */
-export function attachSession(req: Request, _res: Response, next: NextFunction) {
-  req.user = resolveUser(req);
-  next();
+/** Attaches req.user when a valid bearer session is present. Never rejects. */
+export function attachSession(auth: AuthService) {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    try { req.user = await resolveUser(req, auth); next(); } catch (error) { next(error); }
+  };
 }
 
 /** Rejects the request when no session is present. */

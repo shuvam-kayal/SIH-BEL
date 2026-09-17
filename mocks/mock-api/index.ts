@@ -1,85 +1,45 @@
-import type { ApiClient, BlockchainStatus, CommitteeResponse, CreateAssetRequest, CreateJobRequest, CreateUserRequest, Session, TransferAssetRequest, ActivateWalletRequest, AssignJobRequest, CompleteJobRequest, RejectJobRequest, WalletActionResponse, CreateUserResponse } from "../../shared/api";
-import type { AuditEvent, Asset, Identity, Job, User, Validator, Wallet } from "../../shared/types";
+import type { ApiClient, AssignJobRequest, AssignRoleRequest, ActivateWalletRequest, BlockchainStatus, CommitteeResponse, CompleteJobRequest, CreateAssetRequest, CreateJobRequest, CreateUserRequest, CreateUserResponse, InitializeAccountRequest, LoginProofRequest, PendingRegistration, ProvisioningChallengeRequest, RegisterDeviceRequest, RegisterWalletRequest, RejectJobRequest, Session, TransferAssetRequest, VerifyRegistrationRequest, WalletActionResponse } from "../../shared/api";
+import type { AuditEvent, Asset, Device, Identity, Job, PendingIdentity, ProvisioningChallenge, User, Validator, Wallet } from "../../shared/types";
 
 const now = () => new Date().toISOString();
 const seedIdentity: Identity = { identityId: "DID:BEL:001", employeeId: "EMP001", fullName: "Demo Engineer", role: "ENGINEER", department: "MAINTENANCE", status: "ACTIVE", createdAt: now() };
 const seedWallet: Wallet = { address: "0xMockWallet001", identityId: seedIdentity.identityId, deviceId: "BEL-DEV-001", status: "ACTIVE", activatedAt: now(), revokedAt: null, revokedReason: null };
 const seedUser: User = { employeeId: seedIdentity.employeeId, identityId: seedIdentity.identityId, walletAddress: seedWallet.address, role: seedIdentity.role, department: seedIdentity.department, status: seedIdentity.status };
-
-let identities: Identity[] = [seedIdentity];
+let identities: Array<Identity | PendingIdentity> = [seedIdentity];
+let devices: Device[] = [{ deviceId: seedWallet.deviceId, identityId: seedIdentity.identityId, publicKey: "mock-public-key", status: "ACTIVE", registeredAt: now(), revokedAt: null }];
 let wallets: Wallet[] = [seedWallet];
 let users: User[] = [seedUser];
+let challenges: ProvisioningChallenge[] = [];
 let assets: Asset[] = [{ assetId: "AST-001", nftId: "1", assetType: "AIRCRAFT_PART", ownerId: seedIdentity.identityId, custodianId: seedIdentity.identityId, parentAssetId: null, status: "ACTIVE" }];
 let jobs: Job[] = [{ jobId: "JOB-001", assetId: "AST-001", createdBy: seedIdentity.identityId, assignedTo: seedIdentity.identityId, verifierId: null, status: "CREATED", priority: "MEDIUM", createdAt: now(), completedAt: null }];
 const auditLog: Record<string, AuditEvent[]> = {};
-const validators: Validator[] = [
-  { validatorId: "val_0", publicKey: "0xMockPubKey0", status: "ACTIVE", joinedAt: now() },
-  { validatorId: "val_1", publicKey: "0xMockPubKey1", status: "ACTIVE", joinedAt: now() },
-  { validatorId: "val_2", publicKey: "0xMockPubKey2", status: "ACTIVE", joinedAt: now() },
-  { validatorId: "val_3", publicKey: "0xMockPubKey3", status: "ACTIVE", joinedAt: now() },
-];
+const validators: Validator[] = [0, 1, 2, 3].map((i) => ({ validatorId: `val_${i}`, publicKey: `0xMockPubKey${i}`, status: "ACTIVE", joinedAt: now() }));
+const requireUser = (id: string) => { const user = users.find((u) => u.employeeId === id || u.identityId === id); if (!user) throw new Error(`User ${id} not found`); return user; };
+const requireJob = (id: string) => { const job = jobs.find((j) => j.jobId === id); if (!job) throw new Error(`Job ${id} not found`); return job; };
+const challenge = (deviceId: string, purpose: ProvisioningChallenge["purpose"]): ProvisioningChallenge => { const value = { challengeId: `mock-${purpose}-${deviceId}`, deviceId, purpose, challenge: `challenge-${deviceId}`, expiresAt: new Date(Date.now() + 300_000).toISOString(), usedAt: null }; challenges = [...challenges.filter((c) => c.challengeId !== value.challengeId), value]; return value; };
+const registration = (identityId: string): PendingRegistration => { const identity = identities.find((i) => i.identityId === identityId); const device = devices.find((d) => d.identityId === identityId); const wallet = wallets.find((w) => w.identityId === identityId); if (!identity || !device || !wallet) throw new Error(`Registration ${identityId} not found`); return { identity, device, wallet }; };
 
-function recordAudit(entityType: AuditEvent["entityType"], entityId: string, action: string): void {
-  const event: AuditEvent = { eventId: `evt_${Date.now()}_${Math.random().toString(16).slice(2)}`, txId: `mock-tx-${Date.now()}`, entityType, entityId, action, actorIdentityId: seedIdentity.identityId, timestamp: now() };
-  auditLog[entityId] = [...(auditLog[entityId] ?? []), event];
-}
-
-function requireAsset(id: string): Asset { const asset = assets.find((a) => a.assetId === id); if (!asset) throw new Error(`Asset ${id} not found`); return asset; }
-function requireJob(id: string): Job { const job = jobs.find((j) => j.jobId === id); if (!job) throw new Error(`Job ${id} not found`); return job; }
-
-export const mockApi: ApiClient = {
-  async login(_deviceCredential = "mock-device-credential"): Promise<Session> { return { user: seedUser, token: "mock-session-token" }; },
-  async createUser(input: CreateUserRequest): Promise<CreateUserResponse> {
-    const identity: Identity = { identityId: `DID:BEL:${identities.length + 1}`, employeeId: input.employeeId, fullName: input.fullName, role: input.role, department: input.department, status: "ACTIVE", createdAt: now() };
-    const wallet: Wallet = { address: `0xMockWallet${String(identities.length + 1).padStart(3, "0")}`, identityId: identity.identityId, deviceId: "PENDING", status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null };
-    const user: User = { employeeId: identity.employeeId, identityId: identity.identityId, walletAddress: wallet.address, role: identity.role, department: identity.department, status: identity.status };
-    identities = [...identities, identity]; wallets = [...wallets, wallet]; users = [...users, user]; recordAudit("IDENTITY", identity.identityId, "IDENTITY_CREATE");
-    return { identity, user };
-  },
-  async revokeWallet(userId: string, reason: string): Promise<WalletActionResponse> {
-    const user = users.find((u) => u.employeeId === userId);
-    if (!user) throw new Error(`User ${userId} not found`);
-    const wallet = wallets.find((w) => w.address === user.walletAddress);
-    if (!wallet) throw new Error(`Wallet ${user.walletAddress} not found`);
-    wallet.status = "REVOKED"; wallet.revokedAt = now(); wallet.revokedReason = reason; recordAudit("WALLET", wallet.address, "WALLET_REVOKE");
-    return { wallet: { ...wallet } };
-  },
-  async activateWallet(userId: string, input: ActivateWalletRequest): Promise<WalletActionResponse> {
-    const user = users.find((u) => u.employeeId === userId); if (!user) throw new Error(`User ${userId} not found`);
-    const wallet: Wallet = { address: input.walletAddress, identityId: user.identityId, deviceId: input.deviceId, status: "ACTIVE", activatedAt: now(), revokedAt: null, revokedReason: null };
-    wallets = [...wallets.filter((w) => w.identityId !== user.identityId || w.status !== "ACTIVE"), wallet];
-    user.walletAddress = wallet.address; recordAudit("WALLET", wallet.address, "WALLET_ACTIVATE"); return { wallet: { ...wallet } };
-  },
-  async getMe(): Promise<User> { return { ...seedUser }; },
-  async getUser(id: string): Promise<User | null> { return users.find((u) => u.employeeId === id) ?? null; },
-  async getAssets(): Promise<Asset[]> { return assets.map((a) => ({ ...a })); },
-  async getAsset(id: string): Promise<Asset | null> { const a = assets.find((x) => x.assetId === id); return a ? { ...a } : null; },
-  async createAsset(input: CreateAssetRequest): Promise<Asset> {
-    const asset: Asset = { assetId: input.assetId ?? `AST-${String(assets.length + 1).padStart(3, "0")}`, nftId: String(assets.length + 1), assetType: input.assetType, ownerId: input.ownerId, custodianId: input.custodianId, parentAssetId: input.parentAssetId ?? null, status: "ACTIVE" };
-    assets = [...assets, asset]; recordAudit("ASSET", asset.assetId, "ASSET_MINT"); return { ...asset };
-  },
-  async transferAsset(id: string, input: TransferAssetRequest): Promise<Asset> {
-    const asset = requireAsset(id); asset.ownerId = input.newOwnerId; asset.custodianId = input.newCustodianId ?? input.newOwnerId; recordAudit("ASSET", id, "ASSET_TRANSFER"); return { ...asset };
-  },
-  async getJobs(): Promise<Job[]> { return jobs.map((j) => ({ ...j })); },
-  async getJob(id: string): Promise<Job | null> { const j = jobs.find((x) => x.jobId === id); return j ? { ...j } : null; },
-  async createJob(input: CreateJobRequest): Promise<Job> {
-    const job: Job = { jobId: `JOB-${String(jobs.length + 1).padStart(3, "0")}`, assetId: input.assetId, createdBy: seedIdentity.identityId, assignedTo: "", verifierId: input.verifierId ?? null, status: "CREATED", priority: input.priority, createdAt: now(), completedAt: null };
-    jobs = [...jobs, job]; recordAudit("JOB", job.jobId, "JOB_CREATE"); return { ...job };
-  },
-  async assignJob(id: string, input: AssignJobRequest): Promise<Job> { const job = requireJob(id); job.assignedTo = input.technicianId; job.status = "ASSIGNED"; recordAudit("JOB", id, "JOB_ASSIGN"); return { ...job }; },
-  async startJob(id: string): Promise<Job> { const job = requireJob(id); job.status = "IN_PROGRESS"; recordAudit("JOB", id, "JOB_START"); return { ...job }; },
-  async completeJob(id: string, _input: CompleteJobRequest): Promise<Job> { const job = requireJob(id); job.status = "COMPLETED"; job.completedAt = now(); recordAudit("JOB", id, "JOB_COMPLETE"); return { ...job }; },
-  async approveJob(id: string): Promise<Job> { const job = requireJob(id); job.status = "VERIFIED"; job.verifierId = seedIdentity.identityId; recordAudit("JOB", id, "JOB_APPROVE"); return { ...job }; },
-  async rejectJob(id: string, _input: RejectJobRequest): Promise<Job> { const job = requireJob(id); job.status = "REJECTED"; recordAudit("JOB", id, "JOB_REJECT"); return { ...job }; },
-  async getAssetAuditTrail(assetId: string): Promise<AuditEvent[]> { return [...(auditLog[assetId] ?? [])]; },
-  async getBlockchainStatus(): Promise<BlockchainStatus> { return { height: 42, healthy: true, finalityLag: 0, lastFinalizedHeight: 42 }; },
-  async getValidators(): Promise<Validator[]> { return validators.map((v) => ({ ...v })); },
-  async getCommittee(height: number): Promise<CommitteeResponse> {
-    const ids = validators.filter((v) => v.status === "ACTIVE").map((v) => v.validatorId);
-    const size = Math.max(1, Math.min(ids.length, Math.ceil(ids.length * 0.02))); const start = ids.length ? height % ids.length : 0;
-    return { height, validatorIds: Array.from({ length: size }, (_, i) => ids[(start + i) % ids.length]) };
-  },
+export const mockApi: ApiClient & { login(): Promise<Session> } = {
+  async requestProvisioningChallenge(input: ProvisioningChallengeRequest) { return challenge(input.deviceId, "WALLET_INITIALIZATION"); },
+  async initializeAccount(input: InitializeAccountRequest) { const identity: PendingIdentity = { identityId: `DID:BEL:P${identities.length + 1}`, employeeId: input.employeeId ?? null, fullName: input.fullName, role: null, department: input.department ?? null, status: "PENDING", createdAt: now() }; identities = [...identities, identity]; devices = [...devices, { deviceId: input.deviceId, identityId: identity.identityId, publicKey: input.publicKey, metadata: input.deviceMetadata, status: "PENDING", registeredAt: now(), revokedAt: null }]; wallets = [...wallets, { address: input.walletAddress, identityId: identity.identityId, deviceId: input.deviceId, publicKey: input.publicKey, status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null }]; return registration(identity.identityId); },
+  async requestAuthenticationChallenge(deviceId: string) { return challenge(deviceId, "AUTHENTICATION"); },
+  async login(input: string | LoginProofRequest = "mock-device-credential") { const device = typeof input === "string" ? undefined : devices.find((d) => d.deviceId === input.deviceId && d.publicKey === input.publicKey && d.status === "ACTIVE"); if (typeof input !== "string" && !device) throw new Error("Invalid device proof"); const user = device ? users.find((candidate) => candidate.identityId === device.identityId) ?? seedUser : seedUser; return { user: { ...user }, token: "mock-session-token" }; },
+  async getPendingRegistrations() { return identities.filter((i) => i.status === "PENDING").map((i) => registration(i.identityId)); },
+  async verifyRegistration(id: string, input: VerifyRegistrationRequest) { const identity = identities.find((i) => i.identityId === id); if (!identity) throw new Error(`Identity ${id} not found`); identity.employeeId = input.employeeId; identity.department = input.department; return identity; },
+  async assignRole(id: string, input: AssignRoleRequest) { const identity = identities.find((i) => i.identityId === id); if (!identity || !identity.employeeId || !identity.department) throw new Error(`Identity ${id} is not verified`); identity.role = input.role; const user: User = { employeeId: identity.employeeId, identityId: id, walletAddress: wallets.find((w) => w.identityId === id)?.address ?? "", role: input.role, department: identity.department, status: identity.status }; users = [...users.filter((u) => u.identityId !== id), user]; return user; },
+  async activateRegistration(id: string) { const identity = identities.find((i) => i.identityId === id); const device = devices.find((d) => d.identityId === id); const wallet = wallets.find((w) => w.identityId === id); if (!identity || !device || !wallet || !identity.employeeId || !identity.department || !identity.role) throw new Error(`Registration ${id} is incomplete`); identity.status = "ACTIVE"; device.status = "ACTIVE"; wallet.status = "ACTIVE"; wallet.activatedAt = now(); const user: User = { employeeId: identity.employeeId, identityId: id, walletAddress: wallet.address, role: identity.role, department: identity.department, status: "ACTIVE" }; users = [...users.filter((u) => u.identityId !== id), user]; return registration(id); },
+  async registerDevice(userId: string, input: RegisterDeviceRequest) { const user = requireUser(userId); const device: Device = { deviceId: input.deviceId, identityId: user.identityId, publicKey: input.publicKey, status: "PENDING", registeredAt: now(), revokedAt: null }; devices = [...devices, device]; return device; },
+  async getDevices(userId: string) { const user = requireUser(userId); return devices.filter((d) => d.identityId === user.identityId); },
+  async registerWallet(userId: string, input: RegisterWalletRequest) { const user = requireUser(userId); const device = devices.find((d) => d.deviceId === input.deviceId && d.identityId === user.identityId && d.status === "ACTIVE"); if (!device || !input.walletAddress) throw new Error("An active device and existing wallet address are required"); const wallet: Wallet = { address: input.walletAddress, identityId: user.identityId, deviceId: input.deviceId, publicKey: device.publicKey, status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null }; wallets = [...wallets, wallet]; return wallet; },
+  async getWallets(userId: string) { const user = requireUser(userId); return wallets.filter((w) => w.identityId === user.identityId); },
+  async activateWallet(userId: string, input: ActivateWalletRequest): Promise<WalletActionResponse> { const user = requireUser(userId); const wallet = wallets.find((w) => w.identityId === user.identityId && w.deviceId === input.deviceId && w.address === input.walletAddress && w.status === "PENDING"); if (!wallet) throw new Error("Only an existing pending wallet can be activated"); wallet.status = "ACTIVE"; wallet.activatedAt = now(); user.walletAddress = wallet.address; return { wallet: { ...wallet } }; },
+  async revokeWallet(userId: string, reason: string) { const user = requireUser(userId); const wallet = wallets.find((w) => w.identityId === user.identityId && w.address === user.walletAddress); if (!wallet) throw new Error("Wallet not found"); wallet.status = "REVOKED"; wallet.revokedAt = now(); wallet.revokedReason = reason; return { wallet: { ...wallet } }; },
+  async revokeDevice(deviceId: string): Promise<Device> { const device = devices.find((d) => d.deviceId === deviceId); if (!device) throw new Error(`Device ${deviceId} not found`); device.status = "REVOKED"; device.revokedAt = now(); return { ...device }; },
+  async logout() { return undefined; },
+  async createUser(input: CreateUserRequest): Promise<CreateUserResponse> { const identity: Identity = { identityId: `DID:BEL:${identities.length + 1}`, employeeId: input.employeeId, fullName: input.fullName, role: input.role, department: input.department, status: "ACTIVE", createdAt: now() }; const user: User = { employeeId: identity.employeeId, identityId: identity.identityId, walletAddress: "", role: identity.role, department: identity.department, status: identity.status }; identities = [...identities, identity]; users = [...users, user]; return { identity, user }; },
+  async getMe() { return { ...seedUser }; }, async getUser(id: string) { return users.find((u) => u.employeeId === id || u.identityId === id) ?? null; }, async getAssets() { return assets.map((a) => ({ ...a })); }, async getAsset(id: string) { return assets.find((a) => a.assetId === id) ?? null; },
+  async createAsset(input: CreateAssetRequest) { const asset: Asset = { assetId: input.assetId ?? `AST-${assets.length + 1}`, nftId: String(assets.length + 1), assetType: input.assetType, ownerId: input.ownerId, custodianId: input.custodianId, parentAssetId: input.parentAssetId ?? null, status: "ACTIVE" }; assets = [...assets, asset]; return asset; }, async transferAsset(id: string, input: TransferAssetRequest) { const asset = assets.find((a) => a.assetId === id); if (!asset) throw new Error(`Asset ${id} not found`); asset.ownerId = input.newOwnerId; asset.custodianId = input.newCustodianId ?? input.newOwnerId; return { ...asset }; },
+  async getJobs() { return jobs.map((j) => ({ ...j })); }, async getJob(id: string) { return jobs.find((j) => j.jobId === id) ?? null; }, async createJob(input: CreateJobRequest) { const job: Job = { jobId: `JOB-${jobs.length + 1}`, assetId: input.assetId, createdBy: seedIdentity.identityId, assignedTo: "", verifierId: input.verifierId ?? null, status: "CREATED", priority: input.priority, createdAt: now(), completedAt: null }; jobs = [...jobs, job]; return job; }, async assignJob(id: string, input: AssignJobRequest) { const job = requireJob(id); job.assignedTo = input.technicianId; job.status = "ASSIGNED"; return { ...job }; }, async startJob(id: string) { const job = requireJob(id); job.status = "IN_PROGRESS"; return { ...job }; }, async completeJob(id: string, _input: CompleteJobRequest) { const job = requireJob(id); job.status = "COMPLETED"; job.completedAt = now(); return { ...job }; }, async approveJob(id: string) { const job = requireJob(id); job.status = "VERIFIED"; return { ...job }; }, async rejectJob(id: string, _input: RejectJobRequest) { const job = requireJob(id); job.status = "REJECTED"; return { ...job }; },
+  async getAssetAuditTrail(assetId: string) { return [...(auditLog[assetId] ?? [])]; }, async getBlockchainStatus(): Promise<BlockchainStatus> { return { height: 42, healthy: true, finalityLag: 0, lastFinalizedHeight: 42 }; }, async getValidators() { return validators.map((v) => ({ ...v })); }, async getCommittee(height: number): Promise<CommitteeResponse> { return { height, validatorIds: validators.map((v) => v.validatorId).slice(0, 1) }; },
 };
-
 export type MockApi = typeof mockApi;

@@ -105,14 +105,55 @@ install, because the current sources are interfaces plus a
 dependency-free test skeleton. `forge-std` is installed on demand via
 `scripts/setup-contracts.sh` when tests need cheatcodes.
 
-### ADR-012: Dev sessions are header-based until Person 1 replaces them
-`backend/src/middleware/session.ts` reads `x-bel-employee-id` and
-`x-bel-role` so every role can be exercised before real authentication
-exists. It is a shim with one function to replace, and it can be turned
-off with `BEL_DEV_SESSIONS=false`. **It must not reach any deployed
-environment** — see THREAT_MODEL.md.
+### ADR-012: Development authentication uses bearer sessions
+Protected requests are authenticated only with a server-issued bearer
+session created by `/auth/login`. Development credentials are hashed and
+verified through the same device/identity/wallet checks as future managed
+device credentials. This compatibility path is development-only and is
+disabled when `BEL_ENV=production`; production uses device proof. Client-
+supplied `x-bel-*` identity headers are ignored.
 
 ### ADR-013: LICENSE is unresolved
 The root LICENSE asserts internal-use-only while the Solidity files
 carry MIT SPDX headers. This contradiction is deliberately left visible
 rather than silently resolved. Decide before first release.
+
+### ADR-014: Employee self-initialization
+**Decision:** Employees submit basic details and device-generated public wallet information; administrators verify and authorize the pending registration.
+**Why:** Employees should not depend on an administrator to re-enter basic details, while BEL retains authorization control.
+**Consequences:** Initialization creates PENDING identity/device/wallet records and cannot self-assign a role or become active.
+
+### ADR-015: Identity persists independently of wallet
+**Decision:** Identity is the persistent employee anchor; devices and wallets are replaceable credentials.
+**Why:** Device loss, rotation, or compromise must not erase employment or role history.
+**Consequences:** Historical wallet/device records remain auditable and replacement preserves identity.
+
+### ADR-016: Private key remains on the managed device
+**Decision:** The device wallet component generates and retains the private key; the backend handles only public material and proof.
+**Why:** The backend and blockchain are not employee key vaults.
+**Consequences:** Hardware-backed secure storage is future device-side work and is not claimed by the prototype.
+
+### ADR-017: Challenge-response authentication
+**Decision:** Production login uses a short-lived backend challenge signed automatically by the managed-device wallet component.
+**Why:** Public-key proof avoids transmitting private credentials and binds login to the registered device/wallet.
+**Consequences:** The user only clicks Sign In; the device handles challenge, signature, and proof fields. Bearer sessions remain the application session mechanism.
+
+### ADR-018: Device attestation abstraction
+**Decision:** Eligibility is decided through `DeviceAttestationAdapter`, not client-supplied managed/network flags.
+**Why:** MAC, IP, hostname, and VPN fields are spoofable evidence rather than trust anchors.
+**Consequences:** The prototype uses mock/rejecting adapters; trusted BEL device-management/VPN integration remains future work.
+
+### ADR-019: PENDING → VERIFIED → ACTIVE lifecycle
+**Decision:** Initialization remains pending until an administrator verifies identity data, assigns role, and activates identity/device/wallet.
+**Why:** A submitted registration must not equal an authenticated employee.
+**Consequences:** Pending records cannot log in or access protected business operations.
+
+### ADR-020: Wallet replacement preserves identity
+**Decision:** Wallet replacement revokes the old wallet and registers a new pending wallet against the same identity.
+**Why:** Keys and devices can change without changing the employee anchor.
+**Consequences:** Historical transactions retain the old actor wallet while new transactions use the replacement wallet.
+
+### ADR-021: PostgreSQL plus blockchain integrity anchor
+**Decision:** PostgreSQL stores mutable operational state; SHA-256 commitments are sent through `IntegrityAdapter` for permissioned-blockchain anchoring.
+**Why:** Operational queries need a durable database while lifecycle history needs tamper-evident evidence.
+**Consequences:** Other workstreams consume repository/API contracts and do not couple directly to Prisma tables.

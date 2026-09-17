@@ -16,11 +16,11 @@ employment status belong here, not to the wallet.
 | Field | Type | Notes |
 |---|---|---|
 | identityId | string | Primary key. e.g. `DID:BEL:001` |
-| employeeId | string | HR/employee reference number |
+| employeeId | string \| null | HR/employee reference number; may be assigned during admin verification |
 | fullName | string | |
-| role | Role | See Actors in SYSTEM_SPEC.md |
-| department | string | |
-| status | `ACTIVE` \| `SUSPENDED` \| `REVOKED` | Identity-level status |
+| role | Role \| null | Assigned by an administrator; unavailable while pending |
+| department | string \| null | May be assigned during verification |
+| status | `PENDING` \| `ACTIVE` \| `SUSPENDED` \| `REVOKED` | Identity-level status |
 | createdAt | string (ISO 8601) | |
 
 ## User
@@ -46,9 +46,12 @@ A BEL-managed endpoint authorized to hold a signing wallet for an Identity. Devi
 |---|---|---|
 | deviceId | string | Managed-device identifier |
 | identityId | string | FK -> Identity.identityId |
-| status | `ACTIVE` \| `REVOKED` | |
+| status | `PENDING` \| `ACTIVE` \| `REVOKED` | Registration and trust lifecycle |
 | registeredAt | string (ISO 8601) | |
+| activatedAt | string (ISO 8601) \| null | Set after administrator activation |
 | revokedAt | string (ISO 8601) \| null | |
+| publicKey | string \| null | Device-generated public key; never a private key |
+| metadata | object \| null | Non-secret evidence/attestation metadata |
 
 ## Wallet
 
@@ -64,6 +67,25 @@ revoked and a new one issued without changing the underlying Identity.
 | activatedAt | string (ISO 8601) \| null | |
 | revokedAt | string (ISO 8601) \| null | |
 | revokedReason | string \| null | |
+| publicKey | string \| null | Public key only; the backend never stores a private key |
+
+Wallet address binding: `walletAddress` must correspond to the device-generated `publicKey` under the eventual wallet/signature scheme. The binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; no blockchain-specific derivation is defined here.
+
+## ProvisioningChallenge
+
+A short-lived, single-use challenge bound to a device and purpose. It is
+used for wallet initialization or authentication proof. A challenge does
+not contain private-key material.
+
+| Field | Type | Notes |
+|---|---|---|
+| challengeId | string | Primary key |
+| deviceId | string | Bound device reference |
+| challenge | string | Unique nonce |
+| purpose | `WALLET_INITIALIZATION` \| `AUTHENTICATION` | Protocol purpose |
+| expiresAt | string (ISO 8601) | Short TTL |
+| usedAt | string (ISO 8601) \| null | Replay protection |
+| metadata | object \| null | Attestation result/evidence, not trust from raw client flags |
 
 ## AuthorizationGrant
 

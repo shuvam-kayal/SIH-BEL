@@ -4,15 +4,31 @@
 // do NOT assert business behaviour: that arrives with each owner's
 // implementation, and these tests should still pass then.
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app";
+import { createContainer } from "../src/container";
+import { createMemoryRepositories } from "../src/users/repository-implementations";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const app = createApp();
+const container = createContainer(undefined, { repositories: createMemoryRepositories() });
+const app = createApp(container);
+const tokens: Record<string, string> = {};
 
 const as = (role: string, employeeId = "EMP001") => ({
-  "x-bel-employee-id": employeeId,
-  "x-bel-role": role,
+  Authorization: `Bearer ${tokens[role]}`,
+});
+
+beforeAll(async () => {
+  for (const role of ["ADMIN", "MANAGER", "ENGINEER", "TECHNICIAN", "AUDITOR", "ISSUER", "VERIFIER"] as const) {
+    const employeeId = `SEED-${role}`;
+    await container.users.createUser({ employeeId, fullName: role, role, department: "TEST" });
+    await container.users.registerDevice(employeeId, `${employeeId}-DEVICE`, `${employeeId}-CREDENTIAL`, `PUBLIC-${employeeId}`);
+    await container.users.registerWallet(employeeId, `${employeeId}-DEVICE`, `0xTEST-${employeeId}`);
+    await container.users.activateWallet(employeeId, `${employeeId}-DEVICE`, `0xTEST-${employeeId}`);
+    tokens[role] = (await container.auth.login(`${employeeId}-CREDENTIAL`)).token;
+  }
 });
 
 describe("infrastructure", () => {
@@ -27,6 +43,20 @@ describe("infrastructure", () => {
     expect(res.status).toBe(404);
     expect(res.body.code).toBe("NOT_FOUND");
   });
+
+  it("serves the repository OpenAPI document from any working directory", async () => {
+    const spec = await request(app).get("/docs/openapi.yaml");
+    expect(spec.status).toBe(200);
+    expect(spec.type).toBe("text/yaml");
+    expect(spec.text).toBe(readFileSync(fileURLToPath(new URL("../../docs/API_SPEC.yaml", import.meta.url)), "utf8"));
+  });
+
+  it("serves the Swagger UI shell pointing at the OpenAPI document", async () => {
+    const docs = await request(app).get("/docs");
+    expect(docs.status).toBe(200);
+    expect(docs.text).toContain("SwaggerUIBundle");
+    expect(docs.text).toContain("/docs/openapi.yaml");
+  });
 });
 
 describe("sessions", () => {
@@ -39,7 +69,7 @@ describe("sessions", () => {
   it("returns the caller's own identity", async () => {
     const res = await request(app).get("/users/me").set(as("ENGINEER"));
     expect(res.status).toBe(200);
-    expect(res.body.employeeId).toBe("EMP001");
+    expect(res.body.employeeId).toBe("SEED-ENGINEER");
     expect(res.body.role).toBe("ENGINEER");
   });
 });
@@ -49,7 +79,7 @@ describe("permission enforcement at the HTTP boundary", () => {
     const res = await request(app)
       .post("/admin/users")
       .set(as("MANAGER"))
-      .send({ identityId: "DID:BEL:9", employeeId: "EMP009", role: "TECHNICIAN", status: "ACTIVE" });
+      .send({ employeeId: "EMP009", fullName: "Employee 009", department: "TEST", role: "TECHNICIAN" });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe("FORBIDDEN");
   });
@@ -70,14 +100,41 @@ describe("permission enforcement at the HTTP boundary", () => {
     expect(res.status).toBe(403);
   });
 
+  it("allows an engineer through CREATE_JOB while denying a technician", async () => {
+    const allowed = await request(app).post("/jobs").set(as("ENGINEER")).send({ assetId: "AST-001", priority: "LOW" });
+    expect(allowed.status).toBe(501); // service is intentionally owned by Person 3; the RBAC gate passed.
+    const denied = await request(app).post("/jobs").set(as("TECHNICIAN")).send({ assetId: "AST-001", priority: "LOW" });
+    expect(denied.status).toBe(403);
+  });
+
+  it("allows a technician through PERFORM_MAINTENANCE while denying an auditor", async () => {
+    const allowed = await request(app).post("/jobs/JOB-001/start").set(as("TECHNICIAN"));
+    expect(allowed.status).toBe(501); // service is intentionally owned by Person 3; the RBAC gate passed.
+    const denied = await request(app).post("/jobs/JOB-001/start").set(as("AUDITOR"));
+    expect(denied.status).toBe(403);
+  });
+
   it("lets an admin past the permission gate", async () => {
     const res = await request(app)
       .post("/admin/users")
       .set(as("ADMIN"))
-      .send({ identityId: "DID:BEL:9", employeeId: "EMP009", role: "TECHNICIAN", status: "ACTIVE" });
-    // Passes RBAC, then hits the unimplemented service.
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe("NOT_IMPLEMENTED");
+      .send({ employeeId: "EMP009", fullName: "Employee 009", department: "TEST", role: "TECHNICIAN" });
+    expect(res.status).toBe(201);
+    expect(res.body.identity.employeeId).toBe("EMP009");
+    expect(res.body.user.status).toBe("ACTIVE");
+  });
+
+  it("rejects the legacy direct-admin creation path in production", async () => {
+    const previous = process.env.BEL_ENV;
+    process.env.BEL_ENV = "production";
+    try {
+      const res = await request(app).post("/admin/users").set(as("ADMIN")).send({ employeeId: "PROD-BYPASS", fullName: "No Bypass", department: "TEST", role: "ENGINEER" });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe("FORBIDDEN");
+    } finally {
+      if (previous === undefined) delete process.env.BEL_ENV;
+      else process.env.BEL_ENV = previous;
+    }
   });
 });
 

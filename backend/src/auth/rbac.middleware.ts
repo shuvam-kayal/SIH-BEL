@@ -61,8 +61,5 @@ export function requireActiveIdentity(req: Request, _res: Response, next: NextFu
   if (req.user.status !== "ACTIVE") {
     return next(new ForbiddenError(`Identity is ${req.user.status}`));
   }
-  // TODO(Person 1): also check wallet status — a REVOKED wallet must not
-  // transact even when the underlying identity is still ACTIVE
-  // (SYSTEM_SPEC.md: roles belong to identity, not wallet).
   next();
 }

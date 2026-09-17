@@ -12,7 +12,7 @@ export const ROLES = [
 ] as const;
 export type Role = (typeof ROLES)[number];
 
-export const IDENTITY_STATUSES = ["ACTIVE", "SUSPENDED", "REVOKED"] as const;
+export const IDENTITY_STATUSES = ["PENDING", "ACTIVE", "SUSPENDED", "REVOKED"] as const;
 export type IdentityStatus = (typeof IDENTITY_STATUSES)[number];
 
 export const WALLET_STATUSES = ["PENDING", "ACTIVE", "REVOKED"] as const;
@@ -37,14 +37,16 @@ export type JobPriority = (typeof JOB_PRIORITIES)[number];
 export const VALIDATOR_STATUSES = ["ACTIVE", "INACTIVE", "SLASHED"] as const;
 export type ValidatorStatus = (typeof VALIDATOR_STATUSES)[number];
 
-export const AUDIT_ENTITY_TYPES = ["ASSET", "JOB", "IDENTITY", "WALLET"] as const;
+export const AUDIT_ENTITY_TYPES = ["ASSET", "JOB", "IDENTITY", "DEVICE", "WALLET", "GRANT"] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 
 // Mirrors docs/CONTRACT_SPEC.md — every on-chain transaction type.
 export const TRANSACTION_TYPES = [
   "IDENTITY_CREATE",
+  "IDENTITY_REGISTER",
   "ROLE_ASSIGN",
   "ROLE_REVOKE",
+  "WALLET_REGISTER",
   "WALLET_ACTIVATE",
   "WALLET_REVOKE",
   "ASSET_MINT",

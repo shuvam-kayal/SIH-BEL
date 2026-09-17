@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum IdentityStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum WalletStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+enum DeviceStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+enum GrantStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model Identity {
+  identityId String @id
+  employeeId String? @unique
+  fullName String
+  role String?
+  department String?
+  status IdentityStatus
+  createdAt DateTime
+  verifiedAt DateTime?
+  verifiedBy String?
+  user User?
+  devices Device[]
+  wallets Wallet[]
+  grants AuthorizationGrant[] @relation("GrantTarget")
+  granted AuthorizationGrant[] @relation("Grantor")
+}
+
+model User {
+  employeeId String @id
+  identityId String @unique
+  walletAddress String
+  role String
+  department String
+  status IdentityStatus
+  identity Identity @relation(fields: [identityId], references: [identityId])
+}
+
+model Device {
+  deviceId String @id
+  identityId String
+  status DeviceStatus
+  registeredAt DateTime
+  activatedAt DateTime?
+  revokedAt DateTime?
+  publicKey String?
+  metadata Json?
+  identity Identity @relation(fields: [identityId], references: [identityId])
+  credentials Credential[]
+}
+
+model Credential {
+  id String @id
+  verifier String @unique
+  deviceId String
+  active Boolean @default(true)
+  device Device @relation(fields: [deviceId], references: [deviceId])
+}
+
+model Wallet {
+  address String @id
+  identityId String
+  deviceId String
+  status WalletStatus
+  activatedAt DateTime?
+  revokedAt DateTime?
+  revokedReason String?
+  publicKey String?
+  identity Identity @relation(fields: [identityId], references: [identityId])
+}
+
+model ProvisioningChallenge {
+  challengeId String @id
+  deviceId String
+  challenge String @unique
+  purpose String
+  expiresAt DateTime
+  usedAt DateTime?
+  metadata Json?
+}
+
+model Session {
+  tokenHash String @id
+  identityId String
+  deviceId String
+  walletAddress String
+  expiresAt DateTime
+  revokedAt DateTime?
+}
+
+model AuthorizationGrant {
+  authorizationGrantId String @id
+  actorIdentityId String
+  resourceType String
+  resourceId String
+  action String
+  grantedByIdentityId String
+  issuedAt DateTime
+  expiresAt DateTime?
+  status GrantStatus
+  target Identity @relation("GrantTarget", fields: [actorIdentityId], references: [identityId])
+  grantor Identity @relation("Grantor", fields: [grantedByIdentityId], references: [identityId])
+}
