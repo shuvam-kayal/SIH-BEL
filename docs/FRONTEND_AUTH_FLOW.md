@@ -43,6 +43,10 @@ The human interaction is only **Click Sign In**. The device integration calls `P
 
 The development-only credential login is a compatibility path and is disabled in production.
 
+## Shared API client handoff
+
+The frontend uses the typed `ApiClient` methods `requestProvisioningChallenge`, `initializeAccount`, `getPendingRegistrations`, `verifyRegistration`, `assignRole`, `activateRegistration`, `requestAuthenticationChallenge`, and `login`. Device and wallet administration uses `registerDevice`, `getDevices`, `registerWallet`, `getWallets`, `activateWallet`, `revokeWallet`, and `revokeDevice`. These methods carry public device/wallet information and proofs; they do not expose private-key fields.
+
 ## Prototype versus target
 
 The current backend exposes the protocol and a `DeviceAttestationAdapter` seam. It does not claim production hardware-backed secure storage or a live BEL device-management/VPN attestation provider.

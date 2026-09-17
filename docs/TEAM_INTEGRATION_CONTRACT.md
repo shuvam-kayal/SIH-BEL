@@ -25,6 +25,7 @@ This contract describes the current Person 1 prototype boundary. It does not cla
 - `managedDevice`, `onBelNetwork`, hostname, MAC, IP, and VPN fields are evidence only. The backend's `DeviceAttestationAdapter` result controls eligibility.
 - Login is a transparent device protocol: the user clicks Sign In; the device requests a challenge, signs locally, and submits proof. The user does not manually enter challenge IDs, signatures, or public keys.
 - The active dashboard is available only after identity, device, and wallet are ACTIVE.
+- `walletAddress` must correspond to the submitted device-generated `publicKey`. This binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; no blockchain-specific derivation is assumed by this contract.
 
 ## Persons 2 and 3 — assets and jobs
 

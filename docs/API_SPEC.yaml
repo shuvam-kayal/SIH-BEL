@@ -401,14 +401,24 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                deviceCredential:
-                  type: string
-                deviceId: { type: string }
-                challengeId: { type: string }
-                publicKey: { type: string, description: Public key only; never include privateKey. }
-                signature: { type: string }
+              oneOf:
+                - title: DevelopmentLegacyLogin
+                  type: object
+                  required: [deviceCredential]
+                  additionalProperties: false
+                  description: Development/compatibility-only credential login; disabled in production.
+                  properties:
+                    deviceCredential: { type: string }
+                - title: DeviceProofLogin
+                  type: object
+                  required: [deviceId, challengeId, publicKey, signature]
+                  additionalProperties: false
+                  description: Production login proof. The managed device obtains the challenge and signs locally; private keys never cross the API.
+                  properties:
+                    deviceId: { type: string }
+                    challengeId: { type: string }
+                    publicKey: { type: string, description: Public key only; never include privateKey. }
+                    signature: { type: string }
       responses:
         '200':
           description: Session

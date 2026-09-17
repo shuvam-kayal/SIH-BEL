@@ -106,6 +106,8 @@ Identity registration, device registration, wallet registration, administrator v
 
 The blockchain-facing payload may contain public identity data, public wallet/address data, signatures, and hashes/proofs. It must never contain a private key, seed phrase, mnemonic, backup, or other private wallet secret.
 
+Public-key/address binding is an integration invariant: `walletAddress` must correspond to the submitted `publicKey` under the eventual wallet/signature scheme. The binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; this contract intentionally does not invent a blockchain-specific derivation algorithm.
+
 For replacement, the old wallet transitions to REVOKED and the new device-generated public wallet transitions from PENDING to ACTIVE after administrator verification. The identity remains unchanged.
 
 ## Base-v1 interface corrections (frozen)

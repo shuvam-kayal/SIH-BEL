@@ -23,6 +23,11 @@ export type InitializeAccountRequest = {
 };
 export type ProvisioningChallengeRequest = { deviceId: string; deviceMetadata: Record<string, unknown> };
 export type PendingRegistration = { identity: Identity | PendingIdentity; device: Device; wallet: Wallet };
+export type VerifyRegistrationRequest = { employeeId: string; department: string };
+export type AssignRoleRequest = { role: Role };
+export type RegisterDeviceRequest = { deviceId: string; credential?: string; publicKey?: string };
+export type RegisterWalletRequest = { deviceId: string; walletAddress: string };
+export type RevokeDeviceResponse = { device: Device };
 export type ActivateWalletRequest = { deviceId: string; walletAddress: string };
 export type WalletActionResponse = { wallet: Wallet };
 export type CreateAssetRequest = { assetId?: string; assetType: string; ownerId: string; custodianId: string; parentAssetId?: string | null };
@@ -36,6 +41,18 @@ export type CommitteeResponse = { height: number; validatorIds: string[] };
 
 export interface ApiClient {
   login(input?: string | LoginProofRequest): Promise<Session>;
+  requestProvisioningChallenge(input: ProvisioningChallengeRequest): Promise<ProvisioningChallenge>;
+  initializeAccount(input: InitializeAccountRequest): Promise<PendingRegistration>;
+  requestAuthenticationChallenge(deviceId: string): Promise<ProvisioningChallenge>;
+  getPendingRegistrations(): Promise<PendingRegistration[]>;
+  verifyRegistration(id: string, input: VerifyRegistrationRequest): Promise<Identity | PendingIdentity>;
+  assignRole(id: string, input: AssignRoleRequest): Promise<User>;
+  activateRegistration(id: string): Promise<PendingRegistration>;
+  registerDevice(userId: string, input: RegisterDeviceRequest): Promise<Device>;
+  getDevices(userId: string): Promise<Device[]>;
+  registerWallet(userId: string, input: RegisterWalletRequest): Promise<Wallet>;
+  getWallets(userId: string): Promise<Wallet[]>;
+  revokeDevice(deviceId: string): Promise<RevokeDeviceResponse>;
   createUser(input: CreateUserRequest): Promise<CreateUserResponse>;
   revokeWallet(userId: string, reason: string): Promise<WalletActionResponse>;
   activateWallet(userId: string, input: ActivateWalletRequest): Promise<WalletActionResponse>;

@@ -74,6 +74,8 @@ Backend creates a bearer session
 
 The employee does not manually enter `challengeId`, `signature`, `publicKey`, or a private key. The frontend/device wallet integration handles those fields transparently. Every request revalidates identity, device, wallet, status, and session expiry; revocation invalidates access.
 
+Public-key/address binding is an integration invariant: `walletAddress` must correspond to the submitted `publicKey` under the eventual wallet/signature scheme. The backend may retain the pair while a registration is pending, but the binding must be cryptographically validated by the wallet/blockchain integration adapter before activation. This document does not invent a blockchain-specific derivation algorithm.
+
 Development-only legacy credential login may remain for bootstrap and compatibility. It is explicitly disabled when `BEL_ENV=production`; production authentication uses cryptographic device proof.
 
 ## Replacement

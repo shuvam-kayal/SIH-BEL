@@ -69,6 +69,8 @@ revoked and a new one issued without changing the underlying Identity.
 | revokedReason | string \| null | |
 | publicKey | string \| null | Public key only; the backend never stores a private key |
 
+Wallet address binding: `walletAddress` must correspond to the device-generated `publicKey` under the eventual wallet/signature scheme. The binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; no blockchain-specific derivation is defined here.
+
 ## ProvisioningChallenge
 
 A short-lived, single-use challenge bound to a device and purpose. It is
