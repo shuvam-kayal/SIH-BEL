@@ -1,9 +1,11 @@
 // Owner: Person 2. Backs GET/POST /assets, GET /assets/:id,
 // POST /assets/:id/transfer (docs/API_SPEC.yaml).
 
+import { randomUUID } from "node:crypto";
 import type { BlockchainService } from "../adapters/BlockchainService";
 import { HttpError, NotFoundError, ValidationError } from "../errors";
 import type { Asset, Transaction } from "../../../shared/types";
+import type { MockBlockchainResult } from "../../../shared/api";
 import { ASSET_STATUSES, type AssetStatus } from "../../../shared/enums";
 
 /** The authenticated identity and wallet that sign a transaction envelope. */
@@ -15,8 +17,16 @@ export type AssetActor = {
 /** A chain submission that did not reach the success state. */
 export class TransactionRejectedError extends HttpError {
   constructor(transactionType: string) {
-    super(502, `Blockchain rejected ${transactionType}`, "TRANSACTION_REJECTED");
+    super(502, `Blockchain rejected ${transactionType}`, "INTERNAL_ERROR");
     this.name = "TransactionRejectedError";
+  }
+}
+
+/** A successful write could not be reconciled with the chain read path. */
+export class BlockchainStateUnavailableError extends HttpError {
+  constructor(assetId: string, txId: string) {
+    super(502, `Blockchain accepted ${txId}, but asset ${assetId} is not queryable`, "INTERNAL_ERROR");
+    this.name = "BlockchainStateUnavailableError";
   }
 }
 
@@ -35,66 +45,81 @@ export interface AssetsService {
   removeComponent(parentAssetId: string, componentId: string, actor?: AssetActor): Promise<Asset>;
 }
 
+type DetailedBlockchainService = BlockchainService & {
+  submitTransactionDetailed?: (tx: Transaction) => Promise<MockBlockchainResult & { nftId?: string }>;
+};
+
 /**
- * The adapter's submitTransaction method is deliberately write-only: a
- * successful submission does not promise that getAsset() can read the write
- * back. This map is therefore the backend's off-chain asset projection until
- * the real registry/indexer read path is integrated. nftId values are simple
- * monotonic strings because they are only an off-chain representation here;
- * the deployed registry assigns the authoritative token id.
+ * Chain state is authoritative for nftId, owner, custodian, parent and
+ * lifecycle status. The local map is only an off-chain index/metadata cache:
+ * the frozen BlockchainService has no listAssets method and assetType is not
+ * stored by the registry. A successful write is never projected until it can
+ * be reconciled through getAsset(), or a detailed adapter result supplies the
+ * chain-issued nftId.
  */
 export class AssetsServiceImpl implements AssetsService {
   private readonly assets = new Map<string, Asset>();
-  private nextNftId = 1;
-  private nextTransactionId = 1;
 
   constructor(private readonly chain: BlockchainService) {}
 
   async list(): Promise<Asset[]> {
-    return Array.from(this.assets.values(), (asset) => ({ ...asset }));
+    const assets = await Promise.all(
+      [...this.assets.keys()].map((assetId) => this.getById(assetId))
+    );
+    return assets.filter((asset): asset is Asset => asset !== null);
   }
 
   async getById(id: string): Promise<Asset | null> {
-    const asset = this.assets.get(id);
-    return asset ? { ...asset } : null;
+    const cached = this.assets.get(id);
+    const onChain = await this.chain.getAsset(id);
+    if (onChain) {
+      const reconciled = this.mergeAsset(onChain, cached);
+      this.assets.set(id, reconciled);
+      return { ...reconciled };
+    }
+    return cached ? { ...cached } : null;
   }
 
   async create(input: Partial<Asset>, actor?: AssetActor): Promise<Asset> {
     const assetType = this.requiredString(input.assetType, "assetType");
     const ownerId = this.requiredString(input.ownerId, "ownerId");
     const custodianId = this.requiredString(input.custodianId, "custodianId");
-    const nftId = String(this.nextNftId++);
-    const assetId = input.assetId?.trim() || `AST-${nftId}`;
-
-    if (this.assets.has(assetId)) {
+    if (custodianId !== ownerId) {
+      throw new ValidationError([
+        "custodianId must equal ownerId because the frozen mintAsset interface mints custody to the owner",
+      ]);
+    }
+    const assetId = input.assetId?.trim() || `AST-${randomUUID()}`;
+    if (await this.getById(assetId)) {
       throw new ValidationError([`assetId ${assetId} already exists`]);
     }
     if (input.parentAssetId !== undefined && input.parentAssetId !== null) {
-      this.requireAsset(input.parentAssetId, "parentAssetId");
+      await this.requireAsset(input.parentAssetId, "parentAssetId");
     }
 
-    const asset: Asset = {
+    const tx = this.transaction("ASSET_MINT", actor, {
       assetId,
-      nftId,
       assetType,
       ownerId,
       custodianId,
       parentAssetId: input.parentAssetId ?? null,
-      status: "ACTIVE",
-    };
-
-    await this.submit(
-      this.transaction("ASSET_MINT", actor, {
+    });
+    const result = await this.submit(tx);
+    const reconciled = await this.reconcileAfterWrite(
+      assetId,
+      result,
+      {
         assetId,
-        nftId,
+        nftId: "",
         assetType,
         ownerId,
         custodianId,
-        parentAssetId: asset.parentAssetId,
-      })
+        parentAssetId: input.parentAssetId ?? null,
+        status: "ACTIVE",
+      }
     );
-    this.assets.set(assetId, asset);
-    return { ...asset };
+    this.assets.set(assetId, reconciled);
+    return { ...reconciled };
   }
 
   async transfer(
@@ -103,92 +128,141 @@ export class AssetsServiceImpl implements AssetsService {
     newCustodianId?: string,
     actor?: AssetActor
   ): Promise<Asset> {
-    const asset = this.requireAsset(id);
+    const asset = await this.requireAsset(id);
     const ownerId = this.requiredString(newOwnerId, "newOwnerId");
     const custodianId = newCustodianId === undefined
       ? ownerId
       : this.requiredString(newCustodianId, "newCustodianId");
+    if (custodianId !== ownerId) {
+      throw new ValidationError([
+        "newCustodianId must equal newOwnerId because the frozen transferAsset interface moves custody with ownership",
+      ]);
+    }
+    if (asset.status === "DECOMMISSIONED") {
+      throw new ValidationError([`Asset ${id} is decommissioned and cannot be transferred`]);
+    }
+    if (asset.parentAssetId !== undefined && asset.parentAssetId !== null) {
+      throw new ValidationError([`Component ${id} must be detached before transfer`]);
+    }
+    if (asset.ownerId === ownerId) {
+      throw new ValidationError([`Asset ${id} is already owned by ${ownerId}`]);
+    }
 
-    await this.submit(
-      this.transaction("ASSET_TRANSFER", actor, {
-        assetId: asset.assetId,
-        nftId: asset.nftId,
-        newOwnerId: ownerId,
-        newCustodianId: custodianId,
-      })
+    const tx = this.transaction("ASSET_TRANSFER", actor, {
+      assetId: asset.assetId,
+      nftId: asset.nftId,
+      newOwnerId: ownerId,
+      newCustodianId: custodianId,
+    });
+    const result = await this.submit(tx);
+    const reconciled = await this.reconcileAfterWrite(
+      id,
+      result,
+      { ...asset, ownerId, custodianId }
     );
-
-    const updated = { ...asset, ownerId, custodianId };
-    this.assets.set(id, updated);
-    return { ...updated };
+    this.assets.set(id, reconciled);
+    return { ...reconciled };
   }
 
   async changeAssetState(id: string, newState: AssetStatus, actor?: AssetActor): Promise<Asset> {
     if (!ASSET_STATUSES.includes(newState)) {
       throw new ValidationError([`newState must be one of ${ASSET_STATUSES.join(", ")}`]);
     }
-    const asset = this.requireAsset(id);
-    await this.submit(
-      this.transaction("ASSET_STATE_CHANGE", actor, {
-        assetId: asset.assetId,
-        nftId: asset.nftId,
-        previousState: asset.status,
-        newState,
-      })
-    );
-
-    const updated = { ...asset, status: newState };
-    this.assets.set(id, updated);
-    return { ...updated };
+    const asset = await this.requireAsset(id);
+    this.assertStateTransition(asset.status, newState);
+    const tx = this.transaction("ASSET_STATE_CHANGE", actor, {
+      assetId: asset.assetId,
+      nftId: asset.nftId,
+      previousState: asset.status,
+      newState,
+    });
+    const result = await this.submit(tx);
+    const reconciled = await this.reconcileAfterWrite(id, result, { ...asset, status: newState });
+    this.assets.set(id, reconciled);
+    return { ...reconciled };
   }
 
   async attachComponent(parentAssetId: string, componentId: string, actor?: AssetActor): Promise<Asset> {
-    const parent = this.requireAsset(parentAssetId, "parentAssetId");
-    const component = this.requireAsset(componentId, "componentId");
+    const parent = await this.requireAsset(parentAssetId, "parentAssetId");
+    const component = await this.requireAsset(componentId, "componentId");
     if (parentAssetId === componentId) {
       throw new ValidationError(["An asset cannot be attached to itself"]);
+    }
+    if (parent.status === "DECOMMISSIONED" || component.status === "DECOMMISSIONED") {
+      throw new ValidationError(["Decommissioned assets cannot be attached"]);
     }
     if (component.parentAssetId !== undefined && component.parentAssetId !== null) {
       throw new ValidationError([`Component ${componentId} is already attached`]);
     }
+    await this.assertNoCycle(parentAssetId, componentId);
 
-    await this.submit(
-      this.transaction("COMPONENT_ATTACH", actor, {
-        parentAssetId,
-        parentNftId: parent.nftId,
-        componentId,
-        componentNftId: component.nftId,
-      })
+    const tx = this.transaction("COMPONENT_ATTACH", actor, {
+      parentAssetId,
+      parentNftId: parent.nftId,
+      componentId,
+      componentNftId: component.nftId,
+    });
+    const result = await this.submit(tx);
+    const reconciled = await this.reconcileAfterWrite(
+      componentId,
+      result,
+      { ...component, parentAssetId }
     );
-
-    const updated = { ...component, parentAssetId };
-    this.assets.set(componentId, updated);
-    return { ...updated };
+    this.assets.set(componentId, reconciled);
+    return { ...reconciled };
   }
 
   async removeComponent(parentAssetId: string, componentId: string, actor?: AssetActor): Promise<Asset> {
-    const parent = this.requireAsset(parentAssetId, "parentAssetId");
-    const component = this.requireAsset(componentId, "componentId");
+    const parent = await this.requireAsset(parentAssetId, "parentAssetId");
+    const component = await this.requireAsset(componentId, "componentId");
     if (component.parentAssetId !== parentAssetId) {
       throw new ValidationError([`Component ${componentId} is not attached to ${parentAssetId}`]);
     }
 
-    await this.submit(
-      this.transaction("COMPONENT_REMOVE", actor, {
-        parentAssetId,
-        parentNftId: parent.nftId,
-        componentId,
-        componentNftId: component.nftId,
-      })
+    const tx = this.transaction("COMPONENT_REMOVE", actor, {
+      parentAssetId,
+      parentNftId: parent.nftId,
+      componentId,
+      componentNftId: component.nftId,
+    });
+    const result = await this.submit(tx);
+    const reconciled = await this.reconcileAfterWrite(
+      componentId,
+      result,
+      { ...component, parentAssetId: null }
     );
-
-    const updated = { ...component, parentAssetId: null };
-    this.assets.set(componentId, updated);
-    return { ...updated };
+    this.assets.set(componentId, reconciled);
+    return { ...reconciled };
   }
 
-  private requireAsset(id: string, field = "assetId"): Asset {
-    const asset = this.assets.get(id);
+  assertStateTransition(current: AssetStatus, next: AssetStatus): void {
+    const allowed: Record<AssetStatus, AssetStatus[]> = {
+      ACTIVE: ["IN_MAINTENANCE", "DECOMMISSIONED"],
+      IN_MAINTENANCE: ["ACTIVE", "DECOMMISSIONED"],
+      DECOMMISSIONED: [],
+    };
+    if (!allowed[current].includes(next)) {
+      throw new ValidationError([`Invalid asset state transition: ${current} -> ${next}`]);
+    }
+  }
+
+  private async assertNoCycle(parentAssetId: string, componentId: string): Promise<void> {
+    let current: Asset | null = await this.getById(parentAssetId);
+    const visited = new Set<string>();
+    while (current?.parentAssetId) {
+      if (visited.has(current.assetId)) {
+        throw new ValidationError(["Asset component hierarchy contains a cycle"]);
+      }
+      visited.add(current.assetId);
+      if (current.parentAssetId === componentId) {
+        throw new ValidationError(["Component attachment would create a cycle"]);
+      }
+      current = await this.getById(current.parentAssetId);
+    }
+  }
+
+  private async requireAsset(id: string, field = "assetId"): Promise<Asset> {
+    const asset = await this.getById(id);
     if (!asset) {
       if (field === "assetId") throw new NotFoundError(`No asset ${id}`);
       throw new ValidationError([`${field} ${id} does not exist`]);
@@ -203,28 +277,62 @@ export class AssetsServiceImpl implements AssetsService {
     return value.trim();
   }
 
+  private requireActor(actor?: AssetActor): AssetActor {
+    const identityId = this.requiredString(actor?.identityId, "actorIdentity");
+    const walletAddress = this.requiredString(actor?.walletAddress, "actorWallet");
+    return { identityId, walletAddress };
+  }
+
   private transaction(
     type: Transaction["type"],
     actor: AssetActor | undefined,
     payload: Record<string, unknown>
   ): Transaction {
+    const signer = this.requireActor(actor);
     return {
-      txId: `asset-tx-${this.nextTransactionId++}`,
+      txId: randomUUID(),
       type,
-      actorIdentity: actor?.identityId ?? "UNKNOWN",
-      actorWallet: actor?.walletAddress ?? "UNKNOWN",
+      actorIdentity: signer.identityId,
+      actorWallet: signer.walletAddress,
       payload,
       timestamp: new Date().toISOString(),
-      // Signing is performed by the real adapter. Keep the envelope complete
-      // for the mock adapter and make the hand-off explicit.
-      signature: "backend-adapter-pending-signature",
+      // The production adapter replaces this with a device-signed payload;
+      // this matches the development transaction path used by user writes.
+      signature: "development",
     };
   }
 
-  private async submit(tx: Transaction): Promise<void> {
-    const result = await this.chain.submitTransaction(tx);
+  private async submit(tx: Transaction): Promise<MockBlockchainResult & { nftId?: string }> {
+    const detailed = (this.chain as DetailedBlockchainService).submitTransactionDetailed;
+    const result = detailed
+      ? await detailed.call(this.chain, tx)
+      : await this.chain.submitTransaction(tx);
     if (result.status !== "SUCCESS") {
       throw new TransactionRejectedError(tx.type);
     }
+    return result;
+  }
+
+  private async reconcileAfterWrite(
+    assetId: string,
+    result: MockBlockchainResult & { nftId?: string },
+    fallback: Asset
+  ): Promise<Asset> {
+    const onChain = await this.chain.getAsset(assetId);
+    if (onChain) return this.mergeAsset(onChain, fallback);
+    if (result.nftId) return { ...fallback, nftId: result.nftId };
+    throw new BlockchainStateUnavailableError(assetId, result.txId);
+  }
+
+  private mergeAsset(onChain: Asset, cached?: Asset): Asset {
+    return {
+      ...(cached ?? onChain),
+      ...onChain,
+      assetId: onChain.assetId || cached?.assetId || "",
+      assetType: onChain.assetType || cached?.assetType || "",
+      parentAssetId: onChain.parentAssetId === undefined
+        ? cached?.parentAssetId ?? null
+        : onChain.parentAssetId,
+    };
   }
 }

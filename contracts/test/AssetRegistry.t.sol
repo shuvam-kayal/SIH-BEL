@@ -23,6 +23,7 @@ contract AssetRegistryTest {
         uint256 parent = registry.mintAsset("AIRFRAME-1", address(this));
         uint256 component = registry.mintAsset("ENGINE-1", address(this));
 
+        identities.setActive(address(0xBEEF), true);
         registry.transferAsset(parent, address(0xBEEF));
         require(registry.ownerOfAsset(parent) == address(0xBEEF), "owner not transferred");
         require(registry.custodianOf(parent) == address(0xBEEF), "custody not transferred");
@@ -70,6 +71,30 @@ contract AssetRegistryTest {
             abi.encodeWithSelector(registry.changeAssetState.selector, nftId, "DECOMMISSIONED")
         );
         require(!ok, "revoked wallet transacted");
+    }
+
+    function testStateTransitionsAndHierarchyCycleAreRejected() public {
+        setUp();
+        uint256 stateAsset = registry.mintAsset("STATE", address(this));
+
+        registry.changeAssetState(stateAsset, "IN_MAINTENANCE");
+        registry.changeAssetState(stateAsset, "ACTIVE");
+        registry.changeAssetState(stateAsset, "DECOMMISSIONED");
+
+        (bool sameState,) = address(registry).call(
+            abi.encodeWithSelector(registry.changeAssetState.selector, stateAsset, "ACTIVE")
+        );
+        require(!sameState, "decommissioned state changed");
+
+        uint256 parent = registry.mintAsset("PARENT", address(this));
+        uint256 child = registry.mintAsset("CHILD", address(this));
+        uint256 grandchild = registry.mintAsset("GRANDCHILD", address(this));
+        registry.attachComponent(parent, child);
+        registry.attachComponent(child, grandchild);
+        (bool cycle,) = address(registry).call(
+            abi.encodeWithSelector(registry.attachComponent.selector, grandchild, parent)
+        );
+        require(!cycle, "hierarchy cycle unexpectedly succeeded");
     }
 }
 

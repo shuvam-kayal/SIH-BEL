@@ -5,7 +5,7 @@ import type { Container } from "../container";
 import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
 import { NotFoundError, ValidationError } from "../errors";
-import { authorizationGrantsStore } from "../assets/authorization-grants.store";
+import type { AuthorizationGrant } from "../../../shared/types";
 
 export function assetsRouter(c: Container): Router {
   const router = Router();
@@ -49,23 +49,31 @@ export function assetsRouter(c: Container): Router {
     }
   );
 
-  // TRANSFER_ASSET is an AUTH cell for ENGINEER: permitted only with an
-  // explicit per-asset grant. Grants remain in-memory until a grant API and
-  // persistent authorization store are designed.
+  // TRANSFER_ASSET is an AUTH cell for ENGINEER. Grants are resolved through
+  // the repository-backed grant port wired by the main container.
   router.post(
     "/assets/:id/transfer",
     requireSession,
     requirePermission("TRANSFER_ASSET", async (req) => {
       const asset = await c.assets.getById(req.params.id);
-      const grant = asset
-        ? authorizationGrantsStore.findActiveGrant(
-            req.user!.identityId,
-            asset.assetId,
-            "TRANSFER_ASSET"
-          )
-        : null;
+      const grants = asset
+        ? await c.repositories.grants.listByIdentityId(req.user!.identityId)
+        : [];
+      let grant: AuthorizationGrant | undefined;
+      for (const candidate of grants) {
+        if (
+          candidate.resourceType !== "ASSET" ||
+          candidate.resourceId !== asset?.assetId ||
+          candidate.action !== "TRANSFER_ASSET" ||
+          candidate.status !== "ACTIVE"
+        ) continue;
+        if (await c.users.validateGrant(candidate.authorizationGrantId, req.user!.identityId, asset!.assetId, "TRANSFER_ASSET")) {
+          grant = candidate;
+          break;
+        }
+      }
       return {
-        explicitlyAuthorized: grant !== null,
+        explicitlyAuthorized: grant !== undefined,
         authorizationGrantId: grant?.authorizationGrantId,
         resourceOwnerId: asset?.ownerId,
       };
