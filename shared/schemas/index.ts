@@ -24,8 +24,8 @@ export function isValidRole(value: unknown): boolean {
 export function validateIdentity(obj: any): string[] {
   const errors: string[] = [];
   if (typeof obj?.identityId !== "string") errors.push("identityId must be a string");
-  if (typeof obj?.employeeId !== "string") errors.push("employeeId must be a string");
-  if (!isOneOf(obj?.role, ROLES)) errors.push(`role must be one of ${ROLES.join(", ")}`);
+  if (obj?.employeeId !== null && typeof obj?.employeeId !== "string") errors.push("employeeId must be a string or null");
+  if (obj?.role !== null && !isOneOf(obj?.role, ROLES)) errors.push(`role must be one of ${ROLES.join(", ")} or null`);
   if (!isOneOf(obj?.status, IDENTITY_STATUSES)) errors.push("status is invalid");
   return errors;
 }

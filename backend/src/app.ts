@@ -16,7 +16,7 @@ export function createApp(container: Container = createContainer()): Express {
 
   app.use(cors());
   app.use(express.json());
-  app.use(attachSession);
+  app.use(attachSession(container.auth));
 
   // Liveness probe for docker-compose / nginx — deliberately not in
   // API_SPEC.yaml, since it is infrastructure rather than product API.

@@ -32,14 +32,29 @@ export type Identity = {
   department: string;
   status: IdentityStatus;
   createdAt: string;
+  verifiedAt?: string | null;
+  verifiedBy?: string | null;
+};
+
+/** Public contract for the pending onboarding response. Pending fields are
+ * intentionally nullable until administrator verification; active Identity
+ * consumers continue to use the non-null verified shape above. */
+export type PendingIdentity = Omit<Identity, "employeeId" | "role" | "department" | "status"> & {
+  employeeId: string | null;
+  role: Role | null;
+  department: string | null;
+  status: "PENDING";
 };
 
 export type Device = {
   deviceId: string;
   identityId: string;
-  status: "ACTIVE" | "REVOKED";
+  status: "PENDING" | "ACTIVE" | "REVOKED";
   registeredAt: string;
+  activatedAt?: string | null;
   revokedAt: string | null;
+  publicKey?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type Wallet = {
@@ -50,6 +65,17 @@ export type Wallet = {
   activatedAt: string | null;
   revokedAt: string | null;
   revokedReason: string | null;
+  publicKey?: string | null;
+};
+
+export type ProvisioningChallenge = {
+  challengeId: string;
+  deviceId: string;
+  challenge: string;
+  purpose: "WALLET_INITIALIZATION" | "AUTHENTICATION";
+  expiresAt: string;
+  usedAt: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type AuthorizationGrant = {

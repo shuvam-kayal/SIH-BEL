@@ -39,8 +39,10 @@ type Transaction = {
 
 ## Transaction Types
 - IDENTITY_CREATE
+- IDENTITY_REGISTER (pending registration lifecycle event; equivalent identity-create concept for onboarding)
 - ROLE_ASSIGN
 - ROLE_REVOKE
+- WALLET_REGISTER
 - WALLET_REVOKE
 - WALLET_ACTIVATE
 - ASSET_MINT
@@ -89,6 +91,24 @@ Every state-changing transaction type below has a canonical contract function/ev
 ## Device and wallet semantics
 
 A Device is a managed BEL endpoint. Wallets are device-bound signing identities. Revoking a wallet/device does not revoke the underlying Identity or erase history. A replacement wallet is a new wallet linked to the same persistent identity.
+
+## Identity and wallet lifecycle contract
+
+The lifecycle is:
+
+```text
+PENDING → ACTIVE → REVOKED
+```
+
+Identity registration, device registration, wallet registration, administrator verification, role assignment, wallet activation, wallet revocation, and device revocation are independently auditable lifecycle events. The current backend emits SHA-256 integrity commitments for these events; a production blockchain adapter may anchor the corresponding public state and proof.
+
+`actorIdentity` is the persistent identity responsible for an operation. `actorWallet` is the replaceable public wallet that actually signs it. Every historical transaction preserves both values; replacing a wallet never changes the identity. A pending or revoked wallet cannot authenticate or authorize protected operations.
+
+The blockchain-facing payload may contain public identity data, public wallet/address data, signatures, and hashes/proofs. It must never contain a private key, seed phrase, mnemonic, backup, or other private wallet secret.
+
+Public-key/address binding is an integration invariant: `walletAddress` must correspond to the submitted `publicKey` under the eventual wallet/signature scheme. The binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; this contract intentionally does not invent a blockchain-specific derivation algorithm.
+
+For replacement, the old wallet transitions to REVOKED and the new device-generated public wallet transitions from PENDING to ACTIVE after administrator verification. The identity remains unchanged.
 
 ## Base-v1 interface corrections (frozen)
 

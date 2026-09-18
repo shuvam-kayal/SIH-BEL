@@ -1,4 +1,15 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bel
+      POSTGRES_PASSWORD: bel
+      POSTGRES_DB: bel
+    ports:
+      - "5432:5432"
+    volumes:
+      - bel-postgres:/var/lib/postgresql/data
+
   frontend:
     build:
       context: .
@@ -24,14 +35,16 @@ services:
       - "4000:4000"
     environment:
       - PORT=4000
-      # Dev sessions are ON here because this compose file is for local
-      # development only. See docs/THREAT_MODEL.md.
-      - BEL_DEV_SESSIONS=true
+      - BEL_ENV=development
+      - BEL_DEV_BOOTSTRAP=true
+      - DATABASE_URL=postgresql://bel:bel@postgres:5432/bel
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 10s
       timeout: 3s
       retries: 5
+    depends_on:
+      - postgres
 
   blockchain-node:
     build:
@@ -49,3 +62,6 @@ services:
     depends_on:
       - frontend
       - backend
+
+volumes:
+  bel-postgres:
