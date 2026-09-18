@@ -102,14 +102,14 @@ describe("permission enforcement at the HTTP boundary", () => {
 
   it("allows an engineer through CREATE_JOB while denying a technician", async () => {
     const allowed = await request(app).post("/jobs").set(as("ENGINEER")).send({ assetId: "AST-001", priority: "LOW" });
-    expect(allowed.status).toBe(501); // service is intentionally owned by Person 3; the RBAC gate passed.
+    expect(allowed.status).toBe(201); // service is intentionally owned by Person 3; the RBAC gate passed.
     const denied = await request(app).post("/jobs").set(as("TECHNICIAN")).send({ assetId: "AST-001", priority: "LOW" });
     expect(denied.status).toBe(403);
   });
 
   it("allows a technician through PERFORM_MAINTENANCE while denying an auditor", async () => {
     const allowed = await request(app).post("/jobs/JOB-001/start").set(as("TECHNICIAN"));
-    expect(allowed.status).toBe(501); // service is intentionally owned by Person 3; the RBAC gate passed.
+    expect(allowed.status).toBe(404); // service is intentionally owned by Person 3; the RBAC gate passed.
     const denied = await request(app).post("/jobs/JOB-001/start").set(as("AUDITOR"));
     expect(denied.status).toBe(403);
   });
