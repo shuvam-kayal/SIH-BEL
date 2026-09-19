@@ -19,12 +19,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run prisma:generate
       - run: npm run typecheck
       - run: npm test --workspace=bel-backend
       - run: npm test --workspace=bel-frontend --if-present
       - run: npm run build --workspace=bel-frontend
+
+  evm-integration:
+    name: Backend EVM integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install pinned Solidity dependencies
+        run: bash scripts/setup-contracts.sh
+      - run: forge build
+        working-directory: contracts
+      - run: npm run prisma:generate
+      - run: npm run test:evm
 
   contracts:
     name: Build and test contracts

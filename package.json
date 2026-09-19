@@ -22,7 +22,9 @@
     "db:migrate": "prisma migrate deploy --schema backend/prisma/schema.prisma",
     "db:seed": "tsx scripts/bootstrap-dev.ts",
     "test:integration": "node scripts/run-integration.mjs",
+    "test:evm": "vitest run backend/test/blockchain.evm.integration.test.ts",
     "test:contracts": "npm run test --workspace=bel-contracts",
+    "verify": "npm run prisma:generate && npm run typecheck && npm run test --workspace=bel-backend && npm run test:evm && npm run test:contracts",
     "test:consensus": "python3 -m pytest blockchain/tests -q",
     "prisma:generate": "prisma generate --schema backend/prisma/schema.prisma",
     "postinstall": "npm run prisma:generate"

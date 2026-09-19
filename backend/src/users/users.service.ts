@@ -253,15 +253,24 @@ export class UsersServiceImpl implements UsersService {
   async assignRole(actorId: string, userId: string, role: Role): Promise<User> {
     if (!ROLES.includes(role)) throw new ValidationError(["role is invalid"]);
     const actor = this.requireIdentity(await this.resolveIdentity(actorId)); if (actor.role !== "ADMIN" || actor.status !== "ACTIVE") throw new ForbiddenError("Only an active admin may assign roles");
-    const target = this.requireIdentity(await this.resolveIdentity(userId)); if (target.status === "REVOKED") throw new ForbiddenError("Revoked identities cannot receive roles"); target.role = role; await this.repositories.identities.save(target);
+    const target = this.requireIdentity(await this.resolveIdentity(userId)); if (target.status === "REVOKED") throw new ForbiddenError("Revoked identities cannot receive roles");
     const user = await this.repositories.users.findByIdentityId(target.identityId);
     if (!user) {
       if (target.status !== "PENDING") throw new NotFoundError(`No user for ${target.employeeId}`);
+      target.role = role;
+      await this.repositories.identities.save(target);
       await this.commit("IDENTITY", target.identityId, "ROLE_ASSIGN", actor.identityId, { entityType: "IDENTITY", entityId: target.identityId, role: target.role });
       return this.toUser(target, "");
     }
-    user.role = role; await this.repositories.users.save(user);
-    await this.commit("IDENTITY", target.identityId, "ROLE_ASSIGN", actor.identityId, { entityType: "IDENTITY", entityId: target.identityId, role: target.role }); await this.submit("ROLE_ASSIGN", actor, { identityId: target.identityId, role }); return { ...user };
+    // The chain is authoritative for active role changes. Submit first so a
+    // rejected ROLE_ASSIGN cannot leave either PostgreSQL row claiming success.
+    await this.submit("ROLE_ASSIGN", actor, { identityId: target.identityId, role });
+    target.role = role;
+    user.role = role;
+    await this.repositories.identities.save(target);
+    await this.repositories.users.save(user);
+    await this.commit("IDENTITY", target.identityId, "ROLE_ASSIGN", actor.identityId, { entityType: "IDENTITY", entityId: target.identityId, role: target.role });
+    return { ...user };
   }
 
   async getById(id: string): Promise<User | null> { const direct = await this.repositories.users.findById(id); if (direct) return { ...direct }; const identity = await this.resolveIdentity(id); const user = identity ? await this.repositories.users.findByIdentityId(identity.identityId) : null; return user ? { ...user } : null; }
