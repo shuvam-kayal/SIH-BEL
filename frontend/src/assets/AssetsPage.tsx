@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { can } from "../../../shared/rbac";
-import type { Asset, User } from "../../../shared/types";
+import type { Asset, Job, User } from "../../../shared/types";
 import { mockApi } from "../api/mockApi";
 
 export function AssetsPage({
@@ -11,13 +11,14 @@ export function AssetsPage({
   onSelect: (assetId: string) => void;
 }) {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
   const [assetId, setAssetId] = useState("");
   const [assetType, setAssetType] = useState("");
   const [ownerId, setOwnerId] = useState("");
-  const [custodianId, setCustodianId] = useState("");
+  const [custodianId,setCustodianId] = useState("");
 
   useEffect(() => {
     loadAssets();
@@ -27,9 +28,13 @@ export function AssetsPage({
     try {
       setLoading(true);
 
-      const data = await mockApi.getAssets();
+      const [assetData, jobData] = await Promise.all([
+        mockApi.getAssets(),
+        mockApi.getJobs(),
+      ]);
 
-      setAssets(data);
+      setAssets(assetData);
+      setJobs(jobData);
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -41,10 +46,7 @@ export function AssetsPage({
     }
   }
 
-  const canRegister = can(
-    user.role,
-    "REGISTER_ASSET"
-  );
+  const canRegister = can(user.role, "REGISTER_ASSET");
 
   async function handleRegisterAsset() {
     if (!assetType.trim()) {
@@ -78,7 +80,6 @@ export function AssetsPage({
       setAssetId("");
       setAssetType("");
       setOwnerId("");
-      setCustodianId("");
 
       setMessage(
         `Asset ${newAsset.assetId} registered successfully.`
@@ -89,6 +90,44 @@ export function AssetsPage({
           ? error.message
           : "Asset registration failed."
       );
+    }
+  }
+
+  /*
+   * Find the maintenance verification status
+   * for a particular asset.
+   */
+  function getVerificationStatus(assetId: string) {
+    const assetJobs = jobs.filter(
+      (job) => job.assetId === assetId
+    );
+
+    if (assetJobs.length === 0) {
+      return "NOT STARTED";
+    }
+
+    /*
+     * Use the latest job returned by the mock API.
+     */
+    const latestJob = assetJobs[assetJobs.length - 1];
+
+    switch (latestJob.status) {
+      case "VERIFIED":
+        return "VERIFIED";
+
+      case "REJECTED":
+        return "REJECTED";
+
+      case "COMPLETED":
+        return "AWAITING VERIFICATION";
+
+      case "CREATED":
+      case "ASSIGNED":
+      case "IN_PROGRESS":
+        return "IN PROGRESS";
+
+      default:
+        return "NOT STARTED";
     }
   }
 
@@ -162,14 +201,12 @@ export function AssetsPage({
                 Custodian ID
               </label>
 
-              <input
-                type="text"
-                placeholder="Example: DID:BEL:001"
-                value={custodianId}
-                onChange={(e) =>
-                  setCustodianId(e.target.value)
-                }
-              />
+             <input
+  type="text"
+  value={custodianId}
+  placeholder="Enter Custodian ID"
+  onChange={(e) => setCustodianId(e.target.value)}
+/>
             </div>
 
           </div>
@@ -197,71 +234,87 @@ export function AssetsPage({
         ) : assets.length === 0 ? (
           <p>No assets found.</p>
         ) : (
-          assets.map((asset) => (
-            <div
-              key={asset.assetId}
-              className="dashboard-section"
-            >
+          assets.map((asset) => {
 
-              <div className="dashboard-info-grid">
+            const verificationStatus =
+              getVerificationStatus(asset.assetId);
 
-                <div className="dashboard-info-item">
-                  <span className="label">
-                    Asset ID
-                  </span>
+            return (
+              <div
+                key={asset.assetId}
+                className="dashboard-section"
+              >
 
-                  <span className="value">
-                    {asset.assetId}
-                  </span>
+                <div className="dashboard-info-grid">
+
+                  <div className="dashboard-info-item">
+                    <span className="label">
+                      Asset ID
+                    </span>
+
+                    <span className="value">
+                      {asset.assetId}
+                    </span>
+                  </div>
+
+                  <div className="dashboard-info-item">
+                    <span className="label">
+                      NFT ID
+                    </span>
+
+                    <span className="value">
+                      {asset.nftId}
+                    </span>
+                  </div>
+
+                  <div className="dashboard-info-item">
+                    <span className="label">
+                      Type
+                    </span>
+
+                    <span className="value">
+                      {asset.assetType}
+                    </span>
+                  </div>
+
+                  <div className="dashboard-info-item">
+                    <span className="label">
+                      Asset Status
+                    </span>
+
+                    <span className="value">
+                      {asset.status}
+                    </span>
+                  </div>
+
+                  <div className="dashboard-info-item">
+                    <span className="label">
+                      Maintenance Verification
+                    </span>
+
+                    <span className="value">
+                      {verificationStatus}
+                    </span>
+                  </div>
+
                 </div>
 
-                <div className="dashboard-info-item">
-                  <span className="label">
-                    NFT ID
-                  </span>
+                <div className="workspace-actions">
 
-                  <span className="value">
-                    {asset.nftId}
-                  </span>
-                </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onSelect(asset.assetId)
+                    }
+                  >
+                    View Details
+                  </button>
 
-                <div className="dashboard-info-item">
-                  <span className="label">
-                    Type
-                  </span>
-
-                  <span className="value">
-                    {asset.assetType}
-                  </span>
-                </div>
-
-                <div className="dashboard-info-item">
-                  <span className="label">
-                    Status
-                  </span>
-
-                  <span className="value">
-                    {asset.status}
-                  </span>
                 </div>
 
               </div>
-
-              <div className="workspace-actions">
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    onSelect(asset.assetId)
-                  }
-                >
-                  View Details
-                </button>
-
-              </div>
-
-            </div>
-          ))
+            );
+          })
         )}
 
       </div>

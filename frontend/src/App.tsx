@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { can, type Action } from "../../shared/rbac";
-import type { User } from "../../shared/types";
 
 import { LoginPage } from "./auth/LoginPage";
 import { DashboardRouter } from "./dashboard/DashboardRouter";
@@ -15,142 +13,266 @@ import { EmployeesPage } from "./employees/EmployeesPage";
 import { AuditTrailPage } from "./audit/AuditTrailPage";
 import { ValidatorStatusPage } from "./validators/ValidatorStatusPage";
 
+import type { User } from "../../shared/types";
+import { can } from "../../shared/rbac";
+
+import "./styles.css";
+
+type Page =
+  | "dashboard"
+  | "assets"
+  | "jobs"
+  | "employees"
+  | "audit"
+  | "validators"
+  | "asset-detail"
+  | "job-detail";
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [page, setPage] = useState("overview");
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
+  const [page, setPage] =
+    useState<Page>("dashboard");
+
+  const [selectedAssetId, setSelectedAssetId] =
+    useState<string>("");
+
+  const [selectedJobId, setSelectedJobId] =
+    useState<string>("");
+
+  /*
+   * Login
+   */
   if (!user) {
-    return <LoginPage onLogin={setUser} />;
+    return (
+      <LoginPage
+        onLogin={(loggedInUser) => {
+          setUser(loggedInUser);
+          setPage("dashboard");
+        }}
+      />
+    );
   }
 
-  const goTo = (nextPage: string) => {
+  /*
+   * Navigation helper
+   */
+  function goTo(nextPage: Page) {
     setPage(nextPage);
-    setSelectedAssetId(null);
-    setSelectedJobId(null);
-  };
+  }
 
-  const allowed = (action: Action) => can(user.role, action);
+  /*
+   * Logout
+   */
+  function handleLogout() {
+    setUser(null);
+    setPage("dashboard");
+    setSelectedAssetId("");
+    setSelectedJobId("");
+  }
 
   return (
     <div className="app-shell">
+
+      {/* HEADER */}
       <header className="app-header">
+
         <div>
           <h1>BEL Asset Management</h1>
-          <p>Blockchain-based Asset Lifecycle Management</p>
+
+          <p>
+            Blockchain-based Asset Lifecycle Management
+          </p>
         </div>
 
         <div className="user-info">
-          <span>{user.employeeId}</span>
-          <span>{user.role}</span>
+
+          <span>
+            {user.employeeId}
+          </span>
+
+          <span>
+            {user.role}
+          </span>
 
           <button
             type="button"
-            onClick={() => {
-              setUser(null);
-              setPage("overview");
-            }}
+            onClick={handleLogout}
           >
             Logout
           </button>
+
         </div>
+
       </header>
 
+
+      {/* NAVIGATION */}
       <nav className="main-nav">
-        <button type="button" onClick={() => goTo("overview")}>
-          Overview
+
+        <button
+          type="button"
+          onClick={() => goTo("dashboard")}
+        >
+          Dashboard
         </button>
 
-        <button type="button" onClick={() => goTo("assets")}>
+
+        <button
+          type="button"
+          onClick={() => goTo("assets")}
+        >
           Assets
         </button>
 
-        {allowed("CREATE_JOB") && (
-          <button type="button" onClick={() => goTo("jobs")}>
+
+        {(can(user.role, "CREATE_JOB") ||
+          can(user.role, "PERFORM_MAINTENANCE") ||
+          can(user.role, "VERIFY_MAINTENANCE")) && (
+          <button
+            type="button"
+            onClick={() => goTo("jobs")}
+          >
             Jobs
           </button>
         )}
 
-        {allowed("CREATE_EMPLOYEE") && (
-          <button type="button" onClick={() => goTo("employees")}>
-            Employees
+
+        {can(user.role, "CREATE_EMPLOYEE") && (
+          <button
+            type="button"
+            onClick={() => goTo("employees")}
+          >
+            Employee Management
           </button>
         )}
 
-        {allowed("VIEW_AUDIT_HISTORY") && (
-          <button type="button" onClick={() => goTo("audit")}>
+
+        {/* AUDIT TRAIL */}
+        {can(user.role, "VIEW_AUDIT_HISTORY") && (
+          <button
+            type="button"
+            onClick={() => goTo("audit")}
+          >
             Audit Trail
           </button>
         )}
 
-        {allowed("VIEW_VALIDATOR_STATUS") && (
-          <button type="button" onClick={() => goTo("validators")}>
-            Network
+
+        {/* VALIDATOR STATUS */}
+        {can(user.role, "VIEW_VALIDATOR_STATUS") && (
+          <button
+            type="button"
+            onClick={() => goTo("validators")}
+          >
+            Validator Status
           </button>
         )}
+
       </nav>
 
+
+      {/* MAIN CONTENT */}
       <main className="app-content">
-        {page === "overview" && (
+
+
+        {/* DASHBOARD */}
+        {page === "dashboard" && (
           <DashboardRouter
             user={user}
-            onViewAssets={() => goTo("assets")}
-            onCreateJob={() => goTo("jobs")}
-            onPerformMaintenance={() => goTo("jobs")}
-            onViewAudit={() => goTo("audit")}
+
+            onViewAssets={() =>
+              goTo("assets")
+            }
+
+            onCreateJob={() =>
+              goTo("jobs")
+            }
+
+            onPerformMaintenance={() =>
+              goTo("jobs")
+            }
+
+            onViewAudit={() =>
+              goTo("audit")
+            }
           />
         )}
 
-        {page === "assets" && !selectedAssetId && (
+
+        {/* ASSETS */}
+        {page === "assets" && (
           <AssetsPage
             user={user}
-            onSelect={(assetId) => {
+            onSelect={(assetId: string) => {
               setSelectedAssetId(assetId);
+              goTo("asset-detail");
             }}
           />
         )}
 
-        {page === "assets" && selectedAssetId && (
+
+        {/* ASSET DETAIL */}
+        {page === "asset-detail" && (
           <AssetDetailPage
             assetId={selectedAssetId}
             user={user}
-            onViewAudit={(assetId) => {
+
+            onViewAudit={(assetId: string) => {
               setSelectedAssetId(assetId);
-              setPage("audit");
+              goTo("audit");
             }}
           />
         )}
 
-        {page === "jobs" && !selectedJobId && (
+
+        {/* JOBS */}
+        {page === "jobs" && (
           <JobsPage
             user={user}
-            onSelect={(jobId) => {
+            onOpenJob={(jobId: string) => {
               setSelectedJobId(jobId);
+              setPage("job-detail");
             }}
           />
         )}
 
-        {page === "jobs" && selectedJobId && (
-          <>
-            <div className="workspace-actions">
-              <button type="button" onClick={() => setSelectedJobId(null)}>
-                Back to jobs
-              </button>
-            </div>
 
-            <JobDetailPage jobId={selectedJobId} user={user} />
-          </>
+        {/* JOB DETAIL */}
+        {page === "job-detail" && (
+          <JobDetailPage
+            jobId={selectedJobId}
+            user={user}
+          />
         )}
 
-        {page === "employees" && <EmployeesPage user={user} />}
 
-        {page === "audit" && (
-          <AuditTrailPage assetId={selectedAssetId ?? ""} />
-        )}
+        {/* EMPLOYEE MANAGEMENT */}
+        {page === "employees" &&
+          can(user.role, "CREATE_EMPLOYEE") && (
+            <EmployeesPage
+              user={user}
+            />
+          )}
 
-        {page === "validators" && <ValidatorStatusPage />}
+
+        {/* AUDIT TRAIL */}
+        {page === "audit" &&
+          can(user.role, "VIEW_AUDIT_HISTORY") && (
+            <AuditTrailPage
+              assetId={selectedAssetId}
+            />
+          )}
+
+
+        {/* VALIDATOR STATUS */}
+        {page === "validators" &&
+          can(user.role, "VIEW_VALIDATOR_STATUS") && (
+            <ValidatorStatusPage />
+          )}
+
       </main>
+
     </div>
   );
 }

@@ -8,9 +8,19 @@ export function AuditTrailPage({
   assetId: string;
 }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    mockApi.getAssetAuditTrail(assetId).then(setEvents);
+    setLoading(true);
+
+    mockApi
+      .getAssetAuditTrail(assetId)
+      .then((data) => {
+        setEvents(data);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [assetId]);
 
   return (
@@ -24,7 +34,11 @@ export function AuditTrailPage({
         </div>
       </div>
 
-      {events.length === 0 ? (
+      {loading ? (
+        <div className="empty-state">
+          Loading audit events...
+        </div>
+      ) : events.length === 0 ? (
         <div className="empty-state">
           No audit events available.
         </div>
@@ -34,15 +48,8 @@ export function AuditTrailPage({
             <div className="audit-row" key={event.eventId}>
               <div>
                 <strong>{event.action}</strong>
-
-                <div>
-                  Actor: {event.actorIdentityId}
-                </div>
-
-                <div>
-                  Transaction: {event.txId}
-                </div>
-
+                <div>Actor: {event.actorIdentityId}</div>
+                <div>Transaction: {event.txId}</div>
                 <div>
                   Entity: {event.entityType} — {event.entityId}
                 </div>

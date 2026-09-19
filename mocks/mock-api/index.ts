@@ -170,10 +170,20 @@ type PersistedState = {
   jobs: Job[];
 };
 
-const getStorage = (): Storage | null => {
-  if (typeof window === "undefined") return null;
+type StorageLike = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+  clear(): void;
+};
+
+const getStorage = (): StorageLike | null => {
   try {
-    return window.localStorage;
+    const g = globalThis as unknown as {
+      localStorage?: StorageLike;
+    };
+
+    return g.localStorage ?? null;
   } catch {
     return null;
   }
@@ -181,6 +191,7 @@ const getStorage = (): Storage | null => {
 
 const saveState = () => {
   const storage = getStorage();
+
   if (!storage) return;
 
   const state: PersistedState = {
@@ -194,31 +205,57 @@ const saveState = () => {
   };
 
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(state));
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(state)
+    );
   } catch {
-    // Ignore storage errors; the mock API can still work in memory.
+    // Ignore storage errors.
   }
 };
 
 const loadState = () => {
   const storage = getStorage();
+
   if (!storage) return;
 
   try {
     const raw = storage.getItem(STORAGE_KEY);
+
     if (!raw) return;
 
-    const saved = JSON.parse(raw) as Partial<PersistedState>;
+    const saved =
+      JSON.parse(raw) as Partial<PersistedState>;
 
-    if (Array.isArray(saved.identities)) identities = saved.identities;
-    if (Array.isArray(saved.devices)) devices = saved.devices;
-    if (Array.isArray(saved.wallets)) wallets = saved.wallets;
-    if (Array.isArray(saved.users)) users = saved.users;
-    if (Array.isArray(saved.challenges)) challenges = saved.challenges;
-    if (Array.isArray(saved.assets)) assets = saved.assets;
-    if (Array.isArray(saved.jobs)) jobs = saved.jobs;
+    if (Array.isArray(saved.identities)) {
+      identities = saved.identities;
+    }
+
+    if (Array.isArray(saved.devices)) {
+      devices = saved.devices;
+    }
+
+    if (Array.isArray(saved.wallets)) {
+      wallets = saved.wallets;
+    }
+
+    if (Array.isArray(saved.users)) {
+      users = saved.users;
+    }
+
+    if (Array.isArray(saved.challenges)) {
+      challenges = saved.challenges;
+    }
+
+    if (Array.isArray(saved.assets)) {
+      assets = saved.assets;
+    }
+
+    if (Array.isArray(saved.jobs)) {
+      jobs = saved.jobs;
+    }
   } catch {
-    // Invalid saved data is ignored and seed data is used.
+    // Invalid saved data is ignored.
   }
 };
 
@@ -247,16 +284,20 @@ const auditLog: Record<string, AuditEvent[]> = {
   ]
 };
 
-const validators: Validator[] = [0, 1, 2, 3].map((i) => ({
-  validatorId: `val_${i}`,
-  publicKey: `0xMockPubKey${i}`,
-  status: "ACTIVE",
-  joinedAt: now()
-}));
+const validators: Validator[] = [0, 1, 2, 3].map(
+  (i) => ({
+    validatorId: `val_${i}`,
+    publicKey: `0xMockPubKey${i}`,
+    status: "ACTIVE",
+    joinedAt: now()
+  })
+);
 
 const requireUser = (id: string) => {
   const user = users.find(
-    (u) => u.employeeId === id || u.identityId === id
+    (u) =>
+      u.employeeId === id ||
+      u.identityId === id
   );
 
   if (!user) {
@@ -267,7 +308,9 @@ const requireUser = (id: string) => {
 };
 
 const requireJob = (id: string) => {
-  const job = jobs.find((j) => j.jobId === id);
+  const job = jobs.find(
+    (j) => j.jobId === id
+  );
 
   if (!job) {
     throw new Error(`Job ${id} not found`);
@@ -281,17 +324,24 @@ const challenge = (
   purpose: ProvisioningChallenge["purpose"]
 ): ProvisioningChallenge => {
   const value = {
-    challengeId: `mock-${purpose}-${deviceId}`,
+    challengeId:
+      `mock-${purpose}-${deviceId}`,
     deviceId,
     purpose,
-    challenge: `challenge-${deviceId}`,
-    expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    challenge:
+      `challenge-${deviceId}`,
+    expiresAt:
+      new Date(
+        Date.now() + 300_000
+      ).toISOString(),
     usedAt: null
   };
 
   challenges = [
     ...challenges.filter(
-      (c) => c.challengeId !== value.challengeId
+      (c) =>
+        c.challengeId !==
+        value.challengeId
     ),
     value
   ];
@@ -317,7 +367,9 @@ const registration = (
   );
 
   if (!identity || !device || !wallet) {
-    throw new Error(`Registration ${identityId} not found`);
+    throw new Error(
+      `Registration ${identityId} not found`
+    );
   }
 
   return {
@@ -329,23 +381,33 @@ const registration = (
 
 export const mockApi: ApiClient & {
   login(): Promise<Session>;
-  loginWithEmployeeId(employeeId: string): Promise<Session>;
+  loginWithEmployeeId(
+    employeeId: string
+  ): Promise<Session>;
+  getUsers(): Promise<User[]>;
 } = {
 
-  async requestProvisioningChallenge(input: ProvisioningChallengeRequest) {
+  async requestProvisioningChallenge(
+    input: ProvisioningChallengeRequest
+  ) {
     return challenge(
       input.deviceId,
       "WALLET_INITIALIZATION"
     );
   },
 
-  async initializeAccount(input: InitializeAccountRequest) {
+  async initializeAccount(
+    input: InitializeAccountRequest
+  ) {
     const identity: PendingIdentity = {
-      identityId: `DID:BEL:P${identities.length + 1}`,
-      employeeId: input.employeeId ?? null,
+      identityId:
+        `DID:BEL:P${identities.length + 1}`,
+      employeeId:
+        input.employeeId ?? null,
       fullName: input.fullName,
       role: null,
-      department: input.department ?? null,
+      department:
+        input.department ?? null,
       status: "PENDING",
       createdAt: now()
     };
@@ -354,9 +416,11 @@ export const mockApi: ApiClient & {
       ...devices,
       {
         deviceId: input.deviceId,
-        identityId: identity.identityId,
+        identityId:
+          identity.identityId,
         publicKey: input.publicKey,
-        metadata: input.deviceMetadata,
+        metadata:
+          input.deviceMetadata,
         status: "PENDING",
         registeredAt: now(),
         revokedAt: null
@@ -367,7 +431,8 @@ export const mockApi: ApiClient & {
       ...wallets,
       {
         address: input.walletAddress,
-        identityId: identity.identityId,
+        identityId:
+          identity.identityId,
         deviceId: input.deviceId,
         publicKey: input.publicKey,
         status: "PENDING",
@@ -377,38 +442,59 @@ export const mockApi: ApiClient & {
       }
     ];
 
-    identities = [...identities, identity];
+    identities = [
+      ...identities,
+      identity
+    ];
 
     saveState();
 
-    return registration(identity.identityId);
+    return registration(
+      identity.identityId
+    );
   },
 
-  async requestAuthenticationChallenge(deviceId: string) {
-    return challenge(deviceId, "AUTHENTICATION");
+  async requestAuthenticationChallenge(
+    deviceId: string
+  ) {
+    return challenge(
+      deviceId,
+      "AUTHENTICATION"
+    );
   },
 
   async login(
-    input: string | LoginProofRequest = "mock-device-credential"
+    input:
+      | string
+      | LoginProofRequest =
+      "mock-device-credential"
   ) {
     const device =
       typeof input === "string"
         ? undefined
         : devices.find(
             (d) =>
-              d.deviceId === input.deviceId &&
-              d.publicKey === input.publicKey &&
+              d.deviceId ===
+                input.deviceId &&
+              d.publicKey ===
+                input.publicKey &&
               d.status === "ACTIVE"
           );
 
-    if (typeof input !== "string" && !device) {
-      throw new Error("Invalid device proof");
+    if (
+      typeof input !== "string" &&
+      !device
+    ) {
+      throw new Error(
+        "Invalid device proof"
+      );
     }
 
     const user = device
       ? users.find(
           (candidate) =>
-            candidate.identityId === device.identityId
+            candidate.identityId ===
+            device.identityId
         ) ?? seedUser
       : seedUser;
 
@@ -418,9 +504,12 @@ export const mockApi: ApiClient & {
     };
   },
 
-  async loginWithEmployeeId(employeeId: string) {
+  async loginWithEmployeeId(
+    employeeId: string
+  ) {
     const user = users.find(
-      (u) => u.employeeId === employeeId
+      (u) =>
+        u.employeeId === employeeId
     );
 
     if (!user) {
@@ -437,8 +526,13 @@ export const mockApi: ApiClient & {
 
   async getPendingRegistrations() {
     return identities
-      .filter((i) => i.status === "PENDING")
-      .map((i) => registration(i.identityId));
+      .filter(
+        (i) => i.status === "PENDING"
+      )
+      .map(
+        (i) =>
+          registration(i.identityId)
+      );
   },
 
   async verifyRegistration(
@@ -450,11 +544,16 @@ export const mockApi: ApiClient & {
     );
 
     if (!identity) {
-      throw new Error(`Identity ${id} not found`);
+      throw new Error(
+        `Identity ${id} not found`
+      );
     }
 
-    identity.employeeId = input.employeeId;
-    identity.department = input.department;
+    identity.employeeId =
+      input.employeeId;
+
+    identity.department =
+      input.department;
 
     saveState();
 
@@ -474,25 +573,32 @@ export const mockApi: ApiClient & {
       !identity.employeeId ||
       !identity.department
     ) {
-      throw new Error(`Identity ${id} is not verified`);
+      throw new Error(
+        `Identity ${id} is not verified`
+      );
     }
 
     identity.role = input.role;
 
     const user: User = {
-      employeeId: identity.employeeId,
+      employeeId:
+        identity.employeeId,
       identityId: id,
       walletAddress:
         wallets.find(
-          (w) => w.identityId === id
+          (w) =>
+            w.identityId === id
         )?.address ?? "",
       role: input.role,
-      department: identity.department,
+      department:
+        identity.department,
       status: identity.status
     };
 
     users = [
-      ...users.filter((u) => u.identityId !== id),
+      ...users.filter(
+        (u) => u.identityId !== id
+      ),
       user
     ];
 
@@ -501,7 +607,9 @@ export const mockApi: ApiClient & {
     return user;
   },
 
-  async activateRegistration(id: string) {
+  async activateRegistration(
+    id: string
+  ) {
     const identity = identities.find(
       (i) => i.identityId === id
     );
@@ -533,16 +641,21 @@ export const mockApi: ApiClient & {
     wallet.activatedAt = now();
 
     const user: User = {
-      employeeId: identity.employeeId,
+      employeeId:
+        identity.employeeId,
       identityId: id,
-      walletAddress: wallet.address,
+      walletAddress:
+        wallet.address,
       role: identity.role,
-      department: identity.department,
+      department:
+        identity.department,
       status: "ACTIVE"
     };
 
     users = [
-      ...users.filter((u) => u.identityId !== id),
+      ...users.filter(
+        (u) => u.identityId !== id
+      ),
       user
     ];
 
@@ -555,29 +668,40 @@ export const mockApi: ApiClient & {
     userId: string,
     input: RegisterDeviceRequest
   ) {
-    const user = requireUser(userId);
+    const user =
+      requireUser(userId);
 
     const device: Device = {
       deviceId: input.deviceId,
-      identityId: user.identityId,
-      publicKey: input.publicKey,
+      identityId:
+        user.identityId,
+      publicKey:
+        input.publicKey,
       status: "PENDING",
       registeredAt: now(),
       revokedAt: null
     };
 
-    devices = [...devices, device];
+    devices = [
+      ...devices,
+      device
+    ];
 
     saveState();
 
     return device;
   },
 
-  async getDevices(userId: string) {
-    const user = requireUser(userId);
+  async getDevices(
+    userId: string
+  ) {
+    const user =
+      requireUser(userId);
 
     return devices.filter(
-      (d) => d.identityId === user.identityId
+      (d) =>
+        d.identityId ===
+        user.identityId
     );
   },
 
@@ -585,44 +709,62 @@ export const mockApi: ApiClient & {
     userId: string,
     input: RegisterWalletRequest
   ) {
-    const user = requireUser(userId);
+    const user =
+      requireUser(userId);
 
     const device = devices.find(
       (d) =>
-        d.deviceId === input.deviceId &&
-        d.identityId === user.identityId &&
+        d.deviceId ===
+          input.deviceId &&
+        d.identityId ===
+          user.identityId &&
         d.status === "ACTIVE"
     );
 
-    if (!device || !input.walletAddress) {
+    if (
+      !device ||
+      !input.walletAddress
+    ) {
       throw new Error(
         "An active device and existing wallet address are required"
       );
     }
 
     const wallet: Wallet = {
-      address: input.walletAddress,
-      identityId: user.identityId,
-      deviceId: input.deviceId,
-      publicKey: device.publicKey,
+      address:
+        input.walletAddress,
+      identityId:
+        user.identityId,
+      deviceId:
+        input.deviceId,
+      publicKey:
+        device.publicKey,
       status: "PENDING",
       activatedAt: null,
       revokedAt: null,
       revokedReason: null
     };
 
-    wallets = [...wallets, wallet];
+    wallets = [
+      ...wallets,
+      wallet
+    ];
 
     saveState();
 
     return wallet;
   },
 
-  async getWallets(userId: string) {
-    const user = requireUser(userId);
+  async getWallets(
+    userId: string
+  ) {
+    const user =
+      requireUser(userId);
 
     return wallets.filter(
-      (w) => w.identityId === user.identityId
+      (w) =>
+        w.identityId ===
+        user.identityId
     );
   },
 
@@ -630,13 +772,17 @@ export const mockApi: ApiClient & {
     userId: string,
     input: ActivateWalletRequest
   ): Promise<WalletActionResponse> {
-    const user = requireUser(userId);
+    const user =
+      requireUser(userId);
 
     const wallet = wallets.find(
       (w) =>
-        w.identityId === user.identityId &&
-        w.deviceId === input.deviceId &&
-        w.address === input.walletAddress &&
+        w.identityId ===
+          user.identityId &&
+        w.deviceId ===
+          input.deviceId &&
+        w.address ===
+          input.walletAddress &&
         w.status === "PENDING"
     );
 
@@ -648,7 +794,8 @@ export const mockApi: ApiClient & {
 
     wallet.status = "ACTIVE";
     wallet.activatedAt = now();
-    user.walletAddress = wallet.address;
+    user.walletAddress =
+      wallet.address;
 
     saveState();
 
@@ -661,21 +808,27 @@ export const mockApi: ApiClient & {
     userId: string,
     reason: string
   ) {
-    const user = requireUser(userId);
+    const user =
+      requireUser(userId);
 
     const wallet = wallets.find(
       (w) =>
-        w.identityId === user.identityId &&
-        w.address === user.walletAddress
+        w.identityId ===
+          user.identityId &&
+        w.address ===
+          user.walletAddress
     );
 
     if (!wallet) {
-      throw new Error("Wallet not found");
+      throw new Error(
+        "Wallet not found"
+      );
     }
 
     wallet.status = "REVOKED";
     wallet.revokedAt = now();
-    wallet.revokedReason = reason;
+    wallet.revokedReason =
+      reason;
 
     saveState();
 
@@ -684,10 +837,14 @@ export const mockApi: ApiClient & {
     };
   },
 
-  async revokeDevice(deviceId: string): Promise<Device> {
-    const device = devices.find(
-      (d) => d.deviceId === deviceId
-    );
+  async revokeDevice(
+    deviceId: string
+  ): Promise<Device> {
+    const device =
+      devices.find(
+        (d) =>
+          d.deviceId === deviceId
+      );
 
     if (!device) {
       throw new Error(
@@ -716,20 +873,27 @@ export const mockApi: ApiClient & {
   ): Promise<CreateUserResponse> {
 
     const identity: Identity = {
-      identityId: `DID:BEL:${identities.length + 1}`,
-      employeeId: input.employeeId,
-      fullName: input.fullName,
-      role: input.role,
-      department: input.department,
+      identityId:
+        `DID:BEL:${identities.length + 1}`,
+      employeeId:
+        input.employeeId,
+      fullName:
+        input.fullName,
+      role:
+        input.role,
+      department:
+        input.department,
       status: "ACTIVE",
       createdAt: now()
     };
 
-    // Create a mock wallet for the new employee
     const wallet: Wallet = {
-      address: `0xMockWallet00${identities.length + 1}`,
-      identityId: identity.identityId,
-      deviceId: `BEL-DEV-00${identities.length + 1}`,
+      address:
+        `0xMockWallet00${identities.length + 1}`,
+      identityId:
+        identity.identityId,
+      deviceId:
+        `BEL-DEV-00${identities.length + 1}`,
       status: "ACTIVE",
       activatedAt: now(),
       revokedAt: null,
@@ -737,12 +901,18 @@ export const mockApi: ApiClient & {
     };
 
     const user: User = {
-      employeeId: identity.employeeId,
-      identityId: identity.identityId,
-      walletAddress: wallet.address,
-      role: identity.role,
-      department: identity.department,
-      status: identity.status
+      employeeId:
+        identity.employeeId,
+      identityId:
+        identity.identityId,
+      walletAddress:
+        wallet.address,
+      role:
+        identity.role,
+      department:
+        identity.department,
+      status:
+        identity.status
     };
 
     identities = [
@@ -769,10 +939,14 @@ export const mockApi: ApiClient & {
   },
 
   async getMe() {
-    return { ...seedUser };
+    return {
+      ...seedUser
+    };
   },
 
-  async getUser(id: string) {
+  async getUser(
+    id: string
+  ) {
     return (
       users.find(
         (u) =>
@@ -782,14 +956,29 @@ export const mockApi: ApiClient & {
     );
   },
 
-  async getAssets() {
-    return assets.map((a) => ({ ...a }));
+  // --------------------------------------------------
+  // GET ALL EMPLOYEES
+  // --------------------------------------------------
+
+  async getUsers(): Promise<User[]> {
+    return users.map(
+      (u) => ({ ...u })
+    );
   },
 
-  async getAsset(id: string) {
+  async getAssets() {
+    return assets.map(
+      (a) => ({ ...a })
+    );
+  },
+
+  async getAsset(
+    id: string
+  ) {
     return (
       assets.find(
-        (a) => a.assetId === id
+        (a) =>
+          a.assetId === id
       ) ?? null
     );
   },
@@ -801,12 +990,17 @@ export const mockApi: ApiClient & {
       assetId:
         input.assetId ??
         `AST-${assets.length + 1}`,
-      nftId: String(assets.length + 1),
-      assetType: input.assetType,
-      ownerId: input.ownerId,
-      custodianId: input.custodianId,
+      nftId:
+        String(assets.length + 1),
+      assetType:
+        input.assetType,
+      ownerId:
+        input.ownerId,
+      custodianId:
+        input.custodianId,
       parentAssetId:
-        input.parentAssetId ?? null,
+        input.parentAssetId ??
+        null,
       status: "ACTIVE"
     };
 
@@ -824,9 +1018,11 @@ export const mockApi: ApiClient & {
     id: string,
     input: TransferAssetRequest
   ) {
-    const asset = assets.find(
-      (a) => a.assetId === id
-    );
+    const asset =
+      assets.find(
+        (a) =>
+          a.assetId === id
+      );
 
     if (!asset) {
       throw new Error(
@@ -834,24 +1030,33 @@ export const mockApi: ApiClient & {
       );
     }
 
-    asset.ownerId = input.newOwnerId;
+    asset.ownerId =
+      input.newOwnerId;
+
     asset.custodianId =
       input.newCustodianId ??
       input.newOwnerId;
 
     saveState();
 
-    return { ...asset };
+    return {
+      ...asset
+    };
   },
 
   async getJobs() {
-    return jobs.map((j) => ({ ...j }));
+    return jobs.map(
+      (j) => ({ ...j })
+    );
   },
 
-  async getJob(id: string) {
+  async getJob(
+    id: string
+  ) {
     return (
       jobs.find(
-        (j) => j.jobId === id
+        (j) =>
+          j.jobId === id
       ) ?? null
     );
   },
@@ -860,14 +1065,19 @@ export const mockApi: ApiClient & {
     input: CreateJobRequest
   ) {
     const job: Job = {
-      jobId: `JOB-${jobs.length + 1}`,
-      assetId: input.assetId,
-      createdBy: seedIdentity.identityId,
+      jobId:
+        `JOB-${jobs.length + 1}`,
+      assetId:
+        input.assetId,
+      createdBy:
+        seedIdentity.identityId,
       assignedTo: "",
       verifierId:
-        input.verifierId ?? null,
+        input.verifierId ??
+        null,
       status: "CREATED",
-      priority: input.priority,
+      priority:
+        input.priority,
       createdAt: now(),
       completedAt: null
     };
@@ -886,63 +1096,89 @@ export const mockApi: ApiClient & {
     id: string,
     input: AssignJobRequest
   ) {
-    const job = requireJob(id);
+    const job =
+      requireJob(id);
 
     job.assignedTo =
       input.technicianId;
 
-    job.status = "ASSIGNED";
+    job.status =
+      "ASSIGNED";
 
     saveState();
 
-    return { ...job };
+    return {
+      ...job
+    };
   },
 
-  async startJob(id: string) {
-    const job = requireJob(id);
+  async startJob(
+    id: string
+  ) {
+    const job =
+      requireJob(id);
 
-    job.status = "IN_PROGRESS";
+    job.status =
+      "IN_PROGRESS";
 
     saveState();
 
-    return { ...job };
+    return {
+      ...job
+    };
   },
 
   async completeJob(
     id: string,
     _input: CompleteJobRequest
   ) {
-    const job = requireJob(id);
+    const job =
+      requireJob(id);
 
-    job.status = "COMPLETED";
-    job.completedAt = now();
+    job.status =
+      "COMPLETED";
+
+    job.completedAt =
+      now();
 
     saveState();
 
-    return { ...job };
+    return {
+      ...job
+    };
   },
 
-  async approveJob(id: string) {
-    const job = requireJob(id);
+  async approveJob(
+    id: string
+  ) {
+    const job =
+      requireJob(id);
 
-    job.status = "VERIFIED";
+    job.status =
+      "VERIFIED";
 
     saveState();
 
-    return { ...job };
+    return {
+      ...job
+    };
   },
 
   async rejectJob(
     id: string,
     _input: RejectJobRequest
   ) {
-    const job = requireJob(id);
+    const job =
+      requireJob(id);
 
-    job.status = "REJECTED";
+    job.status =
+      "REJECTED";
 
     saveState();
 
-    return { ...job };
+    return {
+      ...job
+    };
   },
 
   async getAssetAuditTrail(
@@ -973,11 +1209,16 @@ export const mockApi: ApiClient & {
   ): Promise<CommitteeResponse> {
     return {
       height,
-      validatorIds: validators
-        .map((v) => v.validatorId)
-        .slice(0, 1)
+      validatorIds:
+        validators
+          .map(
+            (v) =>
+              v.validatorId
+          )
+          .slice(0, 1)
     };
   }
 };
 
-export type MockApi = typeof mockApi;
+export type MockApi =
+  typeof mockApi;

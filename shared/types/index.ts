@@ -2,7 +2,7 @@
 // in docs/SYSTEM_SPEC.md has a definition here. Changing any of these
 // requires team approval (see Phase 2 of the project plan).
 
-import {
+import type {
   Role,
   IdentityStatus,
   WalletStatus,
@@ -13,16 +13,7 @@ import {
   AuditEntityType,
 } from "../enums";
 
-export {
-  Role,
-  IdentityStatus,
-  WalletStatus,
-  AssetStatus,
-  JobStatus,
-  JobPriority,
-  ValidatorStatus,
-  AuditEntityType,
-};
+export * from "../enums";
 
 export type Identity = {
   identityId: string;
@@ -36,10 +27,12 @@ export type Identity = {
   verifiedBy?: string | null;
 };
 
+type PendingFields = "employeeId" | "role" | "department" | "status";
+
 /** Public contract for the pending onboarding response. Pending fields are
  * intentionally nullable until administrator verification; active Identity
  * consumers continue to use the non-null verified shape above. */
-export type PendingIdentity = Omit<Identity, "employeeId" | "role" | "department" | "status"> & {
+export type PendingIdentity = Omit<Identity, PendingFields> & {
   employeeId: string | null;
   role: Role | null;
   department: string | null;
