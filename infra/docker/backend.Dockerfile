@@ -20,6 +20,10 @@ COPY tsconfig.base.json ./
 COPY shared ./shared
 COPY mocks ./mocks
 COPY backend ./backend
+# Runtime reads the committed/generated backend-facing artifacts. Foundry is
+# intentionally not installed in this image.
+COPY contracts/abis ./contracts/abis
+COPY contracts/deployments ./contracts/deployments
 
 EXPOSE 4000
 CMD ["npm", "run", "start", "--workspace=bel-backend"]

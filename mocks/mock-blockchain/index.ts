@@ -20,9 +20,96 @@ export class MockBlockchainAdapter implements BlockchainService {
   seedAsset(asset: Asset): void { this.assets.set(asset.assetId, asset); }
   seedJob(job: Job): void { this.jobs.set(job.jobId, job); }
 
+  /** Every envelope accepted so far, in order (handy for assertions). */
+  readonly submitted: Transaction[] = [];
+  private nftCounter = 0;
+
   async submitTransaction(tx: Transaction) {
     this.txCounter += 1;
+    this.submitted.push(tx);
+    this.record(tx);
     return { txId: tx.txId || `mock-tx-${this.txCounter}`, status: "SUCCESS" as const };
+  }
+
+  // Best-effort read-after-write for asset/job transactions, using the same
+  // payload fields as backend/src/blockchain/payloads.ts. The mock still
+  // accepts everything and never enforces RBAC or state transitions — the
+  // real contracts do (THREAT_MODEL: dev shortcut).
+  private record(tx: Transaction): void {
+    const p = (tx.payload ?? {}) as Record<string, unknown>;
+    const s = (k: string) => (typeof p[k] === "string" && p[k] !== "" ? (p[k] as string) : undefined);
+    const asset = s("assetId") ? this.assets.get(s("assetId")!) : undefined;
+    const job = s("jobId") ? this.jobs.get(s("jobId")!) : undefined;
+    const now = tx.timestamp || new Date().toISOString();
+    switch (tx.type) {
+      case "ASSET_MINT": {
+        const id = s("assetId");
+        if (!id || this.assets.has(id)) return;
+        const owner = s("ownerId") ?? tx.actorIdentity;
+        this.nftCounter += 1;
+        this.assets.set(id, {
+          assetId: id,
+          nftId: String(this.nftCounter),
+          assetType: s("assetType") ?? "",
+          ownerId: owner,
+          custodianId: s("custodianId") ?? owner,
+          parentAssetId: s("parentAssetId") ?? null,
+          status: "ACTIVE",
+        });
+        return;
+      }
+      case "ASSET_TRANSFER":
+        if (asset && s("newOwnerId")) {
+          asset.ownerId = s("newOwnerId")!;
+          asset.custodianId = s("newCustodianId") ?? s("newOwnerId")!;
+        }
+        return;
+      case "ASSET_STATE_CHANGE": {
+        const state = s("newState") ?? s("status");
+        if (asset && (state === "ACTIVE" || state === "IN_MAINTENANCE" || state === "DECOMMISSIONED")) asset.status = state;
+        return;
+      }
+      case "COMPONENT_ATTACH":
+      case "COMPONENT_REMOVE": {
+        const component = this.assets.get(s("componentAssetId") ?? s("componentId") ?? "");
+        if (component) component.parentAssetId = tx.type === "COMPONENT_ATTACH" ? s("parentAssetId") ?? null : null;
+        return;
+      }
+      case "JOB_CREATE": {
+        const id = s("jobId");
+        if (!id || this.jobs.has(id) || !s("assetId")) return;
+        const priority = s("priority");
+        this.jobs.set(id, {
+          jobId: id,
+          assetId: s("assetId")!,
+          createdBy: tx.actorIdentity,
+          assignedTo: "",
+          verifierId: s("verifierId") ?? null,
+          status: "CREATED",
+          priority: priority === "LOW" || priority === "HIGH" || priority === "CRITICAL" ? priority : "MEDIUM",
+          createdAt: now,
+          completedAt: null,
+        });
+        return;
+      }
+      case "JOB_ASSIGN":
+        if (job) { job.assignedTo = s("technicianId") ?? job.assignedTo; job.status = "ASSIGNED"; }
+        return;
+      case "JOB_START":
+        if (job) job.status = "IN_PROGRESS";
+        return;
+      case "JOB_COMPLETE":
+        if (job) { job.status = "COMPLETED"; job.completedAt = now; }
+        return;
+      case "JOB_APPROVE":
+        if (job) job.status = "VERIFIED";
+        return;
+      case "JOB_REJECT":
+        if (job) job.status = "REJECTED";
+        return;
+      default:
+        return;
+    }
   }
 
   async getIdentity(identityId: string): Promise<Identity | null> { return this.identities.get(identityId) ?? null; }

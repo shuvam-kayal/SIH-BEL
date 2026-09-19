@@ -1,8 +1,9 @@
-// Plug-and-play wiring. This is the only file that names a concrete
-// BlockchainService implementation. Services receive it by constructor
-// injection, so swapping the mock for the real chain touches nothing else.
+// Plug-and-play wiring. Services receive the BlockchainService by
+// constructor injection. The implementation is chosen by BEL_BLOCKCHAIN
+// (default "mock"; "evm" for the real contracts) in
+// blockchain/factory.ts, so swapping chains touches nothing else.
 
-import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
+import { createBlockchainServiceFromEnv } from "./blockchain/factory";
 import { PrismaClient } from "@prisma/client";
 import type { BlockchainService } from "./adapters/BlockchainService";
 import { AssetsServiceImpl, type AssetsService } from "./assets/assets.service";
@@ -32,7 +33,7 @@ export type Container = {
 
 export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; attestation?: DeviceAttestationAdapter; prisma?: PrismaClient };
 
-export function createContainer(chain: BlockchainService = new MockBlockchainAdapter(), options: ContainerOptions = {}): Container {
+export function createContainer(chain: BlockchainService = createBlockchainServiceFromEnv(), options: ContainerOptions = {}): Container {
   // Development may use the recording adapter, but production must provide
   // an explicit durable adapter backed by the permissioned blockchain.
   const production = process.env.BEL_ENV === "production";

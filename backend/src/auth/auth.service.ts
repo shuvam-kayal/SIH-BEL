@@ -8,6 +8,7 @@ import { ProvisioningChallenge, User } from "../../../shared/types";
 import { ForbiddenError, UnauthorizedError } from "../errors";
 import { hashCredential } from "../users/identity.store";
 import type { IdentityRepositories } from "../users/repositories";
+import { assertWalletMatchesPublicKey, verifyCompactSignature } from "../blockchain/crypto";
 
 export interface AuthService {
   login(deviceCredential: string | LoginProofInput): Promise<{ user: User; token: string }>;
@@ -66,6 +67,9 @@ export class AuthServiceImpl implements AuthService {
     const user = identity ? await this.repositories.users.findByIdentityId(identity.identityId) : null;
     const wallet = identity ? (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "ACTIVE" && item.deviceId === input.deviceId) : null;
     if (!device || device.status !== "ACTIVE" || !identity || !identity.employeeId || !identity.role || !identity.department || identity.status !== "ACTIVE" || !user || !wallet || !device.publicKey || device.publicKey !== input.publicKey) throw new UnauthorizedError("Device, identity, or wallet is not active");
+    if (this.evmCryptoEnabled()) {
+      try { assertWalletMatchesPublicKey(wallet.address, device.publicKey); } catch { throw new UnauthorizedError("Wallet address does not match device public key"); }
+    }
     if (!this.verifyProof(challenge.challenge, device.publicKey, input.signature)) throw new UnauthorizedError("Invalid authentication proof");
     challenge.usedAt = new Date().toISOString(); await this.repositories.challenges.save(challenge);
     const token = `bel_${randomUUID()}`;
@@ -75,12 +79,15 @@ export class AuthServiceImpl implements AuthService {
   }
 
   private verifyProof(challenge: string, publicKey: string, signature: string): boolean {
+    if (this.evmCryptoEnabled()) return verifyCompactSignature(challenge, publicKey, signature);
     try {
       const key = publicKey.includes("BEGIN") ? createPublicKey(publicKey) : createPublicKey({ key: Buffer.from(publicKey, "base64"), format: "der", type: "spki" });
       const bytes = /^[0-9a-f]+$/i.test(signature) ? Buffer.from(signature, "hex") : Buffer.from(signature, "base64url");
       return verify(null, Buffer.from(challenge), key, bytes) || verify("sha256", Buffer.from(challenge), key, bytes);
     } catch { return false; }
   }
+
+  private evmCryptoEnabled(): boolean { return (process.env.BEL_BLOCKCHAIN ?? "mock").trim().toLowerCase() === "evm"; }
 
   async validateSession(token: string): Promise<User | null> {
     const session = await this.repositories.sessions.find(token);
