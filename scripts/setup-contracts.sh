@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # scripts/setup-contracts.sh
-# Installs the Solidity toolchain dependencies Person 5 needs once the
-# tests move from skeletons to real assertions.
-#
-# The repo intentionally compiles WITHOUT these: `forge build` works on
-# a clean clone because contracts/src holds interfaces only. Run this
-# when you start writing cheatcode-based tests.
+# Installs the pinned Solidity dependencies. Required before `forge build`:
+# the registries use OpenZeppelin ERC-721 and the tests use forge-std.
+# OpenZeppelin stays on 4.9.x because 5.x requires solc >= 0.8.20 and
+# foundry.toml pins 0.8.19. CI installs the same versions.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -17,8 +15,7 @@ if ! command -v forge >/dev/null 2>&1; then
 fi
 
 cd contracts
-forge install foundry-rs/forge-std --no-git || true
-# Uncomment when the registries need ERC-721 for the asset NFT (Person 2/5):
-# forge install OpenZeppelin/openzeppelin-contracts --no-git || true
+[ -d lib/forge-std ] || forge install foundry-rs/forge-std@v1.9.4 --no-git
+[ -d lib/openzeppelin-contracts ] || forge install OpenZeppelin/openzeppelin-contracts@v4.9.6 --no-git
 
-echo "Done. remappings.txt already points forge-std/ at lib/forge-std/src/."
+echo "Done. remappings.txt maps forge-std/ and @openzeppelin/ into lib/."

@@ -61,9 +61,12 @@ type Transaction = {
 
 Every state-changing transaction type below has a canonical contract function/event. Role changes are included so on-chain RBAC changes are auditable. Audit records are derived from emitted events and are not separate user-submitted transactions.
 
+`IDENTITY_REGISTER` is the application/onboarding lifecycle event for creating a pending registration. It is distinct from the backend's internal integrity action name (for example `ACCOUNT_INITIALIZATION`). `ACCOUNT_INITIALIZATION` is not a new blockchain `TransactionType`; the blockchain-facing adapter must map the public onboarding event to the frozen contract transaction vocabulary when blockchain anchoring is introduced.
+
 | Transaction type | Interface | Function | Event |
 | :--- | :--- | :--- | :--- |
 | IDENTITY_CREATE | IIdentityRegistry | `createIdentity` | `IdentityCreated` |
+| IDENTITY_REGISTER | IIdentityRegistry | `createIdentity` / onboarding event | `IdentityCreated` |
 | ROLE_ASSIGN | IRoleRegistry | `assignRole` | `RoleAssigned` |
 | ROLE_REVOKE | IRoleRegistry | `revokeRole` | `RoleRevoked` |
 | WALLET_ACTIVATE | IIdentityRegistry | `activateWallet` | `WalletActivated` |
@@ -94,13 +97,23 @@ A Device is a managed BEL endpoint. Wallets are device-bound signing identities.
 
 ## Identity and wallet lifecycle contract
 
-The lifecycle is:
+The application lifecycle for an Identity registration is:
+
+```text
+PENDING --(admin verification + role/data completion)--> ACTIVE
+```
+
+There is no separate `VERIFIED` identity status in the shared enum. Verification is represented by verification metadata and completed required identity fields while the registration remains `PENDING` until activation.
+
+Device and Wallet lifecycles are independently represented as:
 
 ```text
 PENDING → ACTIVE → REVOKED
 ```
 
-Identity registration, device registration, wallet registration, administrator verification, role assignment, wallet activation, wallet revocation, and device revocation are independently auditable lifecycle events. The current backend emits SHA-256 integrity commitments for these events; a production blockchain adapter may anchor the corresponding public state and proof.
+Identity registration, device registration, wallet registration, administrator verification, role assignment, wallet activation, wallet revocation, and device revocation are independently auditable lifecycle events.
+
+The backend may emit SHA-256 integrity commitments for these lifecycle events through its `IntegrityAdapter`. These integrity action names are backend/adaptor implementation details and are not automatically new blockchain `TransactionType` values. A production blockchain adapter is responsible for mapping the public lifecycle event to the frozen blockchain transaction envelope and transaction types.
 
 `actorIdentity` is the persistent identity responsible for an operation. `actorWallet` is the replaceable public wallet that actually signs it. Every historical transaction preserves both values; replacing a wallet never changes the identity. A pending or revoked wallet cannot authenticate or authorize protected operations.
 

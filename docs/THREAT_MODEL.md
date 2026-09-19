@@ -1,9 +1,6 @@
-# Threat Model (DRAFT)
+# Threat Model (v1 integration baseline)
 
-This expands `SYSTEM_SPEC.md`'s Security Assumptions into concrete
-threats and mitigations. Like `CONSENSUS_SPEC.md`, this is a starting
-draft, not a finished security review — treat it as the checklist to
-argue with, not a completed audit.
+This document expands `SYSTEM_SPEC.md` security assumptions into concrete threats and mitigations for the current prototype. It is a security baseline, not a claim of production security certification. Items explicitly marked open or future work remain integration gates.
 
 ## Assets to protect
 
@@ -13,47 +10,64 @@ argue with, not a completed audit.
 - Job/maintenance history (integrity of "who verified what")
 - Off-chain sensitive documents referenced by on-chain hashes
 - Consensus liveness/safety (no forked or stalled chain)
+- Authentication sessions and the lifecycle state that makes them valid
 
 ## Threats and mitigations
 
-| # | Threat | Mitigation (planned) | Owner |
+| # | Threat | Current mitigation / remaining gap | Owner |
 |---|---|---|---|
-| T1 | Private key exfiltrated from a managed workstation | Key never leaves device (SYSTEM_SPEC.md); device-level protections (TBD: HSM/secure enclave vs. plain keystore) | Person 1 + infra |
-| T2 | Wallet stolen/compromised but Identity not revoked | Wallet revocation is decoupled from Identity — revoke wallet, keep identity, issue new wallet | Person 1 |
-| T3 | Backend compromised, attempts unauthorized on-chain action | Smart contracts independently enforce RBAC_MATRIX.md — backend compromise alone can't force an unauthorized state change through | Person 5 |
-| T4 | Role escalation via a bug in the RBAC middleware | Backend and contract RBAC checks must be tested against the same matrix (see contracts/test/AccessControl.t.sol); no single-layer trust | Person 1 + Person 5 |
-| T5 | Malicious or offline leader disrupts block production | See CONSENSUS_SPEC.md failure-handling table (currently open research — leader-offline fallback is owned by Person 4) | Person 4 |
-| T6 | Predictable committee selection lets an attacker pre-position validators | CONSENSUS_SPEC.md's "Randomness" section must guarantee the seed is not grindable ahead of time — currently unspecified | Person 4 |
-| T7 | Sensitive document content leaked via on-chain data | Only hashes/references go on-chain, never content (SYSTEM_SPEC.md) — off-chain storage access control is a gap, see ARCHITECTURE.md | Unowned — needs assignment |
-| T8 | Replay of a valid transaction (e.g. re-submitting a JOB_APPROVE) | Transaction envelope should include a nonce/txId uniqueness check (see CONTRACT_SPEC.md's Transaction Envelope) — not yet enforced in interfaces | Person 5 |
-| T9 | Audit log tampering (rewriting history of who did what) | AuditRegistry emits are append-only on-chain events, not mutable backend rows — backend audit views should read from-chain, not a database the backend itself can edit | Person 2/3 + Person 5 |
-| T10 | Device/network trust assumption violated (e.g. unmanaged device gains access) | Out of scope for application code — network/device policy enforcement is an infra/IT control, not something the app can fully guarantee | Infra |
+| T1 | Private key exfiltrated from a managed workstation | The backend accepts/stores public key material and signatures only; the private key remains on the device. Hardware-backed storage is future device-side work. | Person 1 + Person 6 + infra |
+| T2 | Wallet stolen/compromised but Identity not revoked | Wallet lifecycle is decoupled from Identity. A wallet can be revoked/replaced while the persistent Identity remains. Authentication also validates current wallet/device/identity state. | Person 1 |
+| T3 | Backend compromised, attempts unauthorized on-chain action | Smart contracts independently enforce RBAC; backend compromise alone must not force an unauthorized contract state transition. | Person 5 |
+| T4 | Role escalation via a bug in RBAC middleware | Backend authorization uses the shared RBAC matrix, while contracts enforce their own authorization. Tests cover the backend Role × Action matrix; contract tests must remain aligned with the documented matrix. | Person 1 + Person 5 |
+| T5 | Malicious or offline leader disrupts block production | Consensus failure handling remains an open research/integration item owned by Person 4. | Person 4 |
+| T6 | Predictable committee selection lets an attacker pre-position validators | Committee randomness and anti-grinding properties remain an open consensus-design item. | Person 4 |
+| T7 | Sensitive document content leaked via on-chain data | Only hashes/references belong on-chain; off-chain storage access control remains an open architecture/integration item. | Unowned — needs assignment |
+| T8 | Replay of a valid transaction (e.g. re-submitting a JOB_APPROVE) | The transaction envelope specifies nonce/txId uniqueness requirements, but enforcement remains a Person 5 contract/integration item. | Person 5 |
+| T9 | Audit log tampering (rewriting history of who did what) | On-chain integrity/audit evidence is intended to be append-only. Backend operational rows must not be treated as the authoritative immutable audit history. | Person 2/3 + Person 5 |
+| T10 | Device/network trust assumption violated (e.g. unmanaged device gains access) | Eligibility is decided by `DeviceAttestationAdapter`; client-supplied managed/network flags are evidence only. Production BEL device-management/VPN integration remains future work. | Person 1 + Person 6 + infra |
+| T11 | Stolen/reused bearer session remains usable after credential lifecycle changes | Protected requests resolve the bearer token against server-side session state and re-check current Identity, Device, and Wallet status. Revocation/suspension therefore invalidates the session path without relying on client headers. | Person 1 |
+| T12 | Provisioning proof is replayed or forged | Provisioning uses a short-lived challenge plus device public key/signature verification; challenge consumption prevents reuse. Expiry, wrong-device, invalid-signature, and replay cases must remain covered by tests. | Person 1 |
+| T13 | Wallet address does not correspond to submitted public key | This is an explicit activation invariant. The backend may retain the pair while `PENDING`, but activation must be gated by cryptographic validation from the wallet/blockchain integration adapter. The concrete derivation is intentionally not defined until the wallet/signature scheme is frozen. | Person 1 + Person 5/6 |
 
 ## Explicitly out of scope for v1
 
-- Protection against a fully malicious managed-device (SYSTEM_SPEC.md
-  assumes device/network trust as a given, not something the app
-  defends against).
-- Formal verification of smart contracts (recommended before mainnet-
-  equivalent deployment, not before internal pilot).
-- DDoS protection on the API layer (infra concern, not app-level).
+- Protection against a fully malicious managed device beyond the trust assumptions stated in `SYSTEM_SPEC.md`.
+- Formal verification of smart contracts before the internal prototype/pilot.
+- DDoS protection on the API layer (infra concern, not application-level authorization).
+- A blockchain-specific public-key-to-address derivation before the wallet/signature scheme is selected.
 
-## Open questions to resolve before Phase 12 integration
+## Open questions / integration gates
 
 - Who owns off-chain document storage and its access control (T7)?
-- What's the nonce/replay-protection scheme for on-chain transactions (T8)?
-- Does the chosen blockchain client provide any of T5/T6's mitigations
-  out of the box, or does Person 4's feasibility spike need to confirm
-  this is buildable at all (see CONSENSUS_SPEC.md Phase 8)?
+- What nonce/replay-protection scheme will be enforced by the on-chain transaction layer (T8)?
+- What concrete wallet/signature scheme supplies the cryptographic `walletAddress` ↔ `publicKey` binding required before activation (T13)?
+- Does the selected blockchain client provide any T5/T6 mitigations out of the box, or does Person 4's feasibility work need to define them?
+- What production device-attestation mechanism replaces the prototype adapter before deployment?
 
 ## Development-only shortcuts that must not reach a deployed environment
 
 Tracked here so they are found deliberately rather than by accident.
 
-| Shortcut | Where | Risk if shipped | Removal condition |
+| Shortcut | Where | Risk if shipped | Removal / hardening condition |
 | :--- | :--- | :--- | :--- |
-| Header-based dev sessions — any caller can claim any role | `backend/src/middleware/session.ts` | Complete authentication bypass | Person 1 replaces `resolveUser()` with managed-device verification; set `BEL_DEV_SESSIONS=false` in every non-local environment |
-| `cors()` allows all origins | `backend/src/app.ts` | Cross-origin calls from any site | Restrict to the workstation origin before any shared deployment |
-| Mock chain accepts every transaction and returns SUCCESS | `mocks/mock-blockchain/index.ts` | Writes appear to succeed while nothing is recorded | Swap the adapter in `backend/src/container.ts` at Phase 12 |
-| No wallet-status check in the permission path | `requireActiveIdentity` in `backend/src/auth/rbac.middleware.ts` | A revoked wallet could still transact — this is an explicit SYSTEM_SPEC.md requirement | Person 1 wires wallet status once `IIdentityRegistry.isActiveWallet` exists |
-| Transfer authorization hardcoded to `false` | `backend/src/routes/assets.routes.ts` | Fails closed, so safe — but an authorized Engineer cannot transfer at all | Person 2 implements the per-asset grant lookup |
+| Development credential login / compatibility path | `backend/src/auth/auth.service.ts` and related configuration | A non-device authentication path could weaken the production trust model if enabled outside local development | Keep the compatibility path disabled in production; production login uses device challenge-response proof |
+| Development CORS configuration allows broad origins | `backend/src/app.ts` | Cross-origin calls from an unintended site | Restrict allowed origins before shared deployment |
+| Mock chain accepts every transaction and returns SUCCESS | `mocks/mock-blockchain/index.ts` | Writes appear to succeed while nothing is recorded on a real chain | Replace the adapter before blockchain-backed deployment/integration |
+| Wallet address/public-key binding is not yet implemented by a concrete wallet adapter | Identity activation integration | A syntactically valid but cryptographically mismatched address could be activated | Do not mark the registration active until the selected wallet/blockchain adapter validates the binding |
+| Transfer authorization remains fail-closed until per-asset grants are wired | `backend/src/routes/assets.routes.ts` | Authorized transfer can be rejected even though this is not an authorization bypass | Person 2 implements resource-level grant lookup and tests `AUTH` semantics |
+
+## Authentication/lifecycle invariants for testing
+
+The following must hold before the Identity/Auth/RBAC baseline is considered validated:
+
+1. A private key is never accepted as an initialization or login field.
+2. A provisioning challenge is bound to the intended device and cannot be reused after consumption or expiry.
+3. Invalid provisioning/authentication signatures are rejected.
+4. `PENDING` identities cannot authenticate or call protected business APIs.
+5. Only an authorized active administrator can verify/activate a pending registration or assign its role.
+6. A protected request requires a valid server-issued bearer session.
+7. The session is invalid if the Identity, Device, or Wallet is no longer in the required active state.
+8. The actor's role and action must pass the shared RBAC matrix; `AUTH` and `OWN` actions additionally require their resource-level authorization semantics.
+9. Wallet replacement preserves the persistent Identity while revoking the old wallet and preserving historical ownership/actor references.
+10. Activation cannot bypass the `walletAddress` ↔ `publicKey` cryptographic binding requirement once the concrete wallet adapter is integrated.

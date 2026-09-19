@@ -1,0 +1,36 @@
+[
+  {
+    "type": "function",
+    "name": "recordAuditFor",
+    "inputs": [
+      {
+        "name": "actor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "entityType",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "entityId",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "action",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "txId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  }
+]

@@ -108,10 +108,7 @@ dependency-free test skeleton. `forge-std` is installed on demand via
 ### ADR-012: Development authentication uses bearer sessions
 Protected requests are authenticated only with a server-issued bearer
 session created by `/auth/login`. Development credentials are hashed and
-verified through the same device/identity/wallet checks as future managed
-device credentials. This compatibility path is development-only and is
-disabled when `BEL_ENV=production`; production uses device proof. Client-
-supplied `x-bel-*` identity headers are ignored.
+verified through the same device/identity/wallet checks as future managed device credentials. This compatibility path is development-only and is disabled when `BEL_ENV=production`; production uses device proof. Client-supplied `x-bel-*` identity headers are ignored.
 
 ### ADR-013: LICENSE is unresolved
 The root LICENSE asserts internal-use-only while the Solidity files
@@ -143,10 +140,10 @@ rather than silently resolved. Decide before first release.
 **Why:** MAC, IP, hostname, and VPN fields are spoofable evidence rather than trust anchors.
 **Consequences:** The prototype uses mock/rejecting adapters; trusted BEL device-management/VPN integration remains future work.
 
-### ADR-019: PENDING → VERIFIED → ACTIVE lifecycle
-**Decision:** Initialization remains pending until an administrator verifies identity data, assigns role, and activates identity/device/wallet.
-**Why:** A submitted registration must not equal an authenticated employee.
-**Consequences:** Pending records cannot log in or access protected business operations.
+### ADR-019: Pending registration is verified before activation
+**Decision:** Initialization creates a `PENDING` Identity/Device/Wallet registration. An administrator verifies the submitted employee data, assigns or confirms the employee/department information and role, and then activates the registration. There is no separate `VERIFIED` identity status.
+**Why:** A submitted registration must not equal an authenticated employee, while the lifecycle enum remains small and unambiguous.
+**Consequences:** Verification is represented by the registration's verification metadata (for example `verifiedAt` / `verifiedBy`) and the required verified fields. A registration remains `PENDING` until activation. Pending records cannot log in or access protected business operations.
 
 ### ADR-020: Wallet replacement preserves identity
 **Decision:** Wallet replacement revokes the old wallet and registers a new pending wallet against the same identity.
