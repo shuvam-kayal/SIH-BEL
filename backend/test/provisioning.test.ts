@@ -1,11 +1,13 @@
 import { generateKeyPairSync, sign } from "node:crypto";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
 import { clearIdentityStore, identityStore } from "../src/users/identity.store";
 import { createMemoryRepositories } from "../src/users/repository-implementations";
 import { MockDeviceAttestationAdapter } from "../src/devices/device-attestation";
+import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
+import { SigningKey, Wallet } from "ethers";
 
 describe("employee self-initialization protocol", () => {
   let container: ReturnType<typeof createContainer>;
@@ -128,5 +130,110 @@ describe("employee self-initialization protocol", () => {
     await container.users.registerDevice("NO-FAKE-WALLET", "NO-FAKE-WALLET-DEVICE", "no-fake-credential", "PUBLIC-NO-FAKE");
     expect(await container.users.listWallets("NO-FAKE-WALLET")).toHaveLength(0);
     await expect(container.users.activateWallet("NO-FAKE-WALLET", "NO-FAKE-WALLET-DEVICE", "")).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+});
+
+describe("frozen EVM provisioning challenge wire", () => {
+  const DEVICE = "EVM-WIRE-DEVICE";
+  const OTHER_DEVICE = "EVM-WIRE-OTHER-DEVICE";
+  const PRIVATE_KEY = "0x59c6995e998f97a5a0044976f0945389dc9e86dae88c7a6f2e5f4b9c3c4f3f3a";
+  const OTHER_PRIVATE_KEY = "0x8b3a350cf5c34c9194ca3a545d1f7c7d6e2b6e8c0b3f2a1d5c6e7f8091a2b3c4";
+  let container: ReturnType<typeof createContainer>;
+  let previousMode: string | undefined;
+  let attestationCalls = 0;
+
+  beforeEach(() => {
+    previousMode = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    clearIdentityStore();
+    attestationCalls = 0;
+    const mockAttestation = new MockDeviceAttestationAdapter([DEVICE, OTHER_DEVICE]);
+    container = createContainer(new MockBlockchainAdapter(), {
+      repositories: createMemoryRepositories(identityStore),
+      attestation: {
+        async attest(request) {
+          attestationCalls += 1;
+          return mockAttestation.attest(request);
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    if (previousMode === undefined) delete process.env.BEL_BLOCKCHAIN;
+    else process.env.BEL_BLOCKCHAIN = previousMode;
+  });
+
+  const compactSign = async (privateKey: string, challenge: string): Promise<string> => {
+    const serialized = await new Wallet(privateKey).signMessage(challenge);
+    const hex = serialized.slice(2);
+    const v = Number.parseInt(hex.slice(128, 130), 16);
+    return `0x${(v - 27).toString(16).padStart(2, "0")}${hex.slice(0, 64)}${hex.slice(64, 128)}`;
+  };
+
+  async function validInput(deviceId = DEVICE) {
+    const wallet = new Wallet(PRIVATE_KEY);
+    const challenge = await container.users.requestProvisioningChallenge({ deviceId, deviceMetadata: { managedDevice: true, onBelNetwork: true } });
+    return {
+      fullName: "EVM Wire User", employeeId: `EVM-WIRE-${deviceId}`, department: "ENGINEERING", deviceId,
+      publicKey: `0x${SigningKey.computePublicKey(PRIVATE_KEY, false).slice(4)}`,
+      walletAddress: wallet.address, challengeId: challenge.challengeId,
+      signature: await compactSign(PRIVATE_KEY, challenge.challenge), deviceMetadata: { managedDevice: true, onBelNetwork: true },
+    };
+  }
+
+  it("does not consume a challenge after a failed proof, then consumes it after success", async () => {
+    const input = await validInput();
+    input.signature = await compactSign(OTHER_PRIVATE_KEY, "wrong-challenge");
+    await expect(container.users.initializeAccount(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await container.repositories.challenges.findById(input.challengeId))?.usedAt).toBeNull();
+
+    input.signature = await compactSign(PRIVATE_KEY, (await container.repositories.challenges.findById(input.challengeId))!.challenge);
+    await expect(container.users.initializeAccount(input)).resolves.toMatchObject({ identity: { status: "PENDING" } });
+    expect((await container.repositories.challenges.findById(input.challengeId))?.usedAt).not.toBeNull();
+    await expect(container.users.initializeAccount(input)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("rejects an invalid proof before invoking device attestation", async () => {
+    const input = await validInput();
+    const callsAfterChallenge = attestationCalls;
+    input.signature = await compactSign(OTHER_PRIVATE_KEY, "wrong-challenge");
+
+    await expect(container.users.initializeAccount(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(attestationCalls).toBe(callsAfterChallenge);
+    expect((await container.repositories.challenges.findById(input.challengeId))?.usedAt).toBeNull();
+  });
+
+  it("rejects expired, wrong-device, and wrong-purpose challenges before proof consumption", async () => {
+    const expired = await validInput();
+    const expiredChallenge = await container.repositories.challenges.findById(expired.challengeId);
+    await container.repositories.challenges.save({ ...expiredChallenge!, expiresAt: new Date(Date.now() - 1_000).toISOString() });
+    await expect(container.users.initializeAccount(expired)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect((await container.repositories.challenges.findById(expired.challengeId))?.usedAt).toBeNull();
+
+    const wrongDevice = await validInput();
+    wrongDevice.deviceId = OTHER_DEVICE;
+    await expect(container.users.initializeAccount(wrongDevice)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect((await container.repositories.challenges.findById(wrongDevice.challengeId))?.usedAt).toBeNull();
+
+    const wrongPurpose = await validInput();
+    const purposeChallenge = await container.repositories.challenges.findById(wrongPurpose.challengeId);
+    await container.repositories.challenges.save({ ...purposeChallenge!, purpose: "AUTHENTICATION" });
+    await expect(container.users.initializeAccount(wrongPurpose)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect((await container.repositories.challenges.findById(wrongPurpose.challengeId))?.usedAt).toBeNull();
+  });
+
+  it("allows only one concurrent consumer of a valid challenge", async () => {
+    const input = await validInput();
+    const [first, second] = await Promise.allSettled([
+      container.users.initializeAccount({ ...input, employeeId: "EVM-WIRE-CONCURRENT-A" }),
+      container.users.initializeAccount({ ...input, employeeId: "EVM-WIRE-CONCURRENT-B" }),
+    ]);
+
+    expect([first.status, second.status].sort()).toEqual(["fulfilled", "rejected"]);
+    const rejectedReason = first.status === "rejected" ? first.reason : second.status === "rejected" ? second.reason : undefined;
+    expect(rejectedReason).toMatchObject({ code: "CONFLICT" });
+    expect((await container.repositories.challenges.findById(input.challengeId))?.usedAt).not.toBeNull();
+    expect([...identityStore.identities.values()].filter((identity) => identity.employeeId?.startsWith("EVM-WIRE-CONCURRENT-")).length).toBe(1);
   });
 });
