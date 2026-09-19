@@ -33,7 +33,7 @@ const key = (index: number) => HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/4
 const wallet = (index: number) => new EvmWallet(key(index));
 const ADMIN = wallet(0);
 const BAD_ACTOR = wallet(8);
-const publicKey = (privateKey: string) => SigningKey.computePublicKey(privateKey, false).slice(4);
+const publicKey = (privateKey: string) => `0x${SigningKey.computePublicKey(privateKey, false).slice(4)}`;
 const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, actorIdentity: string, payload: Record<string, unknown>) => ({
   txId: `p1-${type}-${Date.now()}-${Math.random()}`,
   type,

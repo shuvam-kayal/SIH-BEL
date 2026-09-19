@@ -101,15 +101,19 @@ export class UsersServiceImpl implements UsersService {
     if (typeof input?.signature !== "string" || !input.signature.trim()) errors.push("signature is required");
     if (!input?.deviceMetadata || typeof input.deviceMetadata !== "object") errors.push("deviceMetadata is required");
     if (errors.length) throw new ValidationError(errors);
-    this.validateEvmWalletBinding(input.walletAddress, input.publicKey);
-    const attestation = await this.attestDevice(input.deviceId, input.deviceMetadata);
-    this.requireAttestation(attestation);
 
     const challenge = await this.repositories.challenges.findById(input.challengeId);
     if (!challenge || challenge.purpose !== "WALLET_INITIALIZATION") throw new ValidationError(["challenge is invalid"]);
     if (challenge.usedAt) throw new ConflictError("challenge has already been used");
     if (Date.parse(challenge.expiresAt) <= Date.now()) throw new ValidationError(["challenge has expired"]);
     if (challenge.deviceId !== input.deviceId) throw new ValidationError(["challenge is bound to another device"]);
+
+    // Frozen EVM wire order: public key/address binding and compact proof are
+    // checked only after the challenge is known to be valid, and the challenge
+    // is consumed only after every proof check succeeds.
+    this.validateEvmWalletBinding(input.walletAddress, input.publicKey);
+    const attestation = await this.attestDevice(input.deviceId, input.deviceMetadata);
+    this.requireAttestation(attestation);
     if (!this.verifyProvisioningProof(challenge.challenge, input.publicKey, input.signature)) throw new ForbiddenError("Invalid provisioning proof");
     if (await this.repositories.wallets.findByAddress(input.walletAddress)) throw new ConflictError("Wallet address is already registered");
     const existingDevice = await this.repositories.devices.findById(input.deviceId);
