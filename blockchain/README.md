@@ -7,7 +7,7 @@ and the implementation status and reproducible launch workflow are documented in
 [`docs/BESU_IMPLEMENTATION.md`](../docs/BESU_IMPLEMENTATION.md).
 
 The outer `blockchain/` directory is intentionally not a runtime consensus
-entrypoint. It contains only protocol-owned support and reference material
+entrypoint. It contains only protocol-owned support and reference material and
 is not used by the Besu build or demo.
 
 ## Frozen protocol summary
