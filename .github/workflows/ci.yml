@@ -61,7 +61,7 @@ jobs:
           version: stable
       - name: Start Anvil Docker service
         run: |
-          docker run -d --name bel-anvil -p 8545:8545 ghcr.io/foundry-rs/foundry:latest anvil --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000
+          docker run -d --name bel-anvil -p 8545:8545 --entrypoint anvil ghcr.io/foundry-rs/foundry:latest --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000
           for i in {1..30}; do cast rpc --rpc-url http://127.0.0.1:8545 eth_chainId && break; sleep 1; done
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install pinned Solidity dependencies
@@ -83,7 +83,12 @@ jobs:
         with:
           version: stable
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run test:contracts
+      - name: Install pinned Solidity dependencies
+        run: bash scripts/setup-contracts.sh
+      - run: forge build
+        working-directory: contracts
+      - run: forge test -vv
+        working-directory: contracts
       - name: Check formatting
         run: forge fmt --check
         working-directory: contracts
