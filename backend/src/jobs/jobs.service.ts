@@ -8,7 +8,13 @@
 
 import { Job, JobStatus } from "../../../shared/types";
 import { BlockchainService } from "../adapters/BlockchainService";
-import { NotImplementedError } from "../errors";
+import { NotFoundError, ValidationError } from "../errors";
+import { randomUUID } from "node:crypto";
+
+type JobActor = {
+  identityId: string;
+  walletAddress: string;
+};
 
 export const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   CREATED: ["ASSIGNED"],
@@ -21,15 +27,16 @@ export const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
 
 export interface JobsService {
   list(): Promise<Job[]>;
-  create(input: Partial<Job>): Promise<Job>;
-  assign(id: string, technicianId: string): Promise<Job>;
-  start(id: string): Promise<Job>;
-  complete(id: string, evidenceHash: string): Promise<Job>;
-  approve(id: string): Promise<Job>;
-  reject(id: string, reason: string): Promise<Job>;
+  create(input: Partial<Job>, actor: JobActor): Promise<Job>;
+  assign(id: string, technicianId: string, actor: JobActor): Promise<Job>;
+  start(id: string, actor: JobActor): Promise<Job>;
+  complete(id: string, evidenceHash: string, actor: JobActor): Promise<Job>;
+  approve(id: string, actor: JobActor): Promise<Job>;
+  reject(id: string, reason: string, actor: JobActor): Promise<Job>;
 }
 
 export class JobsServiceImpl implements JobsService {
+  private readonly jobs: Job[] = [];
   constructor(private readonly chain: BlockchainService) {}
 
   /** Exposed so the state machine can be tested without a datastore. */
@@ -40,32 +47,180 @@ export class JobsServiceImpl implements JobsService {
   }
 
   async list(): Promise<Job[]> {
-    throw new NotImplementedError("JobsService.list()");
+    return this.jobs;
   }
 
-  async create(_input: Partial<Job>): Promise<Job> {
-    // TODO: JOB_CREATE tx via this.chain.
-    throw new NotImplementedError("JobsService.create()");
+  async create(input: Partial<Job>, actor: JobActor): Promise<Job> {
+    const errors: string[] = [];
+
+    if (typeof input.assetId !== "string" || !input.assetId.trim()) {
+      errors.push("assetId is required");
+    }
+
+    if (typeof input.createdBy !== "string" || !input.createdBy.trim()) {
+      errors.push("createdBy is required");
+    }
+
+    if (!input.priority) {
+      errors.push("priority is required");
+    }
+
+    if (errors.length) {
+      throw new ValidationError(errors);
+    }
+
+    const job: Job = {
+      jobId: `JOB-${this.jobs.length + 1}`,
+      assetId: input.assetId!,
+      createdBy: input.createdBy!,
+      assignedTo: "",
+      verifierId: input.verifierId ?? null,
+      status: "CREATED",
+      priority: input.priority!,
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+    };
+
+    await this.submit("JOB_CREATE", actor, {
+      jobId: job.jobId,
+      assetId: job.assetId,
+    });
+
+    this.jobs.push(job);
+
+    return job;
   }
 
-  async assign(_id: string, _technicianId: string): Promise<Job> {
-    // TODO: this.assertTransition(job.status, "ASSIGNED"); JOB_ASSIGN tx.
-    throw new NotImplementedError("JobsService.assign()");
+  async assign(id: string, technicianId: string, actor: JobActor): Promise<Job> {
+    const job = this.jobs.find((item) => item.jobId === id);
+
+    if (!job) {
+      throw new NotFoundError(`No job ${id}`);
+    }
+
+    if (!technicianId?.trim()) {
+      throw new ValidationError(["technicianId is required"]);
+    }
+
+    this.assertTransition(job.status, "ASSIGNED");
+
+    await this.submit("JOB_ASSIGN", actor, {
+      jobId: job.jobId,
+      technicianId,
+    });
+
+    job.assignedTo = technicianId;
+    job.status = "ASSIGNED";
+
+    return job;
   }
 
-  async start(_id: string): Promise<Job> {
-    throw new NotImplementedError("JobsService.start()");
+  async start(id: string, actor: JobActor): Promise<Job> {
+    const job = this.jobs.find((item) => item.jobId === id);
+
+    if (!job) {
+      throw new NotFoundError(`No job ${id}`);
+    }
+
+    this.assertTransition(job.status, "IN_PROGRESS");
+
+    await this.submit("JOB_START", actor, {
+      jobId: job.jobId,
+    });
+
+    job.status = "IN_PROGRESS";
+
+    return job;
   }
 
-  async complete(_id: string, _evidenceHash: string): Promise<Job> {
-    throw new NotImplementedError("JobsService.complete()");
+  async complete(id: string, evidenceHash: string, actor: JobActor): Promise<Job> {
+    const job = this.jobs.find((item) => item.jobId === id);
+
+    if (!job) {
+      throw new NotFoundError(`No job ${id}`);
+    }
+
+    if (!evidenceHash?.trim()) {
+      throw new ValidationError(["evidenceHash is required"]);
+    }
+
+    this.assertTransition(job.status, "COMPLETED");
+
+    await this.submit("JOB_COMPLETE", actor, {
+      jobId: job.jobId,
+      evidenceHash,
+    });
+
+    job.status = "COMPLETED";
+    job.completedAt = new Date().toISOString();
+
+    return job;
   }
 
-  async approve(_id: string): Promise<Job> {
-    throw new NotImplementedError("JobsService.approve()");
+  async approve(id: string, actor: JobActor): Promise<Job> {
+    const job = this.jobs.find((item) => item.jobId === id);
+
+    if (!job) {
+      throw new NotFoundError(`No job ${id}`);
+    }
+
+    this.assertTransition(job.status, "VERIFIED");
+
+    await this.submit("JOB_APPROVE", actor, {
+      jobId: job.jobId,
+    });
+
+    job.status = "VERIFIED";
+
+    return job;
   }
 
-  async reject(_id: string, _reason: string): Promise<Job> {
-    throw new NotImplementedError("JobsService.reject()");
+  async reject(id: string, reason: string, actor: JobActor): Promise<Job> {
+    const job = this.jobs.find((item) => item.jobId === id);
+
+    if (!job) {
+      throw new NotFoundError(`No job ${id}`);
+    }
+
+    if (!reason?.trim()) {
+      throw new ValidationError(["reason is required"]);
+    }
+
+    this.assertTransition(job.status, "REJECTED");
+
+    await this.submit("JOB_REJECT", actor, {
+      jobId: job.jobId,
+      reason,
+    });
+
+    job.status = "REJECTED";
+
+    return job;
+  }
+
+  private async submit(
+    type:
+      | "JOB_CREATE"
+      | "JOB_ASSIGN"
+      | "JOB_START"
+      | "JOB_COMPLETE"
+      | "JOB_APPROVE"
+      | "JOB_REJECT",
+    actor: JobActor,
+    payload: Record<string, unknown>
+  ): Promise<void> {
+    const result = await this.chain.submitTransaction({
+      txId: randomUUID(),
+      type,
+      actorIdentity: actor.identityId,
+      actorWallet: actor.walletAddress,
+      payload,
+      timestamp: new Date().toISOString(),
+      signature: "development",
+    });
+
+    if (result.status !== "SUCCESS") {
+      throw new Error(`Blockchain rejected ${type}`);
+    }
   }
 }
