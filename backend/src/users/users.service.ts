@@ -14,9 +14,9 @@ import { BlockchainError } from "../blockchain/errors";
 
 export type CreateIdentityInput = Omit<Partial<Identity>, "employeeId" | "role"> & { employeeId: string; role: Role };
 export interface UsersService {
-  createUser(input: CreateIdentityInput): Promise<CreateUserResponse>;
+  createUser(input: CreateIdentityInput, actorId?: string): Promise<CreateUserResponse>;
   registerDevice(userId: string, deviceId: string, credential?: string, publicKey?: string): Promise<Device>;
-  revokeDevice(deviceId: string): Promise<Device>;
+  revokeDevice(deviceId: string, actorId?: string): Promise<Device>;
   registerWallet(userId: string, deviceId: string, address: string): Promise<Wallet>;
   revokeWallet(userId: string, reason: string, actorId?: string): Promise<Wallet>;
   activateWallet(userId: string, deviceId: string, address: string, actorId?: string): Promise<Wallet>;
@@ -46,18 +46,28 @@ export class UsersServiceImpl implements UsersService {
   constructor(private readonly chain: BlockchainService, repositories: IdentityRepositories, private readonly integrity?: IntegrityAdapter, attestation?: DeviceAttestationAdapter) { this.repositories = repositories; this.attestation = attestation ?? new RejectingDeviceAttestationAdapter(); }
   private readonly attestation: DeviceAttestationAdapter;
 
-  async createUser(input: CreateIdentityInput): Promise<CreateUserResponse> {
+  async createUser(input: CreateIdentityInput, actorId?: string): Promise<CreateUserResponse> {
     if (!input.employeeId || !ROLES.includes(input.role)) throw new ValidationError(["employeeId and a valid role are required"]);
     if (await this.repositories.identities.findByEmployeeId(input.employeeId)) throw new ConflictError(`Employee ${input.employeeId} already exists`);
     if (input.identityId && await this.repositories.identities.findById(input.identityId)) throw new ConflictError(`Identity ${input.identityId} already exists`);
     const identity: Identity = { identityId: input.identityId ?? `DID:BEL:${randomUUID()}`, employeeId: input.employeeId, fullName: input.fullName ?? input.employeeId, role: input.role, department: input.department ?? "UNSPECIFIED", status: input.status ?? "ACTIVE", createdAt: input.createdAt ?? new Date().toISOString() };
+    const onChainIdentity = this.evmCryptoEnabled() ? await this.chain.getIdentity(identity.identityId) : null;
+    if (this.evmCryptoEnabled() && !onChainIdentity) {
+      throw new ConflictError("Legacy user creation cannot create an EVM identity without a registered wallet; use account initialization and administrator activation");
+    }
+    if (onChainIdentity && onChainIdentity.role !== identity.role) {
+      const actor = this.requireIdentity(await this.resolveIdentity(actorId ?? identity.identityId));
+      await this.submit("ROLE_ASSIGN", actor, { identityId: identity.identityId, role: identity.role });
+    }
     await this.repositories.identities.save(identity);
     const user = this.toUser(identity, "");
     await this.repositories.users.save(user);
     await this.commit("IDENTITY", identity.identityId, "IDENTITY_CREATE", identity.identityId, { entityType: "IDENTITY", entityId: identity.identityId, status: identity.status, role: identity.role });
-    await this.submit("IDENTITY_CREATE", identity, { identityId: identity.identityId, status: identity.status, role: identity.role });
     await this.commit("IDENTITY", identity.identityId, "ROLE_ASSIGN", identity.identityId, { entityType: "IDENTITY", entityId: identity.identityId, role: identity.role });
-    await this.submit("ROLE_ASSIGN", identity, { identityId: identity.identityId, role: identity.role });
+    if (!onChainIdentity) {
+      await this.submit("IDENTITY_CREATE", identity, { identityId: identity.identityId, status: identity.status, role: identity.role });
+      await this.submit("ROLE_ASSIGN", identity, { identityId: identity.identityId, role: identity.role });
+    }
     return { identity: { ...identity }, user: { ...user } };
   }
 
@@ -207,13 +217,27 @@ export class UsersServiceImpl implements UsersService {
     return { ...device };
   }
 
-  async revokeDevice(deviceId: string): Promise<Device> {
+  async revokeDevice(deviceId: string, actorId?: string): Promise<Device> {
     const device = await this.repositories.devices.findById(deviceId);
     if (!device) throw new NotFoundError(`No device ${deviceId}`);
-    device.status = "REVOKED"; device.revokedAt = new Date().toISOString();
-    await this.repositories.devices.save(device); await this.repositories.credentials.revokeForDevice(deviceId);
-    for (const wallet of await this.repositories.wallets.listByIdentityId(device.identityId)) if (wallet.deviceId === deviceId && wallet.status === "ACTIVE") { wallet.status = "REVOKED"; wallet.revokedAt = new Date().toISOString(); wallet.revokedReason = "Device revoked"; await this.repositories.wallets.save(wallet); await this.commit("WALLET", wallet.address, "WALLET_REVOKE", device.identityId, { entityType: "WALLET", entityId: wallet.address, identityId: wallet.identityId, deviceId: wallet.deviceId, status: wallet.status, reason: wallet.revokedReason }); }
-    await this.commit("DEVICE", deviceId, "DEVICE_REVOKE", device.identityId, { entityType: "DEVICE", entityId: deviceId, identityId: device.identityId, status: device.status });
+    const wasRevoked = device.status === "REVOKED";
+    const actor = this.requireIdentity(await this.resolveIdentity(actorId ?? device.identityId));
+    const wallets = (await this.repositories.wallets.listByIdentityId(device.identityId)).filter((wallet) => wallet.deviceId === deviceId && wallet.status === "ACTIVE");
+
+    // Confirm every required chain transition before changing any local
+    // lifecycle state. This prevents PostgreSQL REVOKED / chain ACTIVE.
+    for (const wallet of wallets) {
+      await this.ensureWalletRevoked(actor, wallet.address, "Device revoked");
+    }
+
+    const now = new Date().toISOString();
+    if (!wasRevoked) {
+      device.status = "REVOKED"; device.revokedAt = now;
+      await this.repositories.devices.save(device);
+    }
+    await this.repositories.credentials.revokeForDevice(deviceId);
+    for (const wallet of wallets) { wallet.status = "REVOKED"; wallet.revokedAt = now; wallet.revokedReason = "Device revoked"; await this.repositories.wallets.save(wallet); await this.commit("WALLET", wallet.address, "WALLET_REVOKE", device.identityId, { entityType: "WALLET", entityId: wallet.address, identityId: wallet.identityId, deviceId: wallet.deviceId, status: wallet.status, reason: wallet.revokedReason }); }
+    if (!wasRevoked) await this.commit("DEVICE", deviceId, "DEVICE_REVOKE", device.identityId, { entityType: "DEVICE", entityId: deviceId, identityId: device.identityId, status: device.status });
     return { ...device };
   }
 
@@ -354,6 +378,13 @@ export class UsersServiceImpl implements UsersService {
       if (onChain?.status === "REVOKED") throw new ConflictError(`Wallet ${walletAddress} is already revoked on-chain`);
     }
     await this.submit("WALLET_ACTIVATE", actor, { address: walletAddress, deviceId, identityId });
+  }
+  private async ensureWalletRevoked(actor: Identity, walletAddress: string, reason: string): Promise<void> {
+    if (this.evmCryptoEnabled()) {
+      const onChain = await this.chain.getWallet(walletAddress);
+      if (onChain?.status === "REVOKED") return;
+    }
+    await this.submit("WALLET_REVOKE", actor, { address: walletAddress, reason });
   }
   private async commit(entityType: "IDENTITY" | "DEVICE" | "WALLET" | "GRANT", entityId: string, eventType: string, actorIdentityId: string, state: Record<string, unknown>): Promise<void> { if (!this.integrity) return; const version = (this.versions.get(entityId) ?? 0) + 1; this.versions.set(entityId, version); await commitState(this.integrity, { entityType, entityId, eventType, version, actorIdentityId, state }); }
   private async submit(type: "IDENTITY_CREATE" | "ROLE_ASSIGN" | "WALLET_ACTIVATE" | "WALLET_REVOKE", actor: Identity, payload: Record<string, unknown>): Promise<void> {

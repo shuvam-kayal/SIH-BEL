@@ -117,7 +117,7 @@ export function usersRouter(c: Container): Router {
         if (typeof req.body?.department !== "string" || !req.body.department.trim()) errors.push("department is required");
         if (!isValidRole(req.body?.role)) errors.push("role is invalid");
         if (errors.length) throw new ValidationError(errors);
-        res.status(201).json(await c.users.createUser(req.body));
+        res.status(201).json(await c.users.createUser(req.body, req.user!.identityId));
       } catch (err) {
         next(err);
       }
@@ -178,7 +178,7 @@ export function usersRouter(c: Container): Router {
     try { res.json(await c.users.listDevices(req.params.id)); } catch (err) { next(err); }
   });
   router.post("/admin/devices/:deviceId/revoke", requireSession, requirePermission("REVOKE_WALLET"), async (req, res, next) => {
-    try { res.json(await c.users.revokeDevice(req.params.deviceId)); } catch (err) { next(err); }
+    try { res.json(await c.users.revokeDevice(req.params.deviceId, req.user!.identityId)); } catch (err) { next(err); }
   });
   router.post("/admin/users/:id/wallets", requireSession, requirePermission("ACTIVATE_WALLET"), async (req, res, next) => {
     try { res.status(201).json(await c.users.registerWallet(req.params.id, req.body?.deviceId, req.body?.walletAddress)); } catch (err) { next(err); }

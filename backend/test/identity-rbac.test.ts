@@ -77,6 +77,96 @@ describe("identity, authentication, and wallet lifecycle", () => {
     const { wallet } = await provision("EMP005");
     await users.revokeDevice("EMP005-DEVICE");
     expect(identityStore.wallets.get(wallet.address)!.status).toBe("REVOKED");
+    expect(chain.submitted.at(-1)).toMatchObject({ type: "WALLET_REVOKE", payload: { address: wallet.address } });
     await expect(auth.login("EMP005-CREDENTIAL")).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+    const submissionCount = chain.submitted.length;
+    await users.revokeDevice("EMP005-DEVICE");
+    expect(chain.submitted).toHaveLength(submissionCount);
+  });
+
+  it("leaves PostgreSQL state unchanged when wallet revocation is rejected", async () => {
+    const failingChain = new MockBlockchainAdapter() as any;
+    const submit = failingChain.submitTransaction.bind(failingChain);
+    failingChain.failRevoke = false;
+    failingChain.submitTransaction = async (tx: any) => {
+      if (failingChain.failRevoke && tx.type === "WALLET_REVOKE") {
+        failingChain.submitted.push(tx);
+        return { txId: tx.txId, status: "REJECTED" as const };
+      }
+      return submit(tx);
+    };
+    const repositories = createMemoryRepositories();
+    const failingUsers = new UsersServiceImpl(failingChain, repositories);
+    await failingUsers.createUser({ employeeId: "EMP-FAIL", fullName: "EMP-FAIL", role: "ENGINEER", department: "TEST" });
+    await failingUsers.registerDevice("EMP-FAIL", "EMP-FAIL-DEVICE", "EMP-FAIL-CREDENTIAL", "PUBLIC-EMP-FAIL");
+    await failingUsers.registerWallet("EMP-FAIL", "EMP-FAIL-DEVICE", "0xFAIL-WALLET");
+    const wallet = await failingUsers.activateWallet("EMP-FAIL", "EMP-FAIL-DEVICE", "0xFAIL-WALLET");
+    failingChain.failRevoke = true;
+
+    await expect(failingUsers.revokeDevice("EMP-FAIL-DEVICE")).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await failingUsers.listDevices("EMP-FAIL"))[0].status).toBe("ACTIVE");
+    expect((await failingUsers.listWallets("EMP-FAIL")).find((item) => item.address === wallet.address)?.status).toBe("ACTIVE");
+  });
+
+  it("uses the authenticated admin wallet for EVM device revocation", async () => {
+    const originalMode = process.env.BEL_BLOCKCHAIN;
+    const evmChain = new MockBlockchainAdapter();
+    const repositories = createMemoryRepositories();
+    const evmUsers = new UsersServiceImpl(evmChain, repositories);
+    await evmUsers.createUser({ employeeId: "ADMIN-EVM", fullName: "ADMIN-EVM", role: "ADMIN", department: "TEST" });
+    await evmUsers.registerDevice("ADMIN-EVM", "ADMIN-EVM-DEVICE", "ADMIN-EVM-CREDENTIAL", "PUBLIC-ADMIN-EVM");
+    await evmUsers.registerWallet("ADMIN-EVM", "ADMIN-EVM-DEVICE", "0xADMIN-EVM");
+    await evmUsers.activateWallet("ADMIN-EVM", "ADMIN-EVM-DEVICE", "0xADMIN-EVM");
+    await evmUsers.createUser({ employeeId: "EMP-EVM", fullName: "EMP-EVM", role: "ENGINEER", department: "TEST" });
+    await evmUsers.registerDevice("EMP-EVM", "EMP-EVM-DEVICE", "EMP-EVM-CREDENTIAL", "PUBLIC-EMP-EVM");
+    await evmUsers.registerWallet("EMP-EVM", "EMP-EVM-DEVICE", "0xEMP-EVM");
+    await evmUsers.activateWallet("EMP-EVM", "EMP-EVM-DEVICE", "0xEMP-EVM");
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      await evmUsers.revokeDevice("EMP-EVM-DEVICE", "ADMIN-EVM");
+      const admin = await evmUsers.getIdentity("ADMIN-EVM");
+      expect(evmChain.submitted.at(-1)).toMatchObject({ actorIdentity: admin?.identityId, actorWallet: "0xADMIN-EVM", type: "WALLET_REVOKE" });
+    } finally {
+      if (originalMode === undefined) delete process.env.BEL_BLOCKCHAIN;
+      else process.env.BEL_BLOCKCHAIN = originalMode;
+    }
+  });
+
+  it("mirrors a predeployed EVM bootstrap identity without wallet-less writes", async () => {
+    const originalMode = process.env.BEL_BLOCKCHAIN;
+    const evmChain = new MockBlockchainAdapter();
+    evmChain.seedIdentity({ identityId: "DID:BEL:ADMIN", employeeId: "", fullName: "", role: "ADMIN", department: "", status: "ACTIVE", createdAt: new Date().toISOString() });
+    evmChain.seedWallet({ address: "0x1111111111111111111111111111111111111111", identityId: "DID:BEL:ADMIN", deviceId: "", status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: null });
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      const bootstrapUsers = new UsersServiceImpl(evmChain, createMemoryRepositories());
+      const result = await bootstrapUsers.createUser({ employeeId: "ADMIN-001", identityId: "DID:BEL:ADMIN", fullName: "BEL Development Administrator", role: "ADMIN", department: "PLATFORM" });
+      expect(result.identity.identityId).toBe("DID:BEL:ADMIN");
+      expect(evmChain.submitted).toHaveLength(0);
+    } finally {
+      if (originalMode === undefined) delete process.env.BEL_BLOCKCHAIN;
+      else process.env.BEL_BLOCKCHAIN = originalMode;
+    }
+  });
+
+  it("uses the active admin wallet for an EVM legacy role correction", async () => {
+    const originalMode = process.env.BEL_BLOCKCHAIN;
+    const evmChain = new MockBlockchainAdapter();
+    const repositories = createMemoryRepositories();
+    const legacyUsers = new UsersServiceImpl(evmChain, repositories);
+    const admin = await legacyUsers.createUser({ employeeId: "LEGACY-ADMIN", fullName: "LEGACY-ADMIN", role: "ADMIN", department: "TEST" });
+    await legacyUsers.registerDevice("LEGACY-ADMIN", "LEGACY-ADMIN-DEVICE", "LEGACY-ADMIN-CREDENTIAL", "PUBLIC-LEGACY-ADMIN");
+    await legacyUsers.registerWallet("LEGACY-ADMIN", "LEGACY-ADMIN-DEVICE", "0xLEGACY-ADMIN");
+    await legacyUsers.activateWallet("LEGACY-ADMIN", "LEGACY-ADMIN-DEVICE", "0xLEGACY-ADMIN");
+    evmChain.seedIdentity({ identityId: "DID:BEL:LEGACY-TARGET", employeeId: "", fullName: "", role: "ENGINEER", department: "", status: "ACTIVE", createdAt: new Date().toISOString() });
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      await legacyUsers.createUser({ employeeId: "LEGACY-TARGET", identityId: "DID:BEL:LEGACY-TARGET", fullName: "LEGACY-TARGET", role: "MANAGER", department: "TEST" }, admin.identity.identityId);
+      expect(evmChain.submitted.at(-1)).toMatchObject({ type: "ROLE_ASSIGN", actorIdentity: admin.identity.identityId, actorWallet: "0xLEGACY-ADMIN", payload: { identityId: "DID:BEL:LEGACY-TARGET", role: "MANAGER" } });
+    } finally {
+      if (originalMode === undefined) delete process.env.BEL_BLOCKCHAIN;
+      else process.env.BEL_BLOCKCHAIN = originalMode;
+    }
   });
 });
