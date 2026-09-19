@@ -33,3 +33,5 @@ __pycache__/
 .pytest_cache/
 *.tsbuildinfo
 *.log
+*.pem
+temp/

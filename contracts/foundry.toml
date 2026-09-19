@@ -1,7 +1,6 @@
-# Foundry configuration. `forge build` and `forge test` work with no
-# further setup — the current sources are interfaces plus a dependency-
-# free test skeleton. Run `npm run setup --workspace=bel-contracts` when
-# you need forge-std assertions/cheatcodes.
+# Foundry configuration. Implementations depend on forge-std and
+# OpenZeppelin 4.9.6 (the last line supporting solc 0.8.19): run
+# `npm run setup --workspace=bel-contracts` once before `forge build`.
 
 [profile.default]
 src = "src"
@@ -12,6 +11,8 @@ libs = ["lib"]
 solc_version = "0.8.19"
 optimizer = true
 optimizer_runs = 200
+# Deploy.s.sol writes deployments/<network>.json for the backend adapter.
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
 # Turn warnings into errors once implementations land:
 # deny = ["warnings"]
 
@@ -23,3 +24,9 @@ fuzz = { runs = 1000 }
 line_length = 100
 tab_width = 4
 bracket_spacing = true
+
+[lint]
+# `1 << role` bitmasks are intentional (incorrect-shift is a false positive);
+# the rest are style/gas suggestions reviewed as intentional (uint64 timestamps,
+# fail-fast loops, audit txId already emitted as an event, _mint to vetted wallets).
+exclude_lints = ["incorrect-shift", "asm-keccak256", "screaming-snake-case-immutable", "unsafe-typecast", "require-revert-in-loop", "unused-return", "unsafe-oz-erc721-mint"]
