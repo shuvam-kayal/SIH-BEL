@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail`n`ncommand -v setsid >/dev/null 2>&1 || { echo "This launcher requires a Linux environment with setsid (use WSL or native Linux)." >&2; exit 1; }
+set -euo pipefail
+command -v setsid >/dev/null 2>&1 || { echo "This launcher requires a Linux environment with setsid (use WSL or native Linux)." >&2; exit 1; }
 
 VALIDATOR_COUNT="${1:-70}"
 BASE_P2P_PORT="${2:-30303}"

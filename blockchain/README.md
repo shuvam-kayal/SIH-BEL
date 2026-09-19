@@ -7,8 +7,8 @@ and the implementation status and reproducible launch workflow are documented in
 [`docs/BESU_IMPLEMENTATION.md`](../docs/BESU_IMPLEMENTATION.md).
 
 The outer `blockchain/` directory is intentionally not a runtime consensus
-entrypoint. It contains only legacy protocol-owned Python reference material
-kept for historical context and is not used by the Besu build or demo.
+entrypoint. It contains only protocol-owned support and reference material
+is not used by the Besu build or demo.
 
 ## Frozen protocol summary
 
@@ -27,5 +27,4 @@ kept for historical context and is not used by the Besu build or demo.
   still blocked and the current implementation is not production-ready.
 
 For the available commands, use the root README and
-`docs/BESU_IMPLEMENTATION.md`. Do not use Python commands as a consensus
-entrypoint.
+`docs/BESU_IMPLEMENTATION.md`. The Java/Besu integration is the submitted consensus implementation.

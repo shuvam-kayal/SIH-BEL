@@ -82,7 +82,7 @@ committee finality or Byzantine behavior.
 
 ```bash
 cd besu
-./gradlew :consensus:bel:test :besu:compileJava :besu:installDist
+./gradlew :consensus:bel:test :consensus:qbft:test :besu:compileJava installDist
 cd ..
 ./scripts/run-besu-smoke.sh
 # In another shell, use the printed run root:
@@ -95,14 +95,12 @@ For the 70-validator generator on Windows:
 ```powershell
 $env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot'
 cd besu
-.\gradlew.bat :consensus:bel:test :besu:compileJava :besu:installDist
+.\gradlew.bat :consensus:bel:test :consensus:qbft:test :besu:compileJava installDist
 cd ..
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-besu-bel-demo.ps1 -ValidatorCount 70
 ```
 
-The current VRF provider is test-only; the production RFC 9381 backend remains
-blocked. A live 70-validator finality demonstration and Byzantine/equivocation
-network demonstration are not claimed.
+Implemented here are BEL committee selection, deterministic leader selection, PREPARE/COMMIT/finality, quorum, round change, Besu QBFT integration, and integration-level Byzantine/equivocation validation. The current VRF provider is test-only; the production RFC 9381 backend remains blocked. A live 70-validator finality demonstration and live peer-to-peer Byzantine injection are not claimed.
 ## Ownership
 
 | Person | Area | Primary directories |

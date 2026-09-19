@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail`n`ncommand -v setsid >/dev/null 2>&1 || { echo "This launcher requires a Linux environment with setsid (use WSL or native Linux)." >&2; exit 1; }
+set -euo pipefail
+command -v setsid >/dev/null 2>&1 || { echo "This launcher requires a Linux environment with setsid (use WSL or native Linux)." >&2; exit 1; }
 
 # Infrastructure-only smoke test. This intentionally does not exercise BEL
 # committee selection: BEL's protocol minimum remains N >= 70.

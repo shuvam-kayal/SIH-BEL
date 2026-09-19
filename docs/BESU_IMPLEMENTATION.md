@@ -122,7 +122,7 @@ JDK 21:
 
 ```bash
 cd besu
-./gradlew :consensus:bel:test :besu:compileJava :besu:installDist
+./gradlew :consensus:bel:test :consensus:qbft:test :besu:compileJava installDist
 cd ..
 ```
 
