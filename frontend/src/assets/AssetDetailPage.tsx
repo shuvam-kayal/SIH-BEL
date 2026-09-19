@@ -1,15 +1,14 @@
-// Owner: Person 6. Backs GET /assets/:id and POST /assets/:id/transfer.
-// Also links to the audit trail for this asset (GET /audit/assets/:id).
-
 import { useEffect, useState } from "react";
 import { mockApi } from "../api/mockApi";
-import { Asset } from "../../../shared/types";
+import type { Asset, User } from "../../../shared/types";
 
 export function AssetDetailPage({
   assetId,
+  user,
   onViewAudit,
 }: {
   assetId: string;
+  user: User;
   onViewAudit?: (assetId: string) => void;
 }) {
   const [asset, setAsset] = useState<Asset | null>(null);
@@ -18,22 +17,102 @@ export function AssetDetailPage({
     mockApi.getAsset(assetId).then(setAsset);
   }, [assetId]);
 
-  if (!asset) return <p>Loading...</p>;
+  if (!asset) {
+    return <p>Loading...</p>;
+  }
 
   return (
-    <div>
-      <h2>{asset.assetId}</h2>
-      <p>Type: {asset.assetType}</p>
-      <p>Owner: {asset.ownerId}</p>
-      <p>Custodian: {asset.custodianId}</p>
-      <p>Status: {asset.status}</p>
-      {onViewAudit && (
-        <button className="ghost" onClick={() => onViewAudit(asset.assetId)}>
-          View audit trail
-        </button>
-      )}
-      {/* TODO: transfer form (RBAC: Admin/Manager/authorized Engineer only)
-          and provenance/component-hierarchy view */}
+    <div className="page">
+
+      <div className="page-header">
+        <div>
+          <h2>{asset.assetId}</h2>
+          <p className="page-subtitle">
+            Asset details
+          </p>
+        </div>
+      </div>
+
+      <div className="dashboard-section">
+
+        <div className="dashboard-info-grid">
+
+          <div className="dashboard-info-item">
+            <span className="label">
+              Asset ID
+            </span>
+            <span className="value">
+              {asset.assetId}
+            </span>
+          </div>
+
+          <div className="dashboard-info-item">
+            <span className="label">
+              NFT ID
+            </span>
+            <span className="value">
+              {asset.nftId}
+            </span>
+          </div>
+
+          <div className="dashboard-info-item">
+            <span className="label">
+              Type
+            </span>
+            <span className="value">
+              {asset.assetType}
+            </span>
+          </div>
+
+          <div className="dashboard-info-item">
+            <span className="label">
+              Owner
+            </span>
+            <span className="value">
+              {asset.ownerId}
+            </span>
+          </div>
+
+          <div className="dashboard-info-item">
+            <span className="label">
+              Custodian
+            </span>
+            <span className="value">
+              {asset.custodianId}
+            </span>
+          </div>
+
+          <div className="dashboard-info-item">
+            <span className="label">
+              Status
+            </span>
+            <span className="value">
+              {asset.status}
+            </span>
+          </div>
+
+        </div>
+      </div>
+
+      <div className="dashboard-section">
+
+        <div className="workspace-actions">
+
+          {onViewAudit && (
+            <button
+              type="button"
+              onClick={() =>
+                onViewAudit(asset.assetId)
+              }
+            >
+              View audit trail
+            </button>
+          )}
+
+        </div>
+
+      </div>
+
     </div>
   );
 }
