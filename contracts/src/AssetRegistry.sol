@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "./IAssetRegistry.sol";
-import "./IIdentityRegistry.sol";
-import "./IRoleRegistry.sol";
+import { ERC721 } from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import { IAssetRegistry } from "./IAssetRegistry.sol";
+import { BelAccess } from "./BelAccess.sol";
+import { BelRoles } from "./BelRoles.sol";
 
-/// @notice Asset NFT identity, custody, lifecycle state and hierarchy.
-/// Asset metadata/documents remain off-chain; only the public asset reference
-/// and wallet relationships are stored here.
-contract AssetRegistry is IAssetRegistry {
+/// @notice Asset identity as an ERC-721 token (ADR-004), plus custody,
+/// lifecycle state and the component hierarchy.
+///
+/// Token ids start at 1; 0 means "no parent" in `parentOf`.
+///
+/// Standard ERC-721 approvals and transfers are disabled: an owner moving
+/// the token directly would bypass RBAC_MATRIX.md's "Transfer asset" row.
+/// All ownership changes go through `transferAsset`. Read-side ERC-721
+/// (`ownerOf`, `balanceOf`, `supportsInterface`, `Transfer` events) still
+/// works for wallets and indexers.
+///
+/// Only the off-chain `assetId` reference and public addresses are stored.
+/// Asset type, descriptions and documents stay off-chain (ADR-005).
+///
+/// Lifecycle: ACTIVE <-> IN_MAINTENANCE; either -> DECOMMISSIONED (terminal).
+contract AssetRegistry is IAssetRegistry, ERC721, BelAccess {
     enum AssetState {
         NONE,
         ACTIVE,
@@ -24,10 +37,11 @@ contract AssetRegistry is IAssetRegistry {
         uint64 mintedAt;
     }
 
-    error AssetAlreadyExists(string assetId);
-    error AssetNotFound(uint256 nftId);
     error InvalidAssetId();
     error InvalidRecipient(address account);
+    error AssetAlreadyExists(string assetId);
+    error AssetNotFound(uint256 nftId);
+    error AssetIdNotFound(string assetId);
     error UnknownState(string state);
     error InvalidStateTransition(uint256 nftId, AssetState from, AssetState to);
     error AssetDecommissioned(uint256 nftId);
@@ -36,61 +50,34 @@ contract AssetRegistry is IAssetRegistry {
     error NotAttached(uint256 parentNftId, uint256 componentNftId);
     error CyclicHierarchy(uint256 parentNftId, uint256 componentNftId);
     error ComponentIsAttached(uint256 nftId);
+    error DirectTransferDisabled();
 
     uint256 public constant MAX_ASSET_ID_LENGTH = 128;
 
-    IRoleRegistry public immutable roleRegistry;
-    IIdentityRegistry public immutable identityRegistry;
-
-    uint256 private _nextNftId = 1;
-    mapping(uint256 => address) private _owners;
+    uint256 private _nextId = 1;
     mapping(uint256 => AssetRecord) private _assets;
     mapping(bytes32 => uint256) private _idByAssetId;
     mapping(uint256 => uint256[]) private _components;
-    mapping(uint256 => uint256) private _componentIndex;
+    mapping(uint256 => uint256) private _componentIndex; // 1-based index in parent's array
 
-    constructor(address roleRegistryAddress, address identityRegistryAddress) {
-        require(roleRegistryAddress != address(0), "role registry is zero");
-        require(identityRegistryAddress != address(0), "identity registry is zero");
-        roleRegistry = IRoleRegistry(roleRegistryAddress);
-        identityRegistry = IIdentityRegistry(identityRegistryAddress);
-    }
+    constructor() ERC721("BEL Industrial Asset", "BELA") { }
 
-    /// Every state-changing path checks wallet revocation before role checks.
-    modifier activeWallet() {
-        require(identityRegistry.isActiveWallet(msg.sender), "wallet inactive");
-        _;
-    }
+    // ---------------------------------------------------------------- writes
 
-    /// State and hierarchy management use the same ALLOW roles as registering
-    /// an asset. ENGINEER AUTH transfer remains backend-only until the frozen
-    /// interface can carry and verify a grant reference.
-    modifier assetWriter() {
-        require(
-            _hasRole(msg.sender, IRoleRegistry.Role.ADMIN) ||
-                _hasRole(msg.sender, IRoleRegistry.Role.MANAGER) ||
-                _hasRole(msg.sender, IRoleRegistry.Role.ENGINEER) ||
-                _hasRole(msg.sender, IRoleRegistry.Role.ISSUER),
-            "asset writer role required"
-        );
-        _;
-    }
-
+    /// ASSET_MINT. Owner and custodian are both `owner` at mint.
     function mintAsset(string calldata assetId, address owner)
         external
-        override
-        activeWallet
-        assetWriter
+        onlyRoles(BelRoles.REGISTER_ASSET)
         returns (uint256 nftId)
     {
-        require(bytes(assetId).length > 0 && bytes(assetId).length <= MAX_ASSET_ID_LENGTH, "invalid asset id");
+        uint256 len = bytes(assetId).length;
+        if (len == 0 || len > MAX_ASSET_ID_LENGTH) revert InvalidAssetId();
         _requireActiveRecipient(owner);
         bytes32 key = keccak256(bytes(assetId));
         if (_idByAssetId[key] != 0) revert AssetAlreadyExists(assetId);
 
-        nftId = _nextNftId++;
+        nftId = _nextId++;
         _idByAssetId[key] = nftId;
-        _owners[nftId] = owner;
         _assets[nftId] = AssetRecord({
             assetId: assetId,
             custodian: owner,
@@ -98,107 +85,114 @@ contract AssetRegistry is IAssetRegistry {
             state: AssetState.ACTIVE,
             mintedAt: uint64(block.timestamp)
         });
+        _mint(owner, nftId);
         emit AssetMinted(nftId, assetId, owner);
+        _audit("ASSET", assetId, "ASSET_MINT");
     }
 
-    function transferAsset(uint256 nftId, address newOwner) external override activeWallet {
-        require(
-            _hasRole(msg.sender, IRoleRegistry.Role.ADMIN) ||
-                _hasRole(msg.sender, IRoleRegistry.Role.MANAGER),
-            "transfer role required"
-        );
-        AssetRecord storage asset = _existing(nftId);
-        if (asset.state == AssetState.DECOMMISSIONED) revert AssetDecommissioned(nftId);
-        if (asset.parent != 0) revert ComponentIsAttached(nftId);
+    /// ASSET_TRANSFER. Ownership and custody move together
+    /// (CONTRACT_SPEC.md "Asset transfer semantics"). ENGINEER's `auth` cell
+    /// fails closed until a grant-verification interface is specified.
+    function transferAsset(uint256 nftId, address newOwner)
+        external
+        onlyRoles(BelRoles.TRANSFER_ASSET)
+    {
+        AssetRecord storage a = _existing(nftId);
+        if (a.state == AssetState.DECOMMISSIONED) revert AssetDecommissioned(nftId);
+        if (a.parent != 0) revert ComponentIsAttached(nftId);
         _requireActiveRecipient(newOwner);
-        address previousOwner = ownerOfAsset(nftId);
-        require(previousOwner != newOwner, "owner unchanged");
-        _owners[nftId] = newOwner;
-        asset.custodian = newOwner;
-        emit AssetTransferred(nftId, previousOwner, newOwner);
+        address from = ownerOf(nftId);
+        if (from == newOwner) revert InvalidRecipient(newOwner);
+
+        _transfer(from, newOwner, nftId);
+        a.custodian = newOwner;
+        emit AssetTransferred(nftId, from, newOwner);
+        _audit("ASSET", a.assetId, "ASSET_TRANSFER");
     }
 
+    /// ASSET_STATE_CHANGE. `newState` is one of shared/enums ASSET_STATUSES.
     function changeAssetState(uint256 nftId, string calldata newState)
         external
-        override
-        activeWallet
-        assetWriter
+        onlyRoles(BelRoles.MANAGE_ASSET)
     {
-        AssetRecord storage asset = _existing(nftId);
-        AssetState next = _parseState(newState);
-        AssetState previous = asset.state;
-        if (previous == next || previous == AssetState.DECOMMISSIONED) {
-            revert InvalidStateTransition(nftId, previous, next);
+        AssetRecord storage a = _existing(nftId);
+        AssetState from = a.state;
+        AssetState to = _parseState(newState);
+        if (from == to || from == AssetState.DECOMMISSIONED) {
+            revert InvalidStateTransition(nftId, from, to);
         }
-        asset.state = next;
-        emit AssetStateChanged(nftId, _stateName(previous), newState);
+        a.state = to;
+        emit AssetStateChanged(nftId, _stateName(from), newState);
+        _audit("ASSET", a.assetId, "ASSET_STATE_CHANGE");
     }
 
+    /// COMPONENT_ATTACH
     function attachComponent(uint256 parentNftId, uint256 componentNftId)
         external
-        override
-        activeWallet
-        assetWriter
+        onlyRoles(BelRoles.MANAGE_ASSET)
     {
         if (parentNftId == componentNftId) revert SelfAttachment(parentNftId);
         AssetRecord storage parent = _existing(parentNftId);
-        AssetRecord storage component = _existing(componentNftId);
-        if (parent.state == AssetState.DECOMMISSIONED || component.state == AssetState.DECOMMISSIONED) {
-            revert AssetDecommissioned(parent.state == AssetState.DECOMMISSIONED ? parentNftId : componentNftId);
-        }
-        if (component.parent != 0) revert AlreadyAttached(componentNftId, component.parent);
+        AssetRecord storage comp = _existing(componentNftId);
+        if (parent.state == AssetState.DECOMMISSIONED) revert AssetDecommissioned(parentNftId);
+        if (comp.state == AssetState.DECOMMISSIONED) revert AssetDecommissioned(componentNftId);
+        if (comp.parent != 0) revert AlreadyAttached(componentNftId, comp.parent);
 
-        for (uint256 current = parent.parent; current != 0; current = _assets[current].parent) {
-            if (current == componentNftId) revert CyclicHierarchy(parentNftId, componentNftId);
+        // Reject cycles: the component must not be an ancestor of the parent.
+        for (uint256 cur = parent.parent; cur != 0; cur = _assets[cur].parent) {
+            if (cur == componentNftId) revert CyclicHierarchy(parentNftId, componentNftId);
         }
 
-        component.parent = parentNftId;
+        comp.parent = parentNftId;
         _components[parentNftId].push(componentNftId);
         _componentIndex[componentNftId] = _components[parentNftId].length;
         emit ComponentAttached(parentNftId, componentNftId);
+        _audit("ASSET", comp.assetId, "COMPONENT_ATTACH");
     }
 
+    /// COMPONENT_REMOVE
     function removeComponent(uint256 parentNftId, uint256 componentNftId)
         external
-        override
-        activeWallet
-        assetWriter
+        onlyRoles(BelRoles.MANAGE_ASSET)
     {
         _existing(parentNftId);
-        AssetRecord storage component = _existing(componentNftId);
-        if (component.parent != parentNftId) revert NotAttached(parentNftId, componentNftId);
+        AssetRecord storage comp = _existing(componentNftId);
+        if (comp.parent != parentNftId) revert NotAttached(parentNftId, componentNftId);
 
-        uint256[] storage children = _components[parentNftId];
-        uint256 index = _componentIndex[componentNftId] - 1;
-        uint256 last = children[children.length - 1];
-        children[index] = last;
-        _componentIndex[last] = index + 1;
-        children.pop();
+        uint256[] storage list = _components[parentNftId];
+        uint256 idx = _componentIndex[componentNftId] - 1;
+        uint256 last = list[list.length - 1];
+        list[idx] = last;
+        _componentIndex[last] = idx + 1;
+        list.pop();
         delete _componentIndex[componentNftId];
-        component.parent = 0;
+        comp.parent = 0;
+
         emit ComponentRemoved(parentNftId, componentNftId);
+        _audit("ASSET", comp.assetId, "COMPONENT_REMOVE");
     }
 
-    function parentOf(uint256 nftId) external view override returns (uint256) {
+    // ----------------------------------------------------------------- views
+
+    function parentOf(uint256 nftId) external view returns (uint256) {
         return _existing(nftId).parent;
     }
 
-    function componentsOf(uint256 nftId) external view override returns (uint256[] memory) {
+    function componentsOf(uint256 nftId) external view returns (uint256[] memory) {
         _existing(nftId);
         return _components[nftId];
     }
 
-    function ownerOfAsset(uint256 nftId) public view override returns (address) {
+    function ownerOfAsset(uint256 nftId) external view returns (address) {
         _existing(nftId);
-        return _owners[nftId];
+        return ownerOf(nftId);
     }
 
-    function custodianOf(uint256 nftId) external view override returns (address) {
+    function custodianOf(uint256 nftId) external view returns (address) {
         return _existing(nftId).custodian;
     }
 
-    /// Optional read helpers used by an EVM adapter to reconcile chain-issued
-    /// token ids and authoritative state without changing IAssetRegistry.
+    /// @return The token id for an off-chain assetId, or 0 if never minted.
     function nftIdOf(string calldata assetId) external view returns (uint256) {
         return _idByAssetId[keccak256(bytes(assetId))];
     }
@@ -216,36 +210,59 @@ contract AssetRegistry is IAssetRegistry {
     }
 
     function totalMinted() external view returns (uint256) {
-        return _nextNftId - 1;
+        return _nextId - 1;
     }
 
-    function _hasRole(address account, IRoleRegistry.Role role) internal view returns (bool) {
-        return roleRegistry.hasRole(account, role);
+    // ----------------------------------------- ERC-721 direct paths disabled
+
+    function approve(address, uint256) public pure override {
+        revert DirectTransferDisabled();
     }
 
-    function _existing(uint256 nftId) internal view returns (AssetRecord storage asset) {
-        asset = _assets[nftId];
-        if (asset.state == AssetState.NONE) revert AssetNotFound(nftId);
+    function setApprovalForAll(address, bool) public pure override {
+        revert DirectTransferDisabled();
     }
 
-    function _requireActiveRecipient(address account) internal view {
+    function transferFrom(address, address, uint256) public pure override {
+        revert DirectTransferDisabled();
+    }
+
+    function safeTransferFrom(address, address, uint256) public pure override {
+        revert DirectTransferDisabled();
+    }
+
+    function safeTransferFrom(address, address, uint256, bytes memory) public pure override {
+        revert DirectTransferDisabled();
+    }
+
+    // -------------------------------------------------------------- internal
+
+    function _existing(uint256 nftId) private view returns (AssetRecord storage a) {
+        a = _assets[nftId];
+        if (a.state == AssetState.NONE) revert AssetNotFound(nftId);
+    }
+
+    /// Owners/custodians must be ACTIVE wallets so a token is never sent to an
+    /// unknown or revoked key. The owning identity is still resolvable later
+    /// via IdentityRegistry.identityOf(ownerOf(nftId)) even after revocation.
+    function _requireActiveRecipient(address account) private view {
         if (account == address(0) || !identityRegistry.isActiveWallet(account)) {
             revert InvalidRecipient(account);
         }
     }
 
-    function _parseState(string calldata state) internal pure returns (AssetState) {
-        bytes32 value = keccak256(bytes(state));
-        if (value == keccak256("ACTIVE")) return AssetState.ACTIVE;
-        if (value == keccak256("IN_MAINTENANCE")) return AssetState.IN_MAINTENANCE;
-        if (value == keccak256("DECOMMISSIONED")) return AssetState.DECOMMISSIONED;
-        revert UnknownState(state);
+    function _parseState(string calldata s) private pure returns (AssetState) {
+        bytes32 h = keccak256(bytes(s));
+        if (h == keccak256("ACTIVE")) return AssetState.ACTIVE;
+        if (h == keccak256("IN_MAINTENANCE")) return AssetState.IN_MAINTENANCE;
+        if (h == keccak256("DECOMMISSIONED")) return AssetState.DECOMMISSIONED;
+        revert UnknownState(s);
     }
 
-    function _stateName(AssetState state) internal pure returns (string memory) {
-        if (state == AssetState.ACTIVE) return "ACTIVE";
-        if (state == AssetState.IN_MAINTENANCE) return "IN_MAINTENANCE";
-        if (state == AssetState.DECOMMISSIONED) return "DECOMMISSIONED";
-        return "NONE";
+    function _stateName(AssetState s) private pure returns (string memory) {
+        if (s == AssetState.ACTIVE) return "ACTIVE";
+        if (s == AssetState.IN_MAINTENANCE) return "IN_MAINTENANCE";
+        if (s == AssetState.DECOMMISSIONED) return "DECOMMISSIONED";
+        return "";
     }
 }
