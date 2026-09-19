@@ -1,0 +1,9 @@
+[package]
+name = "bel-vrf-rfc9381-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+vrf-rfc9381 = { version = "=0.0.7", features = ["p256"] }
+hex = "0.4.3"
