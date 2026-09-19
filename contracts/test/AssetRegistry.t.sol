@@ -3,7 +3,6 @@ pragma solidity ^0.8.19;
 
 import { BelFixture } from "./utils/BelFixture.sol";
 import { AssetRegistry } from "../src/AssetRegistry.sol";
-import { IAssetRegistry } from "../src/IAssetRegistry.sol";
 
 contract AssetRegistryTest is BelFixture {
     // ---------------------------------------------------------------- mint

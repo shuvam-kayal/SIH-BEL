@@ -4,7 +4,6 @@ pragma solidity ^0.8.19;
 import { BelFixture } from "./utils/BelFixture.sol";
 import { BelAccess } from "../src/BelAccess.sol";
 import { IdentityRegistry } from "../src/IdentityRegistry.sol";
-import { IIdentityRegistry } from "../src/IIdentityRegistry.sol";
 import { RoleRegistry } from "../src/RoleRegistry.sol";
 import { IRoleRegistry } from "../src/IRoleRegistry.sol";
 

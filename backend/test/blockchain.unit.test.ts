@@ -15,7 +15,7 @@ import {
   parseDeployment,
   type ChainLookups,
 } from "../src/blockchain";
-import { classifyError, extractRevertData } from "../src/blockchain/evm-adapter";
+import { classifyError, extractRevertData, waitForReceipt } from "../src/blockchain/evm-adapter";
 
 const W1 = "0x1111111111111111111111111111111111111111";
 const W2 = "0x2222222222222222222222222222222222222222";
@@ -193,5 +193,37 @@ describe("MockBlockchainAdapter read-after-write (for Persons 2/3)", () => {
     const chain = new MockBlockchainAdapter();
     await expect(chain.submitTransaction(tx("IDENTITY_CREATE", { identityId: "x" }))).resolves.toMatchObject({ status: "SUCCESS" });
     expect(await chain.getJob("nope")).toBeNull();
+  });
+});
+
+describe("waitForReceipt (regression: tx mined between first check and block subscription)", () => {
+  // Idle automine chain: the receipt appears on the 2nd lookup and no new block ever follows.
+  // ethers' waitForTransaction timed out here on slower machines (seen on Windows).
+  const fake = (appearOnCall: number, head = 5) => {
+    let calls = 0;
+    return {
+      calls: () => calls,
+      provider: {
+        getTransactionReceipt: async () => (++calls >= appearOnCall ? ({ blockNumber: 5, status: 1 } as never) : null),
+        getBlockNumber: async () => head,
+      },
+    };
+  };
+
+  it("finds a receipt that appears after the first check without any new block", async () => {
+    const f = fake(2);
+    await expect(waitForReceipt(f.provider, "0xabc", 1, 2_000, 10)).resolves.toMatchObject({ blockNumber: 5 });
+    expect(f.calls()).toBe(2);
+  });
+
+  it("waits for the requested confirmations", async () => {
+    await expect(waitForReceipt(fake(1, 5).provider, "0xabc", 3, 100, 10)).resolves.toBeNull(); // only 1 conf
+    await expect(waitForReceipt(fake(1, 7).provider, "0xabc", 3, 100, 10)).resolves.toMatchObject({ blockNumber: 5 });
+  });
+
+  it("returns null at the timeout when the transaction never lands", async () => {
+    const started = Date.now();
+    await expect(waitForReceipt(fake(Infinity).provider, "0xabc", 1, 120, 10)).resolves.toBeNull();
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 });

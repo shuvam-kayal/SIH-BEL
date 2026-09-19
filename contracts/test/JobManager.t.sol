@@ -3,7 +3,6 @@ pragma solidity ^0.8.19;
 
 import { BelFixture } from "./utils/BelFixture.sol";
 import { JobManager } from "../src/JobManager.sol";
-import { IJobManager } from "../src/IJobManager.sol";
 
 contract JobManagerTest is BelFixture {
     uint256 private nft;

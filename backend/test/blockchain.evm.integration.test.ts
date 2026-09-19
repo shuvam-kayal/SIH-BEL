@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ContractFactory, HDNodeWallet, JsonRpcProvider, Wallet as EvmWallet, NonceManager, id as keccakText } from "ethers";
 import type { Transaction } from "../../shared/types";
 import { BlockchainError, EvmBlockchainAdapter, loadAbis, type EvmChainConfig } from "../src/blockchain";
+import { waitForReceipt } from "../src/blockchain/evm-adapter";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const OUT = resolve(ROOT, "contracts/out");
@@ -65,10 +66,13 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
     // Same sequence as contracts/script/Deploy.s.sol.
     const deployer = new NonceManager(new EvmWallet(key(0), provider));
     const art = (name: string) => JSON.parse(readFileSync(resolve(OUT, `${name}.sol/${name}.json`), "utf8"));
+    const mined = async (hash: string) => {
+      if (!(await waitForReceipt(provider, hash, 1, 20_000, 25))) throw new Error(`deploy tx ${hash} not mined`);
+    };
     const deploy = async (name: string, ...args: unknown[]) => {
       const a = art(name);
       const c = await new ContractFactory(a.abi, a.bytecode.object, deployer).deploy(...args);
-      await c.waitForDeployment();
+      await mined(c.deploymentTransaction()!.hash);
       return c;
     };
     const identity = await deploy("IdentityRegistry", ADMIN, "DID:BEL:ADMIN");
@@ -79,7 +83,7 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
     const audit = await deploy("AuditRegistry", addrs[0], addrs[1], addrs);
     const auditAddr = await audit.getAddress();
     for (const c of [identity, roles, assets, jobs]) {
-      await (await (c.getFunction("wire"))(addrs[0], addrs[1], auditAddr)).wait();
+      await mined((await c.getFunction("wire")(addrs[0], addrs[1], auditAddr)).hash);
     }
 
     config = {
@@ -90,7 +94,8 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
       },
       abis: loadAbis(),
       confirmations: 1,
-      txTimeoutMs: 10_000,
+      txTimeoutMs: 20_000,
+      pollingIntervalMs: 25,
       devSignerKeys: [0, 1, 2, 3, 4, 5, 6, 7].map(key), // DEVICE (8) deliberately absent: it must use the signed-tx path
     };
     adapter = new EvmBlockchainAdapter(config, { provider });
@@ -233,6 +238,29 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
     await expect(adapter.submitTransaction(env("JOB_START", DEVICE, "DID:BEL:DEVICE-USER", { jobId: "J-DEV" }))).rejects.toBeInstanceOf(BlockchainError);
     expect(await adapter.getJob("J-SIGNED")).toBeNull();
     expect(await adapter.getJob("J-IMP")).toBeNull();
+  });
+
+  it("handles concurrent submissions from the same wallet without nonce clashes", async () => {
+    const ids = ["J-C1", "J-C2", "J-C3", "J-C4", "J-C5"];
+    const results = await Promise.all(
+      ids.map((jobId) => adapter.submitTransactionDetailed(env("JOB_CREATE", MANAGER, "DID:BEL:MANAGER", { jobId, assetId: "PUMP-1" }))),
+    );
+    expect(results.map((r) => r.status)).toEqual(ids.map(() => "SUCCESS"));
+    for (const jobId of ids) expect((await adapter.getJob(jobId))?.status).toBe("CREATED");
+  });
+
+  it("explains a stuck transaction on timeout (nonce gap) instead of just 'timed out'", async () => {
+    const device = new EvmWallet(key(8), provider);
+    const quick = new EvmBlockchainAdapter({ ...config, txTimeoutMs: 400 }, { provider });
+    const envelope = env("JOB_CREATE", DEVICE, "DID:BEL:DEVICE-USER", { jobId: "J-GAP", assetId: "PUMP-1" });
+    const p = await quick.prepareTransaction(envelope);
+    const populated = await device.populateTransaction({ to: p.to, data: p.data, chainId: p.chainId });
+    const skipped = await device.signTransaction({ ...populated, nonce: Number(populated.nonce) + 5 });
+    const err = await quick.submitTransaction({ ...envelope, signature: skipped }).catch((e) => e);
+    expect(err).toBeInstanceOf(BlockchainError);
+    expect(err).toMatchObject({ kind: "TIMEOUT" });
+    expect(String(err.message)).toMatch(/nonce gap/);
+    expect(await adapter.getJob("J-GAP")).toBeNull();
   });
 
   it("reports chain status and blocks", async () => {

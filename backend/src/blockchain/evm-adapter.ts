@@ -20,7 +20,6 @@ import {
   Contract,
   Interface,
   JsonRpcProvider,
-  NonceManager,
   Transaction as EvmTransaction,
   Wallet as EvmWallet,
   getAddress,
@@ -117,12 +116,41 @@ export function classifyError(err: unknown, context: string): BlockchainError {
   return new BlockchainError("NETWORK", `${context}: ${message.split("\n")[0]}`, { code }, { cause: err });
 }
 
+/**
+ * Polls for a receipt until it has `confirmations` blocks or `timeoutMs`
+ * elapses (then returns null). Deliberately not ethers' waitForTransaction:
+ * that one checks once and then waits for a *new block* event, so on a chain
+ * that only produces blocks on demand (anvil automine, an idle PoA network) a
+ * transaction mined between the check and the subscription is never seen.
+ */
+export async function waitForReceipt(
+  provider: Pick<AbstractProvider, "getTransactionReceipt" | "getBlockNumber">,
+  hash: string,
+  confirmations: number,
+  timeoutMs: number,
+  intervalMs: number,
+): Promise<TransactionReceipt | null> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const receipt = await provider.getTransactionReceipt(hash);
+    if (receipt) {
+      if (confirmations <= 1) return receipt;
+      const head = await provider.getBlockNumber();
+      if (head - receipt.blockNumber + 1 >= confirmations) return receipt;
+    }
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(intervalMs, Math.max(1, deadline - Date.now()))));
+  }
+}
+
 export class EvmBlockchainAdapter implements BlockchainService {
   readonly provider: AbstractProvider;
   private readonly contracts: Record<ContractName, Contract>;
   private readonly interfaces: Record<ContractName, Interface>;
   private readonly byAddress = new Map<string, ContractName>();
-  private readonly signers = new Map<string, NonceManager>();
+  private readonly signers = new Map<string, EvmWallet>();
+  /** Per-wallet send queue: nonce lookup + broadcast never interleave for one wallet. */
+  private readonly sendQueues = new Map<string, Promise<unknown>>();
   private networkChecked?: Promise<void>;
 
   constructor(private readonly config: EvmChainConfig, private readonly options: EvmAdapterOptions = {}) {
@@ -142,7 +170,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
     }
     for (const key of config.devSignerKeys) {
       const w = new EvmWallet(key, this.provider);
-      this.signers.set(w.address.toLowerCase(), new NonceManager(w));
+      this.signers.set(w.address.toLowerCase(), w);
     }
   }
 
@@ -182,10 +210,9 @@ export class EvmBlockchainAdapter implements BlockchainService {
       if (raw) {
         hash = (await this.provider.broadcastTransaction(tx.signature)).hash;
       } else {
-        hash = (await signer!.sendTransaction({ to: prepared.to, data: prepared.data })).hash;
+        hash = await this.sendAs(signer!, prepared.to, prepared.data);
       }
     } catch (err) {
-      signer?.reset();
       const decoded = this.decodeRevertFrom(err);
       if (decoded) return { txId: tx.txId, status: "REJECTED", events: [], revert: decoded, auditTxIds: [] };
       throw classifyError(err, `${tx.type} submission failed`);
@@ -429,7 +456,33 @@ export class EvmBlockchainAdapter implements BlockchainService {
     }
   }
 
-  private signerFor(address: string): NonceManager {
+  /**
+   * Development-path send. The nonce is read straight from the node for every
+   * transaction (JSON-RPC `send`, bypassing ethers' short-lived request cache,
+   * which can hand back a stale count), and sends from one wallet are queued so
+   * two concurrent requests can never claim the same nonce.
+   */
+  private async sendAs(wallet: EvmWallet, to: string, data: string): Promise<string> {
+    const key = wallet.address.toLowerCase();
+    const previous = this.sendQueues.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const turn = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(() => turn);
+    this.sendQueues.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+      const rpc = this.provider as unknown as { send?: (method: string, params: unknown[]) => Promise<string> };
+      const nonce = typeof rpc.send === "function"
+        ? Number(BigInt(await rpc.send("eth_getTransactionCount", [wallet.address, "pending"])))
+        : await this.provider.getTransactionCount(wallet.address, "pending");
+      return (await wallet.sendTransaction({ to, data, nonce })).hash;
+    } finally {
+      release();
+      if (this.sendQueues.get(key) === tail) this.sendQueues.delete(key); // nothing queued behind us
+    }
+  }
+
+  private signerFor(address: string): EvmWallet {
     const signer = this.signers.get(address.toLowerCase());
     if (!signer) {
       throw new BlockchainError(
@@ -480,11 +533,20 @@ export class EvmBlockchainAdapter implements BlockchainService {
   private async awaitResult(tx: Transaction, hash: string): Promise<SubmitResult> {
     let receipt: TransactionReceipt | null;
     try {
-      receipt = await this.provider.waitForTransaction(hash, this.config.confirmations, this.config.txTimeoutMs);
+      receipt = await waitForReceipt(
+        this.provider,
+        hash,
+        this.config.confirmations,
+        this.config.txTimeoutMs,
+        this.config.pollingIntervalMs ?? 250,
+      );
     } catch (err) {
       throw classifyError(err, `Waiting for ${tx.type} (${hash})`);
     }
-    if (!receipt) throw new BlockchainError("TIMEOUT", `No receipt for ${tx.type} (${hash}) within ${this.config.txTimeoutMs}ms`, { hash });
+    if (!receipt) {
+      const why = await this.diagnoseMissingReceipt(hash).catch(() => "could not query the node for details");
+      throw new BlockchainError("TIMEOUT", `No receipt for ${tx.type} (${hash}) within ${this.config.txTimeoutMs}ms: ${why}`, { hash, why });
+    }
     if (receipt.status !== 1) {
       return {
         txId: tx.txId, status: "REJECTED", hash, blockNumber: receipt.blockNumber, events: [], auditTxIds: [],
@@ -502,6 +564,16 @@ export class EvmBlockchainAdapter implements BlockchainService {
       nftId: minted ? String(minted.args.nftId) : undefined,
       auditTxIds: events.filter((e) => e.name === "AuditRecorded").map((e) => String(e.args.txId)),
     };
+  }
+
+  /** Explains a receipt timeout so operators can tell "slow chain" from "stuck transaction". */
+  private async diagnoseMissingReceipt(hash: string): Promise<string> {
+    const t = await this.provider.getTransaction(hash);
+    if (!t) return "the node does not know this transaction (dropped or never broadcast)";
+    if (t.blockNumber != null) return `mined in block ${t.blockNumber} but the receipt was not returned in time`;
+    const next = await this.provider.getTransactionCount(t.from, "latest");
+    if (t.nonce > next) return `still pending with nonce ${t.nonce}, but ${t.from} has only mined up to nonce ${next - 1} (nonce gap: an earlier transaction is missing)`;
+    return `still pending with nonce ${t.nonce} (not yet included in a block; is the chain producing blocks?)`;
   }
 
   parseEvents(logs: readonly Log[]): ChainEvent[] {

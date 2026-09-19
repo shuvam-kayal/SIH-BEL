@@ -27,5 +27,6 @@ bracket_spacing = true
 
 [lint]
 # `1 << role` bitmasks are intentional (incorrect-shift is a false positive);
-# the other two are gas-style suggestions that would hurt readability.
-exclude_lints = ["incorrect-shift", "asm-keccak256", "screaming-snake-case-immutable"]
+# the rest are style/gas suggestions reviewed as intentional (uint64 timestamps,
+# fail-fast loops, audit txId already emitted as an event, _mint to vetted wallets).
+exclude_lints = ["incorrect-shift", "asm-keccak256", "screaming-snake-case-immutable", "unsafe-typecast", "require-revert-in-loop", "unused-return", "unsafe-oz-erc721-mint"]
