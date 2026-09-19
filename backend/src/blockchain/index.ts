@@ -16,3 +16,4 @@ export {
   type SubmitResult,
 } from "./evm-adapter";
 export { createBlockchainServiceFromEnv } from "./factory";
+export { assertWalletMatchesPublicKey, parseCompactSignature, publicKeyToEvmAddress, verifyCompactSignature } from "./crypto";

@@ -9,6 +9,7 @@ import { ForbiddenError, HttpError, NotFoundError, ValidationError } from "../er
 import { hashCredential } from "./identity.store";
 import type { IdentityRepositories } from "./repositories";
 import { RejectingDeviceAttestationAdapter, type DeviceAttestationAdapter, type DeviceAttestationResult } from "../devices/device-attestation";
+import { assertWalletMatchesPublicKey, publicKeyToEvmAddress, verifyCompactSignature } from "../blockchain/crypto";
 
 export type CreateIdentityInput = Omit<Partial<Identity>, "employeeId" | "role"> & { employeeId: string; role: Role };
 export interface UsersService {
@@ -89,6 +90,7 @@ export class UsersServiceImpl implements UsersService {
     if (typeof input?.signature !== "string" || !input.signature.trim()) errors.push("signature is required");
     if (!input?.deviceMetadata || typeof input.deviceMetadata !== "object") errors.push("deviceMetadata is required");
     if (errors.length) throw new ValidationError(errors);
+    this.validateEvmWalletBinding(input.walletAddress, input.publicKey);
     const attestation = await this.attestDevice(input.deviceId, input.deviceMetadata);
     this.requireAttestation(attestation);
 
@@ -184,6 +186,10 @@ export class UsersServiceImpl implements UsersService {
 
   async registerDevice(userId: string, deviceId: string, credential = deviceId, publicKey?: string): Promise<Device> {
     if (!deviceId?.trim() || !credential?.trim()) throw new ValidationError(["deviceId and credential are required"]);
+    if (this.evmCryptoEnabled() && !publicKey) throw new ValidationError(["publicKey is required for EVM wallet registration"]);
+    if (this.evmCryptoEnabled() && publicKey) {
+      try { publicKeyToEvmAddress(publicKey); } catch { throw new ValidationError(["publicKey must be exactly the canonical 64-byte secp256k1 X || Y representation"]); }
+    }
     const identity = this.requireIdentity(await this.resolveIdentity(userId));
     const existing = await this.repositories.devices.findById(deviceId);
     if (existing && existing.identityId !== identity.identityId) throw new ConflictError(`Device ${deviceId} is already registered`);
@@ -211,6 +217,7 @@ export class UsersServiceImpl implements UsersService {
     const device = await this.repositories.devices.findById(deviceId);
     if (!device || device.identityId !== identity.identityId || device.status !== "ACTIVE") throw new ForbiddenError("Device is not active for this identity");
     if (!device.publicKey) throw new ForbiddenError("A device-generated public key is required to register a wallet");
+    this.validateEvmWalletBinding(address, device.publicKey);
     if (await this.repositories.wallets.findByAddress(address)) throw new ConflictError(`Wallet ${address} already exists`);
     const wallet: Wallet = { address: address.trim(), identityId: identity.identityId, deviceId, status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null, publicKey: device.publicKey ?? null }; await this.repositories.wallets.save(wallet); return { ...wallet };
   }
@@ -233,6 +240,8 @@ export class UsersServiceImpl implements UsersService {
     const existing = await this.repositories.wallets.findByAddress(address.trim());
     if (existing && existing.identityId !== identity.identityId) throw new ForbiddenError("Wallet belongs to another identity");
     if (!existing || existing.identityId !== identity.identityId || existing.deviceId !== deviceId || existing.status !== "PENDING") throw new NotFoundError("No pending wallet registered for this device and public address");
+    if (!existing.publicKey) throw new ForbiddenError("A device-generated public key is required to activate a wallet");
+    this.validateEvmWalletBinding(address, existing.publicKey);
     const wallet = existing;
     for (const current of await this.repositories.wallets.listByIdentityId(identity.identityId)) if (current.status === "ACTIVE" && current.address !== wallet.address) { await this.revokeWalletObject(current, "Replaced by wallet activation"); await this.commit("WALLET", current.address, "WALLET_REVOKE", identity.identityId, { entityType: "WALLET", entityId: current.address, identityId: current.identityId, deviceId: current.deviceId, status: current.status, reason: current.revokedReason }); }
     wallet.deviceId = deviceId; wallet.status = "ACTIVE"; wallet.activatedAt = new Date().toISOString(); wallet.revokedAt = null; wallet.revokedReason = null; await this.repositories.wallets.save(wallet);
@@ -288,6 +297,7 @@ export class UsersServiceImpl implements UsersService {
     if (!result.verified || !result.managedDevice || !result.networkApproved) throw new ForbiddenError("Device attestation was not approved");
   }
   private verifyProvisioningProof(challenge: string, publicKey: string, signature: string): boolean {
+    if (this.evmCryptoEnabled()) return verifyCompactSignature(challenge, publicKey, signature);
     try {
       const key = publicKey.includes("BEGIN")
         ? createPublicKey(publicKey)
@@ -297,6 +307,12 @@ export class UsersServiceImpl implements UsersService {
     } catch {
       return false;
     }
+  }
+  private evmCryptoEnabled(): boolean { return (process.env.BEL_BLOCKCHAIN ?? "mock").trim().toLowerCase() === "evm"; }
+  private validateEvmWalletBinding(address: string, publicKey: string): void {
+    if (!this.evmCryptoEnabled()) return;
+    try { assertWalletMatchesPublicKey(address, publicKey); }
+    catch { throw new ValidationError(["walletAddress must be the EVM address derived from the canonical 64-byte public key"]); }
   }
   private async revokeWalletObject(wallet: Wallet, reason: string): Promise<void> { wallet.status = "REVOKED"; wallet.revokedAt = new Date().toISOString(); wallet.revokedReason = reason; await this.repositories.wallets.save(wallet); }
   private async commit(entityType: "IDENTITY" | "DEVICE" | "WALLET" | "GRANT", entityId: string, eventType: string, actorIdentityId: string, state: Record<string, unknown>): Promise<void> { if (!this.integrity) return; const version = (this.versions.get(entityId) ?? 0) + 1; this.versions.set(entityId, version); await commitState(this.integrity, { entityType, entityId, eventType, version, actorIdentityId, state }); }
