@@ -37,7 +37,7 @@ import { BlockchainError, type DecodedRevert } from "./errors";
 import { buildCallPlan, type CallPlan, type ChainLookups } from "./payloads";
 
 /** Validator/committee data comes from Person 4's consensus layer, not from contracts. */
-export type ConsensusInfoSource = Pick<BlockchainService, "getValidators" | "getCommittee">;
+export type ConsensusInfoSource = Pick<BlockchainService, "getCommittee">;
 
 /**
  * Off-chain fields the chain intentionally does not store (PII, asset type,
@@ -344,8 +344,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
   }
 
   async getValidators(): Promise<Validator[]> {
-    if (!this.options.consensus) throw new NotImplementedError("EvmBlockchainAdapter.getValidators() (needs Person 4 consensus source)");
-    return this.options.consensus.getValidators();
+    throw new NotImplementedError("EvmBlockchainAdapter.getValidators() (Stage 2: needs Person 4 validator source)");
   }
 
   async getCommittee(height: number): Promise<string[]> {
