@@ -143,11 +143,12 @@ export class UsersServiceImpl implements UsersService {
       address: input.walletAddress.trim(), identityId: identity.identityId, deviceId: device.deviceId,
       status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null, publicKey: input.publicKey,
     };
+    const consumed = await this.repositories.challenges.consumeIfUnused(input.challengeId, new Date().toISOString());
+    if (!consumed) throw new ConflictError("challenge has already been used");
+
     await this.repositories.identities.save(identity as unknown as Identity);
     await this.repositories.devices.save(device);
     await this.repositories.wallets.save(wallet);
-    challenge.usedAt = new Date().toISOString();
-    await this.repositories.challenges.save(challenge);
     await this.commit("IDENTITY", identity.identityId, "ACCOUNT_INITIALIZATION", identity.identityId, { entityType: "IDENTITY", entityId: identity.identityId, status: identity.status, fullName: identity.fullName });
     await this.commit("DEVICE", device.deviceId, "DEVICE_REGISTER", identity.identityId, { entityType: "DEVICE", entityId: device.deviceId, identityId: identity.identityId, status: device.status, publicKey: device.publicKey });
     await this.commit("WALLET", wallet.address, "WALLET_REGISTER", identity.identityId, { entityType: "WALLET", entityId: wallet.address, identityId: identity.identityId, deviceId: wallet.deviceId, status: wallet.status, publicKey: wallet.publicKey });

@@ -204,4 +204,18 @@ describe("frozen EVM provisioning challenge wire", () => {
     await expect(container.users.initializeAccount(wrongPurpose)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     expect((await container.repositories.challenges.findById(wrongPurpose.challengeId))?.usedAt).toBeNull();
   });
+
+  it("allows only one concurrent consumer of a valid challenge", async () => {
+    const input = await validInput();
+    const [first, second] = await Promise.allSettled([
+      container.users.initializeAccount({ ...input, employeeId: "EVM-WIRE-CONCURRENT-A" }),
+      container.users.initializeAccount({ ...input, employeeId: "EVM-WIRE-CONCURRENT-B" }),
+    ]);
+
+    expect([first.status, second.status].sort()).toEqual(["fulfilled", "rejected"]);
+    const rejectedReason = first.status === "rejected" ? first.reason : second.status === "rejected" ? second.reason : undefined;
+    expect(rejectedReason).toMatchObject({ code: "CONFLICT" });
+    expect((await container.repositories.challenges.findById(input.challengeId))?.usedAt).not.toBeNull();
+    expect([...identityStore.identities.values()].filter((identity) => identity.employeeId?.startsWith("EVM-WIRE-CONCURRENT-")).length).toBe(1);
+  });
 });
