@@ -16,4 +16,5 @@ export {
   type SubmitResult,
 } from "./evm-adapter";
 export { createBlockchainServiceFromEnv } from "./factory";
+export { BesuConsensusSource, type BelCommitteeResponse } from "./besu-consensus-source";
 export { assertWalletMatchesPublicKey, parseCompactSignature, publicKeyToEvmAddress, verifyCompactSignature } from "./crypto";
