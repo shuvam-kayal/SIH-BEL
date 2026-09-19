@@ -61,7 +61,8 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
   const targetDevice = `P1-EVM-DEVICE-${runId}`;
   const badActorDevice = `P1-EVM-BAD-DEVICE-${runId}`;
   const targetIdentityIds: string[] = [];
-  const targetDeviceIds = [targetDevice, `${targetDevice}-FAIL`];
+  const targetEmployeeIds: string[] = [];
+  const targetDeviceIds: string[] = [];
 
   async function mined(hash: string): Promise<void> {
     if (!(await waitForReceipt(provider, hash, 1, 20_000, 25))) throw new Error(`transaction ${hash} was not confirmed`);
@@ -104,6 +105,8 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
       deviceMetadata: { managedDevice: true, onBelNetwork: true },
     });
     targetIdentityIds.push(pending.identity.identityId);
+    targetEmployeeIds.push(employeeId);
+    targetDeviceIds.push(deviceId);
     await container.users.verifyRegistration(adminDid, pending.identity.identityId, { employeeId, department: "ENGINEERING" });
     await container.users.assignRole(adminDid, pending.identity.identityId, "ENGINEER");
     return { identityId: pending.identity.identityId, walletAddress: targetWallet.address };
@@ -123,7 +126,12 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     process.env.BEL_ENV = "development";
     container = createContainer(adapter, {
       integrity: new MemoryIntegrityAdapter(),
-      attestation: new MockDeviceAttestationAdapter(targetDeviceIds),
+      attestation: new MockDeviceAttestationAdapter([
+        targetDevice,
+        `${targetDevice}-FAIL`,
+        `${targetDevice}-REVOKE`,
+        `${targetDevice}-REVOKE-FAIL`,
+      ]),
     });
     await container.prisma!.$connect();
 
@@ -136,7 +144,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
   afterAll(async () => {
     if (container?.prisma) {
       const identityIds = [adminDid, badActorDid, ...targetIdentityIds];
-      const employeeIds = [adminEmployee, badActorEmployee, targetEmployee, `${targetEmployee}-FAIL`];
+      const employeeIds = [adminEmployee, badActorEmployee, ...targetEmployeeIds];
       const deviceIds = [`P1-EVM-ADMIN-DEVICE-${runId}`, badActorDevice, ...targetDeviceIds];
       await container.prisma.session.deleteMany({ where: { identityId: { in: identityIds } } });
       await container.prisma.credential.deleteMany({ where: { deviceId: { in: deviceIds } } });
@@ -171,6 +179,21 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     expect(await onChainRoles.hasRole(pending.walletAddress, 2)).toBe(true); // ENGINEER, shared ROLES index 2
   }, 45_000);
 
+  it("confirms WALLET_REVOKE on-chain before revoking the device and wallet in PostgreSQL", async () => {
+    const pending = await createPendingRegistration(6, `${targetEmployee}-REVOKE`, `${targetDevice}-REVOKE`);
+    await container.users.activateRegistration(adminDid, pending.identityId);
+
+    await container.users.revokeDevice(`${targetDevice}-REVOKE`, adminDid);
+
+    expect((await container.users.listDevices(pending.identityId))[0]).toMatchObject({ status: "REVOKED" });
+    expect((await container.users.listWallets(pending.identityId))[0]).toMatchObject({ address: pending.walletAddress, status: "REVOKED", revokedReason: "Device revoked" });
+    expect(await adapter.getWallet(pending.walletAddress)).toMatchObject({ address: pending.walletAddress, status: "REVOKED" });
+
+    const onChainIdentity = new Contract(config.deployment.contracts.IdentityRegistry, config.abis.IdentityRegistry, provider);
+    expect(await onChainIdentity.identityOf(pending.walletAddress)).toBe(pending.identityId);
+    expect(await onChainIdentity.isActiveWallet(pending.walletAddress)).toBe(false);
+  }, 45_000);
+
   it("leaves PostgreSQL pending when an unauthorized blockchain actor fails activation", async () => {
     await adapter.submitTransaction(tx("IDENTITY_CREATE", ADMIN.address, adminDid, { identityId: badActorDid, walletAddress: BAD_ACTOR.address }));
     await adapter.submitTransaction(tx("WALLET_ACTIVATE", ADMIN.address, adminDid, { address: BAD_ACTOR.address }));
@@ -183,5 +206,15 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     await expect(container.users.activateRegistration(badActorDid, pending.identityId)).rejects.toBeInstanceOf(BlockchainError);
     expect(await container.users.getIdentity(pending.identityId)).toMatchObject({ status: "PENDING", role: "ENGINEER" });
     expect((await container.users.listWallets(pending.identityId))[0].status).toBe("PENDING");
+
+    // The same real unauthorized actor must not be able to revoke an active
+    // wallet. The adapter returns the contract rejection and PostgreSQL stays
+    // ACTIVE because revokeDevice submits before persisting local state.
+    const active = await createPendingRegistration(5, `${targetEmployee}-REVOKE-FAIL`, `${targetDevice}-REVOKE-FAIL`);
+    await container.users.activateRegistration(adminDid, active.identityId);
+    await expect(container.users.revokeDevice(`${targetDevice}-REVOKE-FAIL`, badActorDid)).rejects.toMatchObject({ kind: "REVERTED" });
+    expect((await container.users.listDevices(active.identityId))[0].status).toBe("ACTIVE");
+    expect((await container.users.listWallets(active.identityId))[0]).toMatchObject({ address: active.walletAddress, status: "ACTIVE" });
+    expect(await adapter.getWallet(active.walletAddress)).toMatchObject({ address: active.walletAddress, status: "ACTIVE" });
   }, 45_000);
 });
