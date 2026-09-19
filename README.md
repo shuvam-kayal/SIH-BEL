@@ -24,7 +24,7 @@ decision, not an individual one:
 
 ## Quickstart
 
-Requires Node 20+. Python 3.11+ for the consensus simulator, Foundry for
+Requires Node 20+. The BEL consensus prototype is implemented in the nested Besu repository and uses JDK 21. Foundry is optional for
 contracts — both optional depending on what you own.
 
 ```bash
@@ -37,7 +37,6 @@ npm run dev                # backend on :4000, frontend on :3000
 | `npm run dev` | Backend and frontend together |
 | `npm test` | All TypeScript tests |
 | `npm run typecheck` | All workspaces |
-| `npm run test:consensus` | Person 4's simulator tests (pytest) |
 | `npm run test:contracts` | `forge test` |
 | `docker compose up` | Everything behind nginx on :8080 |
 
@@ -63,14 +62,47 @@ NOT_IMPLEMENTED** with the method name — that is expected, not a bug.
 docs/        Frozen specifications. Start here.
 shared/      Types, enums, validators, RBAC matrix. Imported by everyone.
 contracts/   Solidity interfaces, tests, deploy script (Foundry).
-blockchain/  Consensus simulator now; real node once Phase 8 picks a client.
+blockchain/  BEL consensus landing page and protocol-owned support material.
+besu/        Nested Besu repository containing the BEL QBFT integration.
 backend/     REST API implementing docs/API_SPEC.yaml.
 frontend/    Role-based operator console.
 mocks/       mock-api (for the frontend), mock-blockchain (for the backend).
 infra/       Dockerfiles and nginx config.
-scripts/     bootstrap, contract setup, ABI generation, benchmark runner.
+scripts/     bootstrap, contract setup, ABI generation, and Besu demo launchers.
 ```
 
+## BEL consensus demo
+
+The submitted consensus implementation is the Java/Besu integration in the
+nested `besu/` repository. The default launcher generates 70 validators and
+stores generated keys, configuration, logs, and runtime data only under the
+ignored `.bel-demo/` directory. The four-node launcher is an infrastructure
+smoke test with a 70-validator generated configuration; it does not prove BEL
+committee finality or Byzantine behavior.
+
+```bash
+cd besu
+./gradlew :consensus:bel:test :besu:compileJava :besu:installDist
+cd ..
+./scripts/run-besu-smoke.sh
+# In another shell, use the printed run root:
+./scripts/check-besu-bel-demo.sh .bel-demo/smoke-<timestamp> 4 8645
+./scripts/stop-besu-bel-demo.sh .bel-demo/smoke-<timestamp>
+```
+
+For the 70-validator generator on Windows:
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot'
+cd besu
+.\gradlew.bat :consensus:bel:test :besu:compileJava :besu:installDist
+cd ..
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-besu-bel-demo.ps1 -ValidatorCount 70
+```
+
+The current VRF provider is test-only; the production RFC 9381 backend remains
+blocked. A live 70-validator finality demonstration and Byzantine/equivocation
+network demonstration are not claimed.
 ## Ownership
 
 | Person | Area | Primary directories |
@@ -117,7 +149,6 @@ Then run the workstream-appropriate checks:
 npm run typecheck
 npm test --workspace=bel-backend
 npm run test --workspace=bel-frontend
-npm run test:consensus
 npm run test:contracts
 ```
 

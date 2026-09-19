@@ -50,7 +50,7 @@ round.
 committee gives probabilistic security while keeping message/vote
 overhead bounded. Exact committee size and selection mechanism are
 still being benchmarked — see CONSENSUS_SPEC.md and
-blockchain/simulator/.
+docs/CONSENSUS_SPEC.md and the Besu BEL module.
 
 ### ADR-007: Adapter pattern for parallel development
 **Decision:** Backend and frontend depend on interfaces
@@ -157,3 +157,45 @@ rather than silently resolved. Decide before first release.
 **Decision:** PostgreSQL stores mutable operational state; SHA-256 commitments are sent through `IntegrityAdapter` for permissioned-blockchain anchoring.
 **Why:** Operational queries need a durable database while lifecycle history needs tamper-evident evidence.
 **Consequences:** Other workstreams consume repository/API contracts and do not couple directly to Prisma tables.
+
+### ADR-022: Final BEL consensus protocol and Besu implementation
+**Status:** Accepted — supersedes ADR-006's open committee parameters and the
+earlier leader-VRF draft in `CONSENSUS_SPEC.md`.
+
+**Decision:** The production consensus target is a customized Hyperledger Besu
+24.8.0 implementation. For an active validator population (N), committee
+sortition uses RFC 9381 ECVRF-P256-SHA256-SSWU with
+
+`p_N = min(1, max(70/N, 0.0132))`.
+
+If fewer than 70 valid tickets are selected, the first 70 tickets in canonical
+`(vrfOutput, validatorId)` order are used. The committee remains fixed for a
+block height. The round leader is derived by hashing the seed, height, round,
+and canonical committee encoding with `BEL-LEADER`, then indexing the ordered
+committee; no leader VRF ticket set is used.
+
+PREPARE/COMMIT quorum remains `floor(2K/3)+1`; safety takes precedence over
+liveness; round changes preserve the highest valid prepared value. VRF keys
+are separate validator consensus credentials and are never application wallet
+keys or stored in blocks.
+
+**Consequences:** The Java/Besu implementation is the actual consensus implementation.
+The previous-block-hash seed is deterministic and verifiable but is not a
+bias-resistant randomness beacon. The ECVRF backend must be an RFC-compatible
+implementation; an unaudited or custom cryptographic implementation cannot be
+claimed production-ready.
+
+### ADR-023: Hackathon VRF backend gate and test provider
+**Status:** Accepted for the remaining hackathon implementation.
+
+**Decision:** No unvalidated VRF implementation may determine a live
+committee. The bounded `vrf-rfc9381` investigation found that 0.0.5 fails to
+build with the resolved `hash2curve` API, while 0.0.6 and 0.0.7 fail RFC
+Appendix B.2 public-key derivation and proof-generation interoperability.
+Besu consensus work therefore proceeds behind `VrfProvider` with
+`DeterministicTestVrfProvider` only for deterministic protocol demonstrations.
+
+**Consequences:** The test provider is explicitly test-only, not RFC 9381
+cryptography, and not production-grade. The RFC backend
+remains isolated and cannot be enabled until all required official-vector and
+negative tests pass.

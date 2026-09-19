@@ -1,5 +1,13 @@
 # Data Model
 
+## Consensus cryptographic status
+
+Validator and consensus identities remain distinct from any future VRF key.
+The current Besu demonstration uses deterministic test material only through
+`VrfProvider`; `DeterministicTestVrfProvider` is test-only, not RFC 9381
+cryptography, and not production-grade. VRF private keys must not be stored in
+blocks, application state, smart contracts, logs, or source control.
+
 This is the frozen definition of every core object in `docs/SYSTEM_SPEC.md`.
 It maps 1:1 to `shared/types/index.ts` — that file is the executable
 source of truth; this document is the annotated, human-readable version.
@@ -180,7 +188,9 @@ A finalized unit of the ledger.
 |---|---|---|
 | height | number | Primary key |
 | leaderId | string | FK -> Validator.validatorId |
-| committee | string[] | Validator ids that voted |
+| committee | string[] | Selected validator ids for this block |
+| prepareEvidence | object | Distinct valid PREPARE signatures/certificate |
+| commitEvidence | object | Distinct valid COMMIT signatures/finality certificate |
 | transactions | string[] | Ordered list of txIds |
 | finalizedAt | string (ISO 8601) | |
 

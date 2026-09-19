@@ -1,5 +1,13 @@
 # Architecture
 
+## Consensus backend status
+
+The Besu consensus layer depends only on the `VrfProvider` interface.
+`DeterministicTestVrfProvider` is an isolated test-only provider for the
+hackathon demonstration; it is not RFC 9381 cryptography and not
+production-grade. The RFC 9381 provider remains unresolved and must pass the
+official Appendix B.2 vectors before it can determine committee membership.
+
 High-level shape of the system. Detail on any one piece belongs in its
 own frozen doc (RBAC_MATRIX.md, API_SPEC.yaml, CONTRACT_SPEC.md,
 CONSENSUS_SPEC.md, DATA_MODEL.md) — this file is the map connecting them.
@@ -36,9 +44,9 @@ CONSENSUS_SPEC.md, DATA_MODEL.md) — this file is the map connecting them.
                          │
 ┌───────────────────────▼─────────────────────────────────┐
 │ Blockchain / Consensus (Permissioned)                      │
-│  - Authorized validator set, leader + committee selection,  │
-│    BFT quorum finality (docs/CONSENSUS_SPEC.md — still       │
-│    draft, owned by Person 4).                                │
+│  - Customized Besu QBFT integration: authorized validator   │
+│    set, committee/leader selection, PREPARE/COMMIT, and      │
+│    quorum finality (docs/CONSENSUS_SPEC.md).                 │
 └─────────────────────────────────────────────────────────┘
 ```
 

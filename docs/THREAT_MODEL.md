@@ -1,5 +1,13 @@
 # Threat Model (DRAFT)
 
+## Hackathon consensus limitation
+
+The RFC 9381 ECVRF-P256-SHA256-SSWU backend is unresolved. The Besu
+demonstration may use `DeterministicTestVrfProvider` only for deterministic
+protocol testing. It is test-only, not RFC 9381 cryptography, and not
+production-grade; it provides no cryptographic committee-selection security.
+No unvalidated provider may determine a deployed committee.
+
 This expands `SYSTEM_SPEC.md`'s Security Assumptions into concrete
 threats and mitigations. Like `CONSENSUS_SPEC.md`, this is a starting
 draft, not a finished security review — treat it as the checklist to
@@ -22,8 +30,8 @@ argue with, not a completed audit.
 | T2 | Wallet stolen/compromised but Identity not revoked | Wallet revocation is decoupled from Identity — revoke wallet, keep identity, issue new wallet | Person 1 |
 | T3 | Backend compromised, attempts unauthorized on-chain action | Smart contracts independently enforce RBAC_MATRIX.md — backend compromise alone can't force an unauthorized state change through | Person 5 |
 | T4 | Role escalation via a bug in the RBAC middleware | Backend and contract RBAC checks must be tested against the same matrix (see contracts/test/AccessControl.t.sol); no single-layer trust | Person 1 + Person 5 |
-| T5 | Malicious or offline leader disrupts block production | See CONSENSUS_SPEC.md failure-handling table (currently open research — leader-offline fallback is owned by Person 4) | Person 4 |
-| T6 | Predictable committee selection lets an attacker pre-position validators | CONSENSUS_SPEC.md's "Randomness" section must guarantee the seed is not grindable ahead of time — currently unspecified | Person 4 |
+| T5 | Malicious or offline leader disrupts block production | Deterministic hash-based leader selection plus QBFT round change; highest prepared value is preserved | Person 4 |
+| T6 | Predictable committee selection lets an attacker pre-position validators | Previous finalized block hash is the principal seed input, but it is not a bias-resistant beacon; this remains an explicit limitation | Person 4 |
 | T7 | Sensitive document content leaked via on-chain data | Only hashes/references go on-chain, never content (SYSTEM_SPEC.md) — off-chain storage access control is a gap, see ARCHITECTURE.md | Unowned — needs assignment |
 | T8 | Replay of a valid transaction (e.g. re-submitting a JOB_APPROVE) | Transaction envelope should include a nonce/txId uniqueness check (see CONTRACT_SPEC.md's Transaction Envelope) — not yet enforced in interfaces | Person 5 |
 | T9 | Audit log tampering (rewriting history of who did what) | AuditRegistry emits are append-only on-chain events, not mutable backend rows — backend audit views should read from-chain, not a database the backend itself can edit | Person 2/3 + Person 5 |

@@ -1,5 +1,12 @@
 # Base-v1 Freeze Rules
 
+## Consensus implementation status
+
+The Besu consensus demonstration may proceed behind `VrfProvider` using
+`DeterministicTestVrfProvider`. This provider is test-only, not RFC 9381
+cryptography, and not production-grade. The unresolved RFC backend must remain
+isolated until it passes the complete Appendix B.2 interoperability gate.
+
 This repository is the shared starting point for the six independent workstreams.
 All six people clone the same `main` commit/tag and implement only within their owned paths.
 

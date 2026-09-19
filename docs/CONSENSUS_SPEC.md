@@ -7,6 +7,25 @@
 **Scope:** Consensus, committee selection, block verification, voting, finality, and round change  
 **Primary implementation target:** Hyperledger Besu-based permissioned network
 
+> **FINAL BEL v2 OVERRIDE — 2026-09-19**
+>
+> This addendum supersedes conflicting earlier draft formulas in this file.
+> The implementation target is a customized Besu 24.8.0 source tree. The
+> authorized validator population is normally (N\ge70). Committee selection
+> uses (p_N=\min(1,\max(70/N,0.0132))), with a deterministic minimum-70
+> fallback. Leader selection does **not** use a leader VRF or argmin; it uses
+> the hash-index rule defined in the finalized implementation task:
+> (i_{h,r}=OS2IP(H(D_L\parallel S_h\parallel enc(h)\parallel enc(r)
+> \parallel EncodeCommittee(C_h)))\bmod K), where (D_L=\texttt{BEL-LEADER}).
+> The exact Java serialization and RFC 9381 ECVRF backend remain mandatory
+> implementation parameters and must not be replaced by ad-hoc cryptography.
+
+> **HACKATHON BACKEND STATUS — 2026-09-19:** RFC 9381
+> ECVRF-P256-SHA256-SSWU remains an unresolved cryptographic backend. The
+> Besu demonstration may use `DeterministicTestVrfProvider` only through the
+> `VrfProvider` abstraction. It is test-only, not RFC 9381 cryptography, and
+> not production-grade. It must not be used for a production committee.
+
 ---
 
 ## Abstract
@@ -15,7 +34,7 @@ This document specifies a Byzantine fault-tolerant consensus protocol for the BE
 
 For each block height, the active validator population performs VRF-based cryptographic sortition to derive a verification committee. Committee membership is probabilistic and therefore varies between blocks. A target expected committee size is configured rather than a fixed committee size. A deterministic minimum committee rule prevents the protocol from operating with an undersized committee.
 
-Within a committee, a leader is selected pseudorandomly for each consensus round using a domain-separated VRF. The selected leader proposes a block. Committee members independently verify the proposal and participate in a two-phase voting process consisting of PREPARE and COMMIT. A block is final once a strict two-thirds quorum of distinct committee members produces valid COMMIT signatures. When progress fails, the protocol enters a round-change procedure; the committee remains unchanged for the current block height while the leader is replaced.
+For each consensus round, the leader is selected deterministically by hashing the seed, height, round, and canonical committee encoding. The selected leader proposes a block. Committee members independently verify the proposal and participate in a two-phase voting process consisting of PREPARE and COMMIT. A block is final once a strict two-thirds quorum of distinct committee members produces valid COMMIT signatures. When progress fails, the protocol enters a round-change procedure; the committee remains unchanged for the current block height while the leader is replaced.
 
 The protocol is intended to provide safety against Byzantine behavior under the standard \(n \ge 3f+1\) committee model, subject to the explicit assumptions stated in this document. It also explicitly identifies an important limitation: deriving the VRF input solely from the previous finalized block hash does not constitute a bias-resistant distributed randomness beacon. The current mechanism is therefore specified as deterministic, verifiable, and pseudorandom, but not as cryptographically unbiased against a block-grinding adversary.
 
@@ -491,53 +510,21 @@ whereas
 
 ---
 
-# 15. Random Leader Selection
+# 15. Deterministic Leader Selection
 
-For every round \(r\), leader selection uses a second, domain-separated VRF process.
-
-For committee member \(v_i\in C_h\), define
-
-\[
-\alpha_{i,h,r}^{\mathrm{leader}}
-=
-H\left(
-\texttt{"BEL-LEADER-VRF"}
-\parallel
-S_h
-\parallel
-\operatorname{enc}(h)
-\parallel
-\operatorname{enc}(r)
-\parallel
-\operatorname{enc}(v_i)
-\right).
-\]
-
-Each committee member evaluates
+For every round \(r\), the leader is selected from the ordered committee by a
+hash-based index. Define
 
 \[
-(\gamma_{i,h,r},\rho_{i,h,r})
-=
-\operatorname{VRF.Prove}(sk_i^{\mathrm{VRF}},
-\alpha_{i,h,r}^{\mathrm{leader}}).
+i_{h,r}=\operatorname{OS2IP}\left(H\left(
+\texttt{"BEL-LEADER"}\parallel S_h\parallel \operatorname{enc}(h)
+\parallel \operatorname{enc}(r)\parallel \operatorname{EncodeCommittee}(C_h)
+\right)\right)\bmod K_h.
 \]
 
-The leader is defined as
-
-\[
-L_{h,r}
-=
-\arg\min_{v_i\in C_h}
-\left(\gamma_{i,h,r},v_i\right),
-\]
-
-using lexicographic ordering to resolve ties.
-
-Thus all honest committee members derive the same leader.
-
-The leader MUST provide a valid leader-selection proof with its proposal.
-
----
+The leader is the committee member at index \(i_{h,r}\). All inputs are
+canonical and independently available to every validator; no leader VRF
+proof or leader ticket set is required.
 
 # 16. Properties of Leader Selection
 
@@ -615,7 +602,7 @@ The proposal must contain, directly or by canonical reference:
 - round,
 - proposer identity,
 - proposer signature,
-- leader VRF proof,
+- deterministic leader-selection inputs and result,
 - sufficient committee-selection evidence,
 - round-change evidence if \(r>0\).
 
@@ -652,8 +639,8 @@ The validator checks:
 
 1. the proposer belongs to \(C_h\);
 2. the proposer equals \(L_{h,r}\);
-3. the leader VRF proof is valid;
-4. the leader-selection output is the expected minimum;
+3. the deterministic leader hash is computed from the frozen canonical inputs;
+4. the resulting committee index identifies the proposer;
 5. the proposal signature is valid.
 
 ## 20.3 Committee verification
@@ -1045,7 +1032,7 @@ Finalize_B(h,Y)
 X=Y.
 \]
 
-This invariant must be tested explicitly in the simulator and in the Besu integration test network.
+This invariant must be tested explicitly in the Besu BEL module and the available integration test network.
 
 ---
 
@@ -1444,7 +1431,7 @@ No performance advantage should be claimed before measurement.
 
 # 47. Experimental Parameters
 
-The initial simulator SHOULD evaluate multiple validator populations:
+The Besu validation plan SHOULD evaluate multiple validator populations:
 
 \[
 N\in\{10,20,30,50,100\}.
@@ -1478,7 +1465,7 @@ average finalization latency, 95th/99th percentile latency, message count, byte 
 
 # 48. Fault-Injection Requirements
 
-The simulator and integration environment MUST be able to model:
+The Besu integration tests and fault-injection harness MUST be able to model:
 
 ### Crash failures
 
@@ -1554,42 +1541,12 @@ A failed leader eventually causes a higher-round leader to be selected when a ro
 
 ---
 
-# 50. Simulator Architecture
+# 50. Besu Implementation Boundary
 
-The initial reference implementation SHOULD be written in Python because the simulator is primarily a research and validation tool.
-
-Suggested modules:
-
-```text
-simulator/
-├── validator.py
-├── vrf.py
-├── committee.py
-├── leader.py
-├── block.py
-├── message.py
-├── consensus.py
-├── network.py
-├── faults.py
-├── certificates.py
-├── metrics.py
-└── experiments/
-```
-
-The simulator should model logical distributed nodes rather than a centralized sequence of function calls.
-
-At minimum, it should support:
-
-- asynchronous message scheduling,
-- validator state,
-- timers,
-- signatures,
-- VRF records,
-- Byzantine behavior,
-- certificate construction,
-- finality detection.
-
----
+The final implementation is the customized Besu source tree in `besu/`. The
+removed Python reference code has been removed and is not a runtime or
+submission dependency. Consensus behavior is exercised through the Besu BEL
+module and the existing QBFT message/state-machine integration.
 
 # 51. Besu Integration Boundary
 
@@ -1640,7 +1597,7 @@ The implementation should progress in the following order:
 
 1. Run and inspect an unmodified Besu QBFT private network.
 2. Trace block proposal, validation, vote handling, round changes, and finalization.
-3. Map the reference simulator state machine onto the Besu consensus architecture.
+3. Map the frozen PREPARE/COMMIT/FINAL state machine onto the Besu QBFT architecture.
 4. Implement VRF committee selection.
 5. Implement per-round leader selection.
 6. Implement the voting state machine.
@@ -1779,19 +1736,13 @@ validator \(v_i\) is selected when
 u_{i,h}<p.
 \]
 
-If the resulting committee has fewer than \(K_{\min}\) members, choose the \(K_{\min}\) smallest valid VRF outputs.
+If the resulting committee has fewer than 70 members, choose the 70 smallest valid VRF outputs.
 
 ### Step 3 — Leader
 
-For round \(r\), every committee member evaluates a domain-separated leader VRF. The leader is
-
-\[
-L_{h,r}
-=
-\arg\min_{v_i\in C_h}
-(\gamma_{i,h,r},v_i).
-\]
-
+For round \(r\), compute the deterministic hash index defined in Section 15 and
+select the committee member at that index. No leader VRF proof or leader ticket
+set is required.
 ### Step 4 — Proposal
 
 \(L_{h,r}\) broadcasts a valid proposal for \(B_h\).
