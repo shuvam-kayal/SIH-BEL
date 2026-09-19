@@ -14,5 +14,7 @@ if ! command -v forge >/dev/null 2>&1; then
   exit 0
 fi
 
+[ -d lib/openzeppelin-contracts ] && [ -d lib/forge-std ] || bash ../scripts/setup-contracts.sh
+
 forge build
 forge test -vv

@@ -143,10 +143,7 @@ export function usersRouter(c: Container): Router {
     }
   );
 
-  // POST /admin/users/:id/activate-wallet — Admin or Issuer.
-  // Not in API_SPEC.yaml yet; WALLET_ACTIVATE is a frozen transaction
-  // type in CONTRACT_SPEC.md, so the route exists here and the spec
-  // needs the matching path added (flagged for Person 1).
+  // POST /admin/users/:id/activate-wallet — activates an already registered device-generated wallet.
   router.post(
     "/admin/users/:id/activate-wallet",
     requireSession,
