@@ -10,6 +10,13 @@ import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
 import { NotFoundError, ValidationError } from "../errors";
 
+function actor(req: Express.Request) {
+  return {
+    identityId: req.user!.identityId,
+    walletAddress: req.user!.walletAddress,
+  };
+}
+
 export function jobsRouter(c: Container): Router {
   const router = Router();
 
@@ -37,7 +44,7 @@ export function jobsRouter(c: Container): Router {
       if (typeof req.body?.assetId !== "string") {
         throw new ValidationError(["assetId is required"]);
       }
-      res.status(201).json(await c.jobs.create({ ...req.body, createdBy: req.user!.identityId }));
+      res.status(201).json(await c.jobs.create({ ...req.body, createdBy: req.user!.identityId }, actor(req)));
     } catch (err) {
       next(err);
     }
@@ -52,7 +59,7 @@ export function jobsRouter(c: Container): Router {
         if (typeof req.body?.technicianId !== "string") {
           throw new ValidationError(["technicianId is required"]);
         }
-        res.json(await c.jobs.assign(req.params.id, req.body.technicianId));
+        res.json(await c.jobs.assign(req.params.id, req.body.technicianId, actor(req)));
       } catch (err) {
         next(err);
       }
@@ -65,7 +72,7 @@ export function jobsRouter(c: Container): Router {
     requirePermission("PERFORM_MAINTENANCE"),
     async (req, res, next) => {
       try {
-        res.json(await c.jobs.start(req.params.id));
+        res.json(await c.jobs.start(req.params.id,actor(req)));
       } catch (err) {
         next(err);
       }
@@ -82,7 +89,7 @@ export function jobsRouter(c: Container): Router {
         if (typeof evidenceHash !== "string" || evidenceHash.trim() === "") {
           throw new ValidationError(["evidenceHash is required"]);
         }
-        res.json(await c.jobs.complete(req.params.id, evidenceHash));
+        res.json(await c.jobs.complete(req.params.id, evidenceHash, actor(req)));
       } catch (err) {
         next(err);
       }
@@ -95,7 +102,7 @@ export function jobsRouter(c: Container): Router {
     requirePermission("VERIFY_MAINTENANCE"),
     async (req, res, next) => {
       try {
-        res.json(await c.jobs.approve(req.params.id));
+        res.json(await c.jobs.approve(req.params.id, actor(req)));
       } catch (err) {
         next(err);
       }
@@ -112,7 +119,7 @@ export function jobsRouter(c: Container): Router {
         if (typeof reason !== "string" || reason.trim() === "") {
           throw new ValidationError(["reason is required"]);
         }
-        res.json(await c.jobs.reject(req.params.id, reason));
+        res.json(await c.jobs.reject(req.params.id, reason, actor(req)));
       } catch (err) {
         next(err);
       }
