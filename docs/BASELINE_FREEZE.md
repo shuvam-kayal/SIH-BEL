@@ -53,9 +53,24 @@ The following are deliberately unfinished in base-v1 and do not block cloning:
 
 The interfaces around those modules are frozen. Replace implementations behind those seams; do not redesign the seams branch-by-branch.
 
+## Authentication and lifecycle baseline
+
+The current application contract uses a challenge-response onboarding/authentication model:
+
+1. A device requests a provisioning challenge.
+2. The device submits a device-generated public key, wallet address, challenge ID, and signature.
+3. The backend creates the Identity, Device, and Wallet in `PENDING` state.
+4. An administrator verifies the registration data, assigns/confirm roles and employee data as required, and activates the registration.
+5. Authentication uses a backend-issued bearer session after a device signs an authentication challenge.
+6. Protected requests validate the server-side session and the current Identity/Device/Wallet lifecycle state.
+
+`PENDING` is a lifecycle status, not a separate `VERIFIED` status. Administrative verification is represented by the verification fields and is a prerequisite to activation. The shared status enums remain the source of truth.
+
+The `walletAddress` submitted with a device public key must cryptographically correspond to that public key under the eventual wallet/signature scheme. The concrete derivation/binding mechanism is an integration responsibility of the wallet/blockchain adapter; no blockchain-specific derivation is invented by the backend contract.
+
 ## Dependency installation
 
-Direct JavaScript dependencies are pinned in the package manifests. This base intentionally uses `npm install` rather than `npm ci` because the prepared archive has no committed lockfile; after the first successful install on the development machine, commit the generated `package-lock.json` as the next repository hardening step.
+Direct JavaScript dependencies are pinned in the package manifests, and the repository now contains a committed `package-lock.json`. For a clean clone, use `npm ci` so the installed dependency tree is exactly the committed lockfile. Use `npm install` only when intentionally changing dependencies or regenerating the lockfile.
 
 ## Clean-clone rule
 
