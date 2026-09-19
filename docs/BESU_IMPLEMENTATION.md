@@ -36,36 +36,13 @@ must be run for both `prove` and `verify` before the provider is enabled in
 consensus. Until then, the Java consensus layer depends only on the isolated
 `VrfProvider` abstraction and has no hash-based or signature-based fallback.
 
-## Rust crate investigation result
+## Reference implementations
 
-The requested candidate was inspected and pinned in the standalone harness at
-`blockchain/vrf-rust/Cargo.toml`:
-
-```toml
-vrf-rfc9381 = { version = "=0.0.7", features = ["p256"] }
-```
-
-Version `0.0.7` exposes `EcVrfP256Sswu`, `EcVrfP256SswuSecretKey`, and
-`EcVrfP256SswuPublicKey`. Its crate documentation claims ECVRF support and
-the exact P-256 TAI/SSWU suites, but also describes the project as work in
-progress and unaudited. The project license is MIT OR Apache-2.0.
-
-The harness uses the official RFC 9381 Appendix B.2 examples 13 and 14. It
-compiled with Rust 1.98.1, but strict execution fails before provider
-integration: the crate's `prove` path derives compressed public key
-`0292493a26ac0f9d159cb92eb000027151115f4368e79d81825f6232b290192aa8`
-from the RFC secret scalar, while RFC 9381 requires
-`0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6`.
-Its generated proof therefore also does not match the RFC vector. In a
-diagnostic run, verification of the published proof using the published public
-key did succeed, but that does not satisfy the required prove/verify
-interoperability contract.
-
-Status: **blocked; do not integrate `vrf-rfc9381` 0.0.7 into Besu yet**.
-The intended security description, if a conforming backend is later found, is:
-
-> RFC 9381-compatible prototype backend validated against RFC test vectors; not independently audited.
-
+Earlier Python and Rust VRF experiments were audited during development but are
+not part of the submitted implementation. They are not imported by Besu and
+must not be treated as production consensus code. The submitted integration
+uses the Java VrfProvider boundary and the deterministic test provider
+described below.
 ## Provider boundary
 
 The provider must expose:

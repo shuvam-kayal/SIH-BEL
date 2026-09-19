@@ -57,6 +57,23 @@ __pycache__/
 # Besu-generated validator key material
 **/key.priv
 **/key.pub
+# Local secret material and developer-only credentials
+*.secret
+*.secrets
+*.token
+*.jwt
+*.seed
+*.mnemonic
+*.private
+*.priv
+.secrets/
+secrets/
+credentials/
+
+# Local OS/IDE files
+.DS_Store
+Thumbs.db
+.idea/
 
 # Besu is maintained as a separate nested Git repository
 /besu/
