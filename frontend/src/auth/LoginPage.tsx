@@ -1,32 +1,106 @@
-// Owner: Person 6. Backs POST /auth/login. Real device-credential flow
-// TBD by Person 1 (SYSTEM_SPEC.md assumes a managed workstation, not a
-// username/password form) — build the shell now, wire the real
-// mechanism once auth.service.ts (backend) lands.
-
 import { useState } from "react";
 import { mockApi } from "../api/mockApi";
-import { User } from "../../../shared/types";
+import type { User } from "../../../shared/types";
 
-export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
+export function LoginPage({
+  onLogin,
+}: {
+  onLogin: (user: User) => void;
+}) {
+  const [employeeId, setEmployeeId] = useState("");
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
-  async function handleLogin() {
+  async function handleSignIn() {
+    if (!employeeId.trim()) {
+      setMessage("Please enter your Employee ID.");
+      return;
+    }
+
     setLoading(true);
+    setMessage("");
+
     try {
-      const { user } = await mockApi.login();
+      // The role is taken from the employee's stored account.
+      // The employee cannot choose or change their role here.
+      const { user } = await mockApi.loginWithEmployeeId(
+        employeeId.trim()
+      );
+
       onLogin(user);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Sign in failed."
+      );
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div>
-      <h1>BEL Platform</h1>
-      <p>Managed-device session required. No public signup.</p>
-      <button onClick={handleLogin} disabled={loading}>
-        {loading ? "Signing in..." : "Sign in"}
-      </button>
+    <div className="login-page">
+      <div className="login-card">
+
+        <h1>BEL Console</h1>
+
+        <p className="page-subtitle">
+          Secure BEL Asset Management Platform
+        </p>
+
+        <div className="dashboard-section">
+
+          <h2>Sign In</h2>
+
+          <p className="page-subtitle">
+            Sign in using your assigned Employee ID.
+          </p>
+
+          <div className="dashboard-info-item">
+
+            <label className="label">
+              Employee ID
+            </label>
+
+            <input
+              type="text"
+              placeholder="Example: EMP001"
+              value={employeeId}
+              onChange={(e) =>
+                setEmployeeId(e.target.value)
+              }
+            />
+
+          </div>
+
+          <div className="workspace-actions">
+
+            <button
+              type="button"
+              onClick={handleSignIn}
+              disabled={loading}
+            >
+              {loading
+                ? "Signing in..."
+                : "Sign In"}
+            </button>
+
+          </div>
+
+          <p className="page-subtitle">
+            Demo account: EMP001 (ENGINEER)
+          </p>
+
+        </div>
+
+        {message && (
+          <p className="page-subtitle">
+            {message}
+          </p>
+        )}
+
+      </div>
     </div>
   );
 }

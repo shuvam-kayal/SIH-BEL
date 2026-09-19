@@ -1,8 +1,11 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "baseUrl": "..",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "../shared/**/*.ts", "../mocks/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "../shared/**/*.ts"
+  ]
 }
