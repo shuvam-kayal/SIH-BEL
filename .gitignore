@@ -77,3 +77,5 @@ Thumbs.db
 
 # Besu is maintained as a separate nested Git repository
 /besu/
+*.pem
+temp/
