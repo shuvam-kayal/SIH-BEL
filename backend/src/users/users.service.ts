@@ -18,6 +18,7 @@ export interface UsersService {
   revokeDevice(deviceId: string): Promise<Device>;
   registerWallet(userId: string, deviceId: string, address: string): Promise<Wallet>;
   revokeWallet(userId: string, reason: string): Promise<Wallet>;
+  revokeWalletForActor(actorId: string, userId: string, reason: string): Promise<Wallet>;
   activateWallet(userId: string, deviceId: string, address: string): Promise<Wallet>;
   assignRole(actorId: string, userId: string, role: Role): Promise<User>;
   getById(id: string): Promise<User | null>;
@@ -54,9 +55,15 @@ export class UsersServiceImpl implements UsersService {
     const user = this.toUser(identity, "");
     await this.repositories.users.save(user);
     await this.commit("IDENTITY", identity.identityId, "IDENTITY_CREATE", identity.identityId, { entityType: "IDENTITY", entityId: identity.identityId, status: identity.status, role: identity.role });
-    await this.submit("IDENTITY_CREATE", identity, { identityId: identity.identityId, status: identity.status, role: identity.role });
-    await this.commit("IDENTITY", identity.identityId, "ROLE_ASSIGN", identity.identityId, { entityType: "IDENTITY", entityId: identity.identityId, role: identity.role });
-    await this.submit("ROLE_ASSIGN", identity, { identityId: identity.identityId, role: identity.role });
+    const onChainIdentity = await this.chain.getIdentity(identity.identityId);
+    if (!onChainIdentity) {
+      await this.submit("IDENTITY_CREATE", identity, { identityId: identity.identityId, status: identity.status, role: identity.role });
+      await this.commit("IDENTITY", identity.identityId, "ROLE_ASSIGN", identity.identityId, { entityType: "IDENTITY", entityId: identity.identityId, role: identity.role });
+      await this.submit("ROLE_ASSIGN", identity, { identityId: identity.identityId, role: identity.role });
+    } else if (onChainIdentity.role !== identity.role) {
+      await this.commit("IDENTITY", identity.identityId, "ROLE_ASSIGN", identity.identityId, { entityType: "IDENTITY", entityId: identity.identityId, role: identity.role });
+      await this.submit("ROLE_ASSIGN", identity, { identityId: identity.identityId, role: identity.role });
+    }
     return { identity: { ...identity }, user: { ...user } };
   }
 
@@ -172,6 +179,12 @@ export class UsersServiceImpl implements UsersService {
     const device = (await this.repositories.devices.listByIdentityId(identity.identityId)).find((item) => item.status === "PENDING");
     const wallet = (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "PENDING");
     if (!device || !wallet) throw new ConflictError("Pending device and wallet are required");
+    // Activation is the first authenticated administrative lifecycle point.
+    // Register the pending identity/wallet and role on-chain before marking
+    // the PostgreSQL records ACTIVE, so the two authorities cannot diverge.
+    await this.submit("IDENTITY_CREATE", actor, { identityId: identity.identityId, address: wallet.address });
+    await this.submit("ROLE_ASSIGN", actor, { identityId: identity.identityId, role: identity.role });
+    await this.submit("WALLET_ACTIVATE", actor, { address: wallet.address, deviceId: device.deviceId, identityId: identity.identityId });
     const now = new Date().toISOString();
     identity.status = "ACTIVE"; await this.repositories.identities.save(identity);
     device.status = "ACTIVE"; device.activatedAt = now; await this.repositories.devices.save(device);
@@ -180,7 +193,6 @@ export class UsersServiceImpl implements UsersService {
     await this.commit("IDENTITY", identity.identityId, "ROLE_ASSIGN", actor.identityId, { entityType: "IDENTITY", entityId: identity.identityId, role: identity.role });
     await this.commit("DEVICE", device.deviceId, "DEVICE_REGISTER", actor.identityId, { entityType: "DEVICE", entityId: device.deviceId, status: device.status });
     await this.commit("WALLET", wallet.address, "WALLET_ACTIVATE", actor.identityId, { entityType: "WALLET", entityId: wallet.address, status: wallet.status });
-    await this.submit("WALLET_ACTIVATE", actor, { address: wallet.address, deviceId: device.deviceId, identityId: identity.identityId });
     return { identity: { ...identity }, device: { ...device }, wallet: { ...wallet } };
   }
 
@@ -223,13 +235,23 @@ export class UsersServiceImpl implements UsersService {
   }
 
   async revokeWallet(userId: string, reason: string): Promise<Wallet> {
+    return this.revokeWalletInternal(userId, userId, reason, false);
+  }
+
+  async revokeWalletForActor(actorId: string, userId: string, reason: string): Promise<Wallet> {
+    return this.revokeWalletInternal(actorId, userId, reason, true);
+  }
+
+  private async revokeWalletInternal(actorId: string, userId: string, reason: string, requireAdmin: boolean): Promise<Wallet> {
     if (!reason.trim()) throw new ValidationError(["reason is required to revoke a wallet"]);
+    const actor = this.requireIdentity(await this.resolveIdentity(actorId));
+    if (requireAdmin && (actor.status !== "ACTIVE" || actor.role !== "ADMIN")) throw new ForbiddenError("Only an active admin may revoke wallets");
     const identity = this.requireIdentity(await this.resolveIdentity(userId));
     const wallet = (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "ACTIVE");
     if (!wallet) throw new NotFoundError(`No active wallet for ${identity.employeeId}`);
     await this.revokeWalletObject(wallet, reason);
     await this.commit("WALLET", wallet.address, "WALLET_REVOKE", identity.identityId, { entityType: "WALLET", entityId: wallet.address, identityId: wallet.identityId, deviceId: wallet.deviceId, status: wallet.status, reason });
-    await this.submit("WALLET_REVOKE", identity, { address: wallet.address, reason }); return { ...wallet };
+    await this.submit("WALLET_REVOKE", requireAdmin ? actor : identity, { address: wallet.address, reason }); return { ...wallet };
   }
 
   async activateWallet(userId: string, deviceId: string, address: string): Promise<Wallet> {
@@ -247,7 +269,11 @@ export class UsersServiceImpl implements UsersService {
     wallet.deviceId = deviceId; wallet.status = "ACTIVE"; wallet.activatedAt = new Date().toISOString(); wallet.revokedAt = null; wallet.revokedReason = null; await this.repositories.wallets.save(wallet);
     const user = await this.repositories.users.findByIdentityId(identity.identityId); if (user) { user.walletAddress = wallet.address; await this.repositories.users.save(user); }
     await this.commit("WALLET", wallet.address, "WALLET_ACTIVATE", identity.identityId, { entityType: "WALLET", entityId: wallet.address, identityId: wallet.identityId, deviceId: wallet.deviceId, status: wallet.status });
-    await this.submit("WALLET_ACTIVATE", identity, { address: wallet.address, deviceId }); return { ...wallet };
+    const onChainWallet = await this.chain.getWallet(wallet.address);
+    if (!onChainWallet || onChainWallet.status !== "ACTIVE") {
+      await this.submit("WALLET_ACTIVATE", identity, { address: wallet.address, deviceId });
+    }
+    return { ...wallet };
   }
 
   async assignRole(actorId: string, userId: string, role: Role): Promise<User> {

@@ -22,6 +22,7 @@
     "db:migrate": "prisma migrate deploy --schema backend/prisma/schema.prisma",
     "db:seed": "tsx scripts/bootstrap-dev.ts",
     "test:integration": "node scripts/run-integration.mjs",
+    "test:e2e:workflow": "node scripts/test-e2e-workflow.mjs",
     "test:evm": "vitest run backend/test/blockchain.evm.integration.test.ts",
     "test:contracts": "node scripts/test-contracts.mjs",
     "verify": "node scripts/verify.mjs",

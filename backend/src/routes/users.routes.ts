@@ -136,7 +136,7 @@ export function usersRouter(c: Container): Router {
         if (typeof reason !== "string" || reason.trim() === "") {
           throw new ValidationError(["reason is required to revoke a wallet"]);
         }
-        res.json({ wallet: await c.users.revokeWallet(req.params.id, reason) });
+        res.json({ wallet: await c.users.revokeWalletForActor(req.user!.identityId, req.params.id, reason) });
       } catch (err) {
         next(err);
       }

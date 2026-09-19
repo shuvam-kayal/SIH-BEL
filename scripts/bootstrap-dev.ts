@@ -17,7 +17,7 @@ async function main() {
     if (existing) {
       console.log("ADMIN-001 already bootstrapped");
     } else {
-      await container.users.createUser({ employeeId: "ADMIN-001", fullName: "BEL Development Administrator", role: "ADMIN", department: "PLATFORM" });
+      await container.users.createUser({ identityId: process.env.BEL_BOOTSTRAP_ADMIN_DID ?? "DID:BEL:ADMIN", employeeId: "ADMIN-001", fullName: "BEL Development Administrator", role: "ADMIN", department: "PLATFORM" });
       await container.users.registerDevice("ADMIN-001", "BEL-DEV-ADMIN-001", credential, publicKey);
       await container.users.registerWallet("ADMIN-001", "BEL-DEV-ADMIN-001", walletAddress);
       const wallet = await container.users.activateWallet("ADMIN-001", "BEL-DEV-ADMIN-001", walletAddress);

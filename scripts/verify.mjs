@@ -54,7 +54,19 @@ async function checkEvm() {
 
 function run(command, args, extraEnv = {}) {
   console.log(`> ${command} ${args.join(" ")}`);
-  const result = spawnSync(command, args, { cwd: root, stdio: "inherit", env: { ...env, ...extraEnv } });
+
+  const result = process.platform === "win32"
+    ? spawnSync("cmd.exe", ["/d", "/s", "/c", command, ...args], {
+        cwd: root,
+        stdio: "inherit",
+        env: { ...env, ...extraEnv },
+      })
+    : spawnSync(command, args, {
+        cwd: root,
+        stdio: "inherit",
+        env: { ...env, ...extraEnv },
+      });
+
   if (result.error) fail(`${command} could not start: ${result.error.message}`);
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
@@ -70,3 +82,4 @@ run(npm, ["run", "db:migrate"]);
 run(npm, ["run", "test:contracts"]);
 run(npm, ["run", "typecheck"]);
 run(npm, ["run", "test", "--workspace=bel-backend"]);
+run(npm, ["run", "test:e2e:workflow"]);

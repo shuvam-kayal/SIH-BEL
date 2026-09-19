@@ -70,7 +70,7 @@ export class JobsServiceImpl implements JobsService {
     }
 
     const job: Job = {
-      jobId: `JOB-${this.jobs.length + 1}`,
+      jobId: typeof input.jobId === "string" && input.jobId.trim() ? input.jobId.trim() : `JOB-${this.jobs.length + 1}`,
       assetId: input.assetId!,
       createdBy: input.createdBy!,
       assignedTo: "",

@@ -19,4 +19,13 @@ const forge = [
   "if [ ! -d lib/openzeppelin-contracts ]; then forge install OpenZeppelin/openzeppelin-contracts@v4.9.6 --no-git; fi;",
   "forge build && forge test -vv",
 ].join(" ");
-run(["run", "--rm", "--no-deps", "evm-deploy", "sh", "-lc", forge]);
+run([
+  "run",
+  "--rm",
+  "--no-deps",
+  "--entrypoint",
+  "sh",
+  "evm-deploy",
+  "-lc",
+  forge,
+]);
