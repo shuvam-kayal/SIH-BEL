@@ -9,6 +9,8 @@ import type { BlockchainService } from "../adapters/BlockchainService";
 import { loadChainConfigFromEnv } from "./config";
 import { BlockchainError } from "./errors";
 import { EvmBlockchainAdapter, type EvmAdapterOptions } from "./evm-adapter";
+import { BesuConsensusSource } from "./besu-consensus-source";
+import { JsonRpcProvider } from "ethers";
 
 export function createBlockchainServiceFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -16,6 +18,11 @@ export function createBlockchainServiceFromEnv(
 ): BlockchainService {
   const kind = (env.BEL_BLOCKCHAIN ?? "mock").trim().toLowerCase();
   if (kind === "mock" || kind === "") return new MockBlockchainAdapter();
-  if (kind === "evm") return new EvmBlockchainAdapter(loadChainConfigFromEnv(env), options);
+  if (kind === "evm") {
+    const config = loadChainConfigFromEnv(env);
+    const provider = options.provider ?? new JsonRpcProvider(config.rpcUrl, config.deployment.chainId, { staticNetwork: true, pollingInterval: config.pollingIntervalMs ?? 1_000 });
+    const consensus = options.consensus ?? new BesuConsensusSource(provider);
+    return new EvmBlockchainAdapter(config, { ...options, provider, consensus });
+  }
   throw new BlockchainError("CONFIG", `BEL_BLOCKCHAIN must be "mock" or "evm", got "${kind}"`);
 }
