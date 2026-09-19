@@ -43,6 +43,23 @@ not part of the submitted implementation. They are not imported by Besu and
 must not be treated as production consensus code. The submitted integration
 uses the Java VrfProvider boundary and the deterministic test provider
 described below.
+## Validator metadata RPC
+
+The separate bel_getValidators RPC exposes backend-facing validator metadata
+without changing bel_getCommittee. Its response contains height and
+validators, where each entry has validatorId, publicKey, status, and
+joinedAt.
+
+The public-key registry is supplied through BEL_VALIDATOR_PUBLIC_KEYS_FILE
+or defaults to config/validator-public-keys.json. It contains public
+secp256k1 keys only, encoded as 0x plus 128 hexadecimal characters
+(X || Y, without the 04 prefix). Besu validates that each key derives the
+listed validator address. status is ACTIVE when the address is in the
+underlying QBFT validator population for the requested block and INACTIVE
+for a registered validator absent from that population. joinedAt is the UTC
+ISO-8601 timestamp of the first canonical block in which the validator appears
+in that underlying population; genesis validators use the genesis timestamp.
+The BEL committee remains separate and is not used to determine status.
 ## Provider boundary
 
 The provider must expose:
