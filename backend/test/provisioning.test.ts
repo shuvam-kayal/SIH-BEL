@@ -140,14 +140,22 @@ describe("frozen EVM provisioning challenge wire", () => {
   const OTHER_PRIVATE_KEY = "0x8b3a350cf5c34c9194ca3a545d1f7c7d6e2b6e8c0b3f2a1d5c6e7f8091a2b3c4";
   let container: ReturnType<typeof createContainer>;
   let previousMode: string | undefined;
+  let attestationCalls = 0;
 
   beforeEach(() => {
     previousMode = process.env.BEL_BLOCKCHAIN;
     process.env.BEL_BLOCKCHAIN = "evm";
     clearIdentityStore();
+    attestationCalls = 0;
+    const mockAttestation = new MockDeviceAttestationAdapter([DEVICE, OTHER_DEVICE]);
     container = createContainer(new MockBlockchainAdapter(), {
       repositories: createMemoryRepositories(identityStore),
-      attestation: new MockDeviceAttestationAdapter([DEVICE, OTHER_DEVICE]),
+      attestation: {
+        async attest(request) {
+          attestationCalls += 1;
+          return mockAttestation.attest(request);
+        },
+      },
     });
   });
 
@@ -184,6 +192,16 @@ describe("frozen EVM provisioning challenge wire", () => {
     await expect(container.users.initializeAccount(input)).resolves.toMatchObject({ identity: { status: "PENDING" } });
     expect((await container.repositories.challenges.findById(input.challengeId))?.usedAt).not.toBeNull();
     await expect(container.users.initializeAccount(input)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("rejects an invalid proof before invoking device attestation", async () => {
+    const input = await validInput();
+    const callsAfterChallenge = attestationCalls;
+    input.signature = await compactSign(OTHER_PRIVATE_KEY, "wrong-challenge");
+
+    await expect(container.users.initializeAccount(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(attestationCalls).toBe(callsAfterChallenge);
+    expect((await container.repositories.challenges.findById(input.challengeId))?.usedAt).toBeNull();
   });
 
   it("rejects expired, wrong-device, and wrong-purpose challenges before proof consumption", async () => {

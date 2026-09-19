@@ -112,9 +112,9 @@ export class UsersServiceImpl implements UsersService {
     // checked only after the challenge is known to be valid, and the challenge
     // is consumed only after every proof check succeeds.
     this.validateEvmWalletBinding(input.walletAddress, input.publicKey);
+    if (!this.verifyProvisioningProof(challenge.challenge, input.publicKey, input.signature)) throw new ForbiddenError("Invalid provisioning proof");
     const attestation = await this.attestDevice(input.deviceId, input.deviceMetadata);
     this.requireAttestation(attestation);
-    if (!this.verifyProvisioningProof(challenge.challenge, input.publicKey, input.signature)) throw new ForbiddenError("Invalid provisioning proof");
     if (await this.repositories.wallets.findByAddress(input.walletAddress)) throw new ConflictError("Wallet address is already registered");
     const existingDevice = await this.repositories.devices.findById(input.deviceId);
     if (existingDevice) throw new ConflictError("Device is already registered");
