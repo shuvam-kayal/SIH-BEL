@@ -20,6 +20,7 @@ jobs:
         with:
           node-version: 20
       - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm run prisma:generate
       - run: npm run typecheck
       - run: npm test --workspace=bel-backend
       - run: npm test --workspace=bel-frontend --if-present
