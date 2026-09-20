@@ -2,7 +2,7 @@
 ## VRF-Based Committee BFT Consensus Specification
 
 **Document:** `docs/CONSENSUS_SPEC.md`  
-**Status:** Protocol Design Specification  
+**Status:** Protocol Design Specification — resolved implementation baseline  
 **Version:** 1.0  
 **Scope:** Consensus, committee selection, block verification, voting, finality, and round change  
 **Primary implementation target:** Hyperledger Besu-based permissioned network
@@ -130,13 +130,19 @@ Consequently, a committee provides the standard \(3f+1\) resilience only when
 K_h \ge 3f_h+1.
 \]
 
-The protocol defines a minimum committee size
-
+The current deployment baseline requires an active validator population
 \[
-K_{\min}=4,
+N \ge 70.
 \]
-
-so that the smallest normal committee tolerates at least one Byzantine member.
+The committee-selection rule therefore enforces a minimum committee size of
+\[
+K_{\min}=70.
+\]
+The protocol does not claim a 4-member production committee. For a committee
+of size K, Byzantine tolerance remains
+\[
+f=\left\lfloor\frac{K-1}{3}\right\rfloor.
+\]
 
 For example:
 
@@ -283,7 +289,7 @@ Let
 
 \[
 p_h =
-\min\left(1,\frac{K_{\mathrm{target}}}{N}\right).
+\min\left(1,\max\left(\frac{70}{N},0.0132\right)\right).
 \]
 
 For validator \(v_i\), define the domain-separated VRF input
@@ -811,7 +817,7 @@ At most \(f_h\) of these can be Byzantine, so at least one intersection member i
 
 Because an honest validator does not support conflicting decisions in the same protocol instance, two conflicting commit certificates cannot both exist under the stated assumptions.
 
-For committee sizes where the implementation's integer quorum differs from exactly \(2f+1\), the implementation MUST validate the corresponding quorum-intersection property explicitly rather than assuming it from the notation.
+For arbitrary committee sizes, the implementation MUST use the integer quorum formula directly. In particular, (Q=\lfloor2K/3\rfloor+1) satisfies (Q\ge2f+1), but equality is not universal (for example K=8 gives Q=6 and f=2).
 
 ---
 
@@ -1727,7 +1733,7 @@ H(
 With
 
 \[
-p=\min(1,K_{\mathrm{target}}/N),
+p_N=\min(1,\max(70/N,0.0132)),
 \]
 
 validator \(v_i\) is selected when
@@ -1736,7 +1742,7 @@ validator \(v_i\) is selected when
 u_{i,h}<p.
 \]
 
-If the resulting committee has fewer than 70 members, choose the 70 smallest valid VRF outputs.
+If the resulting committee has fewer than 70 members, choose the 70 smallest valid VRF outputs in canonical (vrfOutput, validatorId) order.
 
 ### Step 3 — Leader
 
@@ -1799,7 +1805,8 @@ and a new VRF committee is selected.
 Version 1.0 is considered functionally complete only when all of the following are demonstrated:
 
 - deterministic committee derivation,
-- variable committee size,
+- variable committee size with the frozen 70-member minimum,
+- per-block committee rotation and per-round committee stability,
 - valid VRF proof generation and verification,
 - deterministic random leader selection,
 - valid block proposal,
@@ -1817,7 +1824,34 @@ Version 1.0 is considered functionally complete only when all of the following a
 
 ---
 
-# 58. References
+# 58. Resolved Implementation Baseline
+
+The following decisions are frozen for the current Besu implementation baseline:
+
+1. Initial active validator population: (N \ge 70).
+2. Committee selection occurs once per block height and uses the previous
+   finalized block hash as part of the public seed.
+3. Committee probability:
+   \[
+   p_N=\min(1,\max(70/N,0.0132)).
+   \]
+4. If fewer than 70 valid VRF tickets are selected, the 70 smallest valid
+   tickets in canonical ((vrfOutput,validatorId)) order are selected.
+5. The committee remains unchanged across all rounds at the same block height.
+6. Leader selection uses the frozen `BEL-LEADER` hash-index rule and changes
+   with the round; no separate leader VRF is used.
+7. PREPARE/COMMIT use (Q=\lfloor2K/3\rfloor+1) and finality requires a valid
+   commit quorum.
+8. Leader failure causes round change; the highest valid prepared value is
+   preserved. Offline validators do not count toward quorum.
+9. Invalid or conflicting Byzantine messages are rejected by the existing QBFT
+   validation/evidence path.
+10. The previous-block-hash seed is not claimed to be an unbiased or
+    bias-resistant randomness beacon.
+11. The RFC 9381 ECVRF backend remains a production gate; the deterministic
+    provider is test-only.
+
+# 59. References
 
 1. **RFC 9381**, *Verifiable Random Functions (VRFs)*, IETF/IRTF, 2023.  
    https://www.rfc-editor.org/rfc/rfc9381
