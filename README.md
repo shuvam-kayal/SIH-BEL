@@ -18,7 +18,7 @@ decision, not an individual one:
 | `docs/RBAC_MATRIX.md` | Who may do what |
 | `docs/API_SPEC.yaml` | The REST surface |
 | `docs/CONTRACT_SPEC.md` | Transaction types and contract interfaces |
-| `docs/CONSENSUS_SPEC.md` | Committee-PoA protocol (**still a draft — Person 4 owns finalizing it**) |
+| `docs/CONSENSUS_SPEC.md` | Frozen consensus protocol; remaining production items are explicitly listed |
 | `docs/DECISIONS.md` | Why things are the way they are |
 | `docs/THREAT_MODEL.md` | Including dev shortcuts that must not ship |
 
