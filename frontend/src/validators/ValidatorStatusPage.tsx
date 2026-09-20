@@ -1,36 +1,13 @@
-// Owner: Person 6. Backs GET /blockchain/status, /blockchain/validators,
-// /blockchain/committee/:height. Visible to all roles per
-// docs/RBAC_MATRIX.md.
-
 import { useEffect, useState } from "react";
-import { mockApi } from "../api/mockApi";
-import { Validator } from "../../../shared/types";
+import type { BlockchainStatus, CommitteeResponse } from "../../../shared/api";
+import type { Validator } from "../../../shared/types";
+import { apiClient } from "../api/client";
+import { Badge, Card, ErrorNotice, Loading, PageHead, short, Stat } from "../ui";
 
 export function ValidatorStatusPage() {
-  const [validators, setValidators] = useState<Validator[]>([]);
-  const [status, setStatus] = useState<{ height: number; healthy: boolean } | null>(null);
-
-  useEffect(() => {
-    mockApi.getValidators().then(setValidators);
-    mockApi.getBlockchainStatus().then(setStatus);
-  }, []);
-
-  return (
-    <div>
-      <h2>Blockchain Status</h2>
-      {status && (
-        <p>
-          Height: {status.height} — {status.healthy ? "Healthy" : "Degraded"}
-        </p>
-      )}
-      <h3>Validators</h3>
-      <ul>
-        {validators.map((v) => (
-          <li key={v.validatorId}>
-            {v.validatorId} — {v.status}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+  const [status, setStatus] = useState<BlockchainStatus | null>(null); const [validators, setValidators] = useState<Validator[]>([]); const [committee, setCommittee] = useState<CommitteeResponse | null>(null); const [statusError, setStatusError] = useState(""); const [validatorError, setValidatorError] = useState(""); const [committeeError, setCommitteeError] = useState("");
+  useEffect(() => { apiClient.getBlockchainStatus().then(setStatus).catch((e) => setStatusError(e instanceof Error ? e.message : "Unable to load blockchain status.")); apiClient.getValidators().then(setValidators).catch((e) => setValidatorError(e instanceof Error ? e.message : "Unable to load validators.")); }, []);
+  useEffect(() => { if (!status) return; apiClient.getCommittee(status.lastFinalizedHeight).then(setCommittee).catch((e) => setCommitteeError(e instanceof Error ? e.message : "Unable to load committee.")); }, [status]);
+  if (!status && !statusError) return <Loading />;
+  return <><PageHead eyebrow="Permissioned network" title="Network health" description="Validator, finality, and committee status for the BEL operational network." action={status && <Badge tone={status.healthy ? "active" : "danger"}>{status.healthy ? "HEALTHY" : "DEGRADED"}</Badge>} />{statusError ? <ErrorNotice message={statusError} /> : status && <><div className="grid grid-3" style={{ marginBottom: 20 }}><Stat label="Block height" value={status.height} /><Stat label="Last finalized" value={status.lastFinalizedHeight} /><Stat label="Finality lag" value={`${status.finalityLag} blocks`} tone={status.finalityLag === 0 ? "success" : "warning"} /></div><Card><h2>Finalized committee</h2>{committeeError ? <ErrorNotice message={committeeError} /> : committee ? <div className="kv"><div className="k">Requested height</div><div className="v">{committee.height}</div><div className="k">Validator IDs</div><div className="v mono">{committee.validatorIds.join(", ") || "No validators returned"}</div></div> : <Loading />}</Card></>}{validatorError ? <ErrorNotice message={validatorError} /> : <Card><h2>Validator set</h2><div className="table-wrap"><table><thead><tr><th>Validator</th><th>Public key</th><th>Joined</th><th>Status</th></tr></thead><tbody>{validators.map((v) => <tr key={v.validatorId}><td className="mono">{v.validatorId}</td><td className="mono">{short(v.publicKey, 26)}</td><td>{new Date(v.joinedAt).toLocaleDateString("en-IN")}</td><td><Badge tone={v.status === "ACTIVE" ? "active" : "danger"}>{v.status}</Badge></td></tr>)}</tbody></table>{!validators.length && <div className="empty">No validator data returned.</div>}</div></Card>}</>;
 }

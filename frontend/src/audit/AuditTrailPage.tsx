@@ -1,26 +1,5 @@
-// Owner: Person 6. Backs GET /audit/assets/:id.
-
 import { useEffect, useState } from "react";
-import { mockApi } from "../api/mockApi";
-import { AuditEvent } from "../../../shared/types";
-
-export function AuditTrailPage({ assetId }: { assetId: string }) {
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-
-  useEffect(() => {
-    mockApi.getAssetAuditTrail(assetId).then(setEvents);
-  }, [assetId]);
-
-  return (
-    <div>
-      <h2>Audit Trail — {assetId}</h2>
-      <ul>
-        {events.map((e) => (
-          <li key={e.eventId}>
-            {e.timestamp} — {e.action} — by {e.actorIdentityId}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+import type { AuditEvent } from "../../../shared/types";
+import { apiClient, HttpApiError } from "../api/client";
+import { Card, Empty, ErrorNotice, Loading, PageHead, formatDate, short } from "../ui";
+export function AuditTrailPage({ assetId }: { assetId: string }) { const [events, setEvents] = useState<AuditEvent[]>([]); const [error, setError] = useState(""); useEffect(() => { apiClient.getAssetAuditTrail(assetId).then(setEvents).catch((e) => setError(e instanceof HttpApiError && e.status === 501 ? "Audit history is not implemented by the backend yet." : e instanceof Error ? e.message : "Unable to load audit trail.")); }, [assetId]); if (error) return <ErrorNotice message={error} />; if (!events && !error) return <Loading />; return <><PageHead eyebrow="Integrity and history" title={`Audit trail · ${assetId}`} description="Append-only business events associated with this asset identity." /><Card>{events.length ? <div className="timeline">{events.map((e) => <div className="timeline-item" key={e.eventId}><div className="timeline-dot" /><div><strong>{e.action}</strong><div className="small">{formatDate(e.timestamp)} · {e.entityType} · actor {short(e.actorIdentityId)}</div><div className="small mono">Transaction {e.txId}</div></div></div>)}</div> : <Empty>No audit events have been recorded for this asset yet.</Empty>}</Card></>; }

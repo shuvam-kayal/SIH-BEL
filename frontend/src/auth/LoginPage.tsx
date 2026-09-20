@@ -1,32 +1,21 @@
-// Owner: Person 6. Backs POST /auth/login. Real device-credential flow
-// TBD by Person 1 (SYSTEM_SPEC.md assumes a managed workstation, not a
-// username/password form) — build the shell now, wire the real
-// mechanism once auth.service.ts (backend) lands.
-
 import { useState } from "react";
-import { mockApi } from "../api/mockApi";
-import { User } from "../../../shared/types";
+import type { PendingRegistration, Session } from "../../../shared/api";
+import type { User } from "../../../shared/types";
+import { apiClient, HttpApiError } from "../api/client";
+import { deviceWallet } from "../api/deviceWallet";
+import { Brand, Button, Card, ErrorNotice, PageHead, Badge } from "../ui";
 
 export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
-  const [loading, setLoading] = useState(false);
-
-  async function handleLogin() {
-    setLoading(true);
-    try {
-      const { user } = await mockApi.login();
-      onLogin(user);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div>
-      <h1>BEL Platform</h1>
-      <p>Managed-device session required. No public signup.</p>
-      <button onClick={handleLogin} disabled={loading}>
-        {loading ? "Signing in..." : "Sign in"}
-      </button>
-    </div>
-  );
+  // Deployment adapter placeholder: the current bridge exposes identity and
+  // signing only, so no device/attestation metadata is fabricated here.
+  const deviceMetadata: Record<string, unknown> = {};
+  const [mode, setMode] = useState<"landing" | "initialize" | "wallet" | "pending">("landing"); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [form, setForm] = useState({ fullName: "", employeeId: "", department: "" }); const [registration, setRegistration] = useState<PendingRegistration | null>(null);
+  function fail(error: unknown, fallback: string) { setError(error instanceof HttpApiError ? `${error.message}${error.status ? ` (${error.status})` : ""}` : error instanceof Error ? error.message : fallback); }
+  async function signIn() { setLoading(true); setError(""); try { const identity = await deviceWallet.getIdentity(); const challenge = await apiClient.requestAuthenticationChallenge(identity.deviceId); const signature = await deviceWallet.sign(challenge.challenge); const session: Session = await apiClient.login({ deviceId: identity.deviceId, challengeId: challenge.challengeId, publicKey: identity.publicKey, signature }); onLogin(session.user); } catch (e) { fail(e, "Device sign in was not completed."); } finally { setLoading(false); } }
+  async function initialize() { if (!form.fullName.trim()) return setError("Full name is required."); setMode("wallet"); }
+  async function generateWallet() { setLoading(true); setError(""); try { const identity = await deviceWallet.getIdentity(); const challenge = await apiClient.requestProvisioningChallenge({ deviceId: identity.deviceId, deviceMetadata }); const signature = await deviceWallet.sign(challenge.challenge); const result = await apiClient.initializeAccount({ ...form, employeeId: form.employeeId || undefined, department: form.department || undefined, deviceId: identity.deviceId, publicKey: identity.publicKey, walletAddress: identity.walletAddress, challengeId: challenge.challengeId, signature, deviceMetadata }); setRegistration(result); setMode("pending"); } catch (e) { fail(e, "Account initialization was not completed."); } finally { setLoading(false); } }
+  if (mode === "landing") return <><div className="gate-header"><Brand /></div><section className="gate-main"><div><div className="eyebrow">Identity & access</div><h1>Secure access to the BEL enterprise platform.</h1><div className="hero-rule" /><p className="lead">A controlled environment for employee identity, authorization, trusted device credentials, assets, and maintenance operations.</p><div className="actions" style={{ marginTop: 28 }}><Button onClick={signIn} disabled={loading}>{loading ? "Authenticating device…" : "Sign in"}</Button><Button variant="secondary" onClick={() => setMode("initialize")}>Initialize account</Button></div>{error && <div style={{ marginTop: 18 }}><ErrorNotice message={error} /></div>}</div><div className="hero-panel"><div className="panel-title">Account access</div><h2 style={{ marginTop: 10 }}>Managed-device session</h2><p className="muted">Sign in uses a device challenge. The wallet component signs locally; the web application never receives private-key material.</p><div className="divider" /><p className="small"><strong>Device integration required</strong><br />This workstation must provide the BEL device-wallet bridge before authentication or onboarding can proceed.</p></div></section><footer className="footer"><Brand compact /><span>Authorized use only</span></footer></>;
+  if (mode === "initialize") return <div className="gate-main single"><div><PageHead eyebrow="Account initialization" title="Employee information" description="Provide the basic information required to create a pending employee registration." /><ol className="stepper"><li className="active">Employee information</li><li>Secure wallet</li><li>Administrator review</li></ol><Card><div className="form-row"><div className="field"><label>Full name</label><input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} placeholder="Enter your full name" /></div><div className="field"><label>Employee ID <span className="muted">(if known)</span></label><input value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} placeholder="Enter employee ID" /></div></div><div className="field"><label>Department <span className="muted">(if known)</span></label><input value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="Enter department" /></div><div className="notice"><strong>Authorization is assigned during verification.</strong><br />This creates a <strong>PENDING</strong> registration. The device-wallet component supplies public credentials and proof in the next step.</div>{error && <ErrorNotice message={error} />}<div className="actions" style={{ marginTop: 24 }}><Button onClick={initialize}>Continue to secure wallet</Button><Button variant="secondary" onClick={() => setMode("landing")}>Cancel</Button></div></Card></div></div>;
+  if (mode === "wallet") return <div className="gate-main single"><div><PageHead eyebrow="Account initialization" title="Secure wallet setup" description="The device wallet component generates and retains the key material required for this account." /><ol className="stepper"><li className="done">Employee information</li><li className="active">Secure wallet</li><li>Administrator review</li></ol><Card><div className="notice success"><strong>Private key protection</strong><br />Private-key material remains inside the device wallet component and is never submitted to the BEL backend.</div><div className="notice" style={{ marginTop: 14 }}><strong>Deployment adapter required</strong><br />This repository's bridge supplies public identity and signing only. Device attestation metadata must be supplied by the deployment adapter; the frontend does not fabricate it.</div>{error && <div style={{ marginTop: 16 }}><ErrorNotice message={error} /></div>}<div className="actions" style={{ marginTop: 24 }}><Button onClick={generateWallet} disabled={loading}>{loading ? "Generating secure wallet…" : "Generate secure wallet"}</Button><Button variant="secondary" onClick={() => setMode("initialize")}>Back</Button></div></Card></div></div>;
+  return <div className="gate-main single"><div><PageHead eyebrow="Account initialization" title="Registration submitted" description="Your account remains pending until an authorized administrator verifies and activates the registration." /><ol className="stepper"><li className="done">Employee information</li><li className="done">Secure wallet</li><li className="active">Administrator review</li></ol><Card><div className="notice success"><strong>Your registration has been received.</strong><br />The account is awaiting BEL administrator verification, role assignment, and activation.</div>{registration && <div className="kv" style={{ marginTop: 22 }}><div className="k">Name</div><div className="v">{registration.identity.fullName}</div><div className="k">Identity</div><div className="v mono">{registration.identity.identityId}</div><div className="k">Device</div><div className="v mono">{registration.device.deviceId}</div><div className="k">Wallet</div><div className="v mono">{registration.wallet.address}</div><div className="k">Status</div><div className="v"><Badge tone="pending">PENDING</Badge></div></div>}<p className="help" style={{ marginTop: 18 }}>Private-key material is never available to the platform or administrators.</p><Button variant="secondary" onClick={() => setMode("landing")}>Return to sign in</Button></Card></div></div>;
 }

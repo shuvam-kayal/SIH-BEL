@@ -1,29 +1,12 @@
-// Owner: Person 6. Backs GET /jobs, POST /jobs.
-
 import { useEffect, useState } from "react";
-import { mockApi } from "../api/mockApi";
-import { Job } from "../../../shared/types";
-
-export function JobsPage({ onSelect }: { onSelect?: (jobId: string) => void }) {
-  const [jobs, setJobs] = useState<Job[]>([]);
-
-  useEffect(() => {
-    mockApi.getJobs().then(setJobs);
-  }, []);
-
-  return (
-    <div>
-      <h2>Jobs</h2>
-      <ul>
-        {jobs.map((j) => (
-          <li key={j.jobId}>
-            <button onClick={() => onSelect?.(j.jobId)}>
-              {j.jobId} — {j.status} — priority {j.priority}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {/* TODO: create-job form (RBAC: Manager/Engineer only) */}
-    </div>
-  );
+import { can } from "../../../shared/rbac";
+import type { Job, User } from "../../../shared/types";
+import { apiClient } from "../api/client";
+import { Badge, Button, Card, Empty, ErrorNotice, Loading, PageHead } from "../ui";
+const tone = (status: Job["status"]) => status === "VERIFIED" ? "active" : status === "REJECTED" ? "danger" : status === "COMPLETED" ? "info" : "pending";
+export function JobsPage({ user, onSelect }: { user: User; onSelect?: (jobId: string) => void }) {
+  const [jobs, setJobs] = useState<Job[]>([]); const [assets, setAssets] = useState<{ assetId: string; assetType: string }[]>([]); const [show, setShow] = useState(false); const [form, setForm] = useState({ assetId: "", priority: "MEDIUM" as Job["priority"] }); const [error, setError] = useState(""); const load = () => Promise.all([apiClient.getJobs(), apiClient.getAssets()]).then(([j, a]) => { setJobs(j); setAssets(a); }).catch((e) => setError(e instanceof Error ? e.message : "Unable to load jobs.")); useEffect(() => { void load(); }, []);
+  async function create() { if (!form.assetId) return setError("Select an asset."); try { await apiClient.createJob(form); setShow(false); void load(); } catch (e) { setError(e instanceof Error ? e.message : "Job creation failed."); } }
+  if (!jobs.length && !error) return <Loading />;
+  return <><PageHead eyebrow="Maintenance operations" title="Maintenance jobs" description="Create, assign, execute, and verify controlled maintenance work orders." action={can(user.role, "CREATE_JOB") && <Button onClick={() => setShow(!show)}>+ Create job</Button>} />{error && <ErrorNotice message={error} />}{show && <Card><h2>Create maintenance job</h2><div className="form-row"><div className="field"><label>Asset</label><select value={form.assetId} onChange={(e) => setForm({ ...form, assetId: e.target.value })}><option value="">Select asset</option>{assets.map((a) => <option key={a.assetId} value={a.assetId}>{a.assetId} · {a.assetType}</option>)}</select></div><div className="field"><label>Priority</label><select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as Job["priority"] })}>{["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((p) => <option key={p}>{p}</option>)}</select></div></div><div className="actions"><Button onClick={create}>Create job</Button><Button variant="secondary" onClick={() => setShow(false)}>Cancel</Button></div></Card>}<Card><div className="table-wrap"><table><thead><tr><th>Job</th><th>Asset</th><th>Priority</th><th>Assigned technician</th><th>Status</th><th /></tr></thead><tbody>{jobs.map((job) => <tr key={job.jobId}><td><button className="action-link" onClick={() => onSelect?.(job.jobId)}>{job.jobId}</button><div className="small">Created {new Date(job.createdAt).toLocaleDateString("en-IN")}</div></td><td>{job.assetId}</td><td><Badge tone={job.priority === "CRITICAL" ? "danger" : "info"}>{job.priority}</Badge></td><td className="mono">{job.assignedTo || "Unassigned"}</td><td><Badge tone={tone(job.status)}>{job.status.replace("_", " ")}</Badge></td><td><button className="action-link" onClick={() => onSelect?.(job.jobId)}>Open →</button></td></tr>)}</tbody></table>{!jobs.length && <Empty>No maintenance jobs have been created.</Empty>}</div></Card></>;
 }

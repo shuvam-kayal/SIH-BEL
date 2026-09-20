@@ -1,39 +1,12 @@
-// Owner: Person 6. Backs GET /assets/:id and POST /assets/:id/transfer.
-// Also links to the audit trail for this asset (GET /audit/assets/:id).
-
 import { useEffect, useState } from "react";
-import { mockApi } from "../api/mockApi";
-import { Asset } from "../../../shared/types";
-
-export function AssetDetailPage({
-  assetId,
-  onViewAudit,
-}: {
-  assetId: string;
-  onViewAudit?: (assetId: string) => void;
-}) {
-  const [asset, setAsset] = useState<Asset | null>(null);
-
-  useEffect(() => {
-    mockApi.getAsset(assetId).then(setAsset);
-  }, [assetId]);
-
-  if (!asset) return <p>Loading...</p>;
-
-  return (
-    <div>
-      <h2>{asset.assetId}</h2>
-      <p>Type: {asset.assetType}</p>
-      <p>Owner: {asset.ownerId}</p>
-      <p>Custodian: {asset.custodianId}</p>
-      <p>Status: {asset.status}</p>
-      {onViewAudit && (
-        <button className="ghost" onClick={() => onViewAudit(asset.assetId)}>
-          View audit trail
-        </button>
-      )}
-      {/* TODO: transfer form (RBAC: Admin/Manager/authorized Engineer only)
-          and provenance/component-hierarchy view */}
-    </div>
-  );
+import { can } from "../../../shared/rbac";
+import type { Asset, User } from "../../../shared/types";
+import { apiClient, HttpApiError } from "../api/client";
+import { Badge, Button, Card, ErrorNotice, Loading, PageHead } from "../ui";
+export function AssetDetailPage({ assetId, user, onViewAudit }: { assetId: string; user: User; onViewAudit?: (assetId: string) => void }) {
+  const [asset, setAsset] = useState<Asset | null>(null); const [error, setError] = useState(""); const [editing, setEditing] = useState(false); const [ownerId, setOwnerId] = useState("");
+  useEffect(() => { apiClient.getAsset(assetId).then((a) => { setAsset(a); setOwnerId(a?.ownerId ?? ""); }).catch((e) => setError(e instanceof HttpApiError && e.status === 501 ? "Asset registry is not implemented by the backend yet." : e instanceof Error ? e.message : "Unable to load asset.")); }, [assetId]);
+  if (!asset && !error) return <Loading />; if (error) return <ErrorNotice message={error} />; if (!asset) return <ErrorNotice message="Asset not found." />;
+  async function transfer() { try { setAsset(await apiClient.transferAsset(assetId, { newOwnerId: ownerId })); setEditing(false); } catch (e) { setError(e instanceof HttpApiError && e.status === 501 ? "Asset transfer is not implemented by the backend yet." : e instanceof Error ? e.message : "Transfer failed."); } }
+  return <><PageHead eyebrow="Asset registry" title={asset.assetId} description={`${asset.assetType} · NFT identity #${asset.nftId}`} action={<Badge tone={asset.status === "ACTIVE" ? "active" : "pending"}>{asset.status.replace("_", " ")}</Badge>} /><div className="layout"><Card><h2>Asset identity</h2><div className="kv"><div className="k">Asset type</div><div className="v">{asset.assetType}</div><div className="k">NFT identity</div><div className="v">#{asset.nftId}</div><div className="k">Owner identity</div><div className="v mono">{asset.ownerId}</div><div className="k">Custodian identity</div><div className="v mono">{asset.custodianId}</div><div className="k">Parent asset</div><div className="v">{asset.parentAssetId || "Root asset"}</div></div><div className="actions" style={{ marginTop: 24 }}>{can(user.role, "VIEW_AUDIT_HISTORY") && <Button variant="secondary" onClick={() => onViewAudit?.(asset.assetId)}>View audit history</Button>}{can(user.role, "TRANSFER_ASSET") && <Button onClick={() => setEditing(!editing)}>Transfer asset</Button>}</div>{editing && <div className="notice" style={{ marginTop: 20 }}><div className="field"><label>New owner identity</label><input value={ownerId} onChange={(e) => setOwnerId(e.target.value)} /></div><div className="actions"><Button onClick={transfer}>Confirm transfer</Button><Button variant="secondary" onClick={() => setEditing(false)}>Cancel</Button></div></div>}</Card><Card><h2>Lifecycle controls</h2><p className="muted">Ownership and custody are identity anchored. Wallet replacement never changes this asset history.</p><div className="notice success"><strong>Backend-controlled integrity</strong><br />The backend remains responsible for authorization and chain anchoring.</div></Card></div></>;
 }
