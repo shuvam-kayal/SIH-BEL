@@ -8,6 +8,7 @@ const port = Number(process.env.PORT ?? 4000);
 
 createApp().listen(port, () => {
   console.log(`[backend] listening on http://localhost:${port}`);
-  console.log("[backend] chain adapter: MockBlockchainAdapter (see src/container.ts)");
+  const chain = (process.env.BEL_BLOCKCHAIN ?? "mock").trim().toLowerCase() || "mock";
+  console.log(`[backend] chain adapter: ${chain === "evm" ? "EvmBlockchainAdapter" : "MockBlockchainAdapter"}`);
   console.log("[backend] authentication: bearer sessions; development credentials are accepted only through /auth/login");
 });
