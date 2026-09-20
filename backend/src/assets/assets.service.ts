@@ -7,6 +7,7 @@ import { HttpError, NotFoundError, ValidationError } from "../errors";
 import type { Asset, Transaction } from "../../../shared/types";
 import type { MockBlockchainResult } from "../../../shared/api";
 import { ASSET_STATUSES, type AssetStatus } from "../../../shared/enums";
+import { MemoryAssetRepository, type AssetRepository } from "../domain/repositories";
 
 /** The authenticated identity and wallet that sign a transaction envelope. */
 export type AssetActor = {
@@ -60,20 +61,19 @@ type DetailedBlockchainService = BlockchainService & {
 export class AssetsServiceImpl implements AssetsService {
   private readonly assets = new Map<string, Asset>();
 
-  constructor(private readonly chain: BlockchainService) {}
+  constructor(private readonly chain: BlockchainService, private readonly repository: AssetRepository = new MemoryAssetRepository()) {}
 
   async list(): Promise<Asset[]> {
-    const assets = await Promise.all(
-      [...this.assets.keys()].map((assetId) => this.getById(assetId))
-    );
+    const stored = await this.repository.list();
+    const assets = await Promise.all([...new Set([...stored.map((a) => a.assetId), ...this.assets.keys()])].map((assetId) => this.getById(assetId)));
     return assets.filter((asset): asset is Asset => asset !== null);
   }
 
   async getById(id: string): Promise<Asset | null> {
-    const cached = this.assets.get(id);
+    const cached = this.assets.get(id) ?? await this.repository.findById(id);
     const onChain = await this.chain.getAsset(id);
     if (onChain) {
-      const reconciled = this.mergeAsset(onChain, cached);
+      const reconciled = this.mergeAsset(onChain, cached ?? undefined);
       this.assets.set(id, reconciled);
       return { ...reconciled };
     }
@@ -119,6 +119,7 @@ export class AssetsServiceImpl implements AssetsService {
       }
     );
     this.assets.set(assetId, reconciled);
+    await this.repository.save(reconciled);
     return { ...reconciled };
   }
 
@@ -161,6 +162,7 @@ export class AssetsServiceImpl implements AssetsService {
       { ...asset, ownerId, custodianId }
     );
     this.assets.set(id, reconciled);
+    await this.repository.save(reconciled);
     return { ...reconciled };
   }
 
@@ -179,6 +181,7 @@ export class AssetsServiceImpl implements AssetsService {
     const result = await this.submit(tx);
     const reconciled = await this.reconcileAfterWrite(id, result, { ...asset, status: newState });
     this.assets.set(id, reconciled);
+    await this.repository.save(reconciled);
     return { ...reconciled };
   }
 
@@ -209,6 +212,7 @@ export class AssetsServiceImpl implements AssetsService {
       { ...component, parentAssetId }
     );
     this.assets.set(componentId, reconciled);
+    await this.repository.save(reconciled);
     return { ...reconciled };
   }
 
@@ -232,6 +236,7 @@ export class AssetsServiceImpl implements AssetsService {
       { ...component, parentAssetId: null }
     );
     this.assets.set(componentId, reconciled);
+    await this.repository.save(reconciled);
     return { ...reconciled };
   }
 

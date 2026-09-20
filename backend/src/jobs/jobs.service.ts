@@ -3,13 +3,11 @@
 // State machine per SYSTEM_SPEC.md:
 //   CREATED -> ASSIGNED -> IN_PROGRESS -> COMPLETED -> VERIFIED
 //                                              \-> REJECTED
-// Use fake employees and fake assets initially — no dependency on
-// Person 1 or 2's services to get started.
-
 import { Job, JobStatus } from "../../../shared/types";
 import { BlockchainService } from "../adapters/BlockchainService";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { randomUUID } from "node:crypto";
+import { MemoryJobRepository, type AssetRepository, type JobRepository } from "../domain/repositories";
 
 type JobActor = {
   identityId: string;
@@ -36,8 +34,11 @@ export interface JobsService {
 }
 
 export class JobsServiceImpl implements JobsService {
-  private readonly jobs: Job[] = [];
-  constructor(private readonly chain: BlockchainService) {}
+  constructor(
+    private readonly chain: BlockchainService,
+    private readonly repository: JobRepository = new MemoryJobRepository(),
+    private readonly assets?: AssetRepository,
+  ) {}
 
   /** Exposed so the state machine can be tested without a datastore. */
   assertTransition(current: JobStatus, next: JobStatus) {
@@ -47,7 +48,7 @@ export class JobsServiceImpl implements JobsService {
   }
 
   async list(): Promise<Job[]> {
-    return this.jobs;
+    return this.repository.list();
   }
 
   async create(input: Partial<Job>, actor: JobActor): Promise<Job> {
@@ -70,7 +71,7 @@ export class JobsServiceImpl implements JobsService {
     }
 
     const job: Job = {
-      jobId: typeof input.jobId === "string" && input.jobId.trim() ? input.jobId.trim() : `JOB-${this.jobs.length + 1}`,
+      jobId: typeof input.jobId === "string" && input.jobId.trim() ? input.jobId.trim() : `JOB-${(await this.repository.list()).length + 1}`,
       assetId: input.assetId!,
       createdBy: input.createdBy!,
       assignedTo: "",
@@ -81,18 +82,20 @@ export class JobsServiceImpl implements JobsService {
       completedAt: null,
     };
 
+    if (this.assets && !(await this.assets.findById(job.assetId))) throw new NotFoundError(`No asset ${job.assetId}`);
+    if (await this.repository.findById(job.jobId)) throw new ValidationError([`jobId ${job.jobId} already exists`]);
     await this.submit("JOB_CREATE", actor, {
       jobId: job.jobId,
       assetId: job.assetId,
     });
 
-    this.jobs.push(job);
+    await this.repository.save(job);
 
     return job;
   }
 
   async assign(id: string, technicianId: string, actor: JobActor): Promise<Job> {
-    const job = this.jobs.find((item) => item.jobId === id);
+    const job = await this.repository.findById(id);
 
     if (!job) {
       throw new NotFoundError(`No job ${id}`);
@@ -111,12 +114,13 @@ export class JobsServiceImpl implements JobsService {
 
     job.assignedTo = technicianId;
     job.status = "ASSIGNED";
+    await this.repository.save(job);
 
     return job;
   }
 
   async start(id: string, actor: JobActor): Promise<Job> {
-    const job = this.jobs.find((item) => item.jobId === id);
+    const job = await this.repository.findById(id);
 
     if (!job) {
       throw new NotFoundError(`No job ${id}`);
@@ -130,19 +134,20 @@ export class JobsServiceImpl implements JobsService {
     });
 
     job.status = "IN_PROGRESS";
+    await this.repository.save(job);
 
     return job;
   }
 
   async complete(id: string, evidenceHash: string, actor: JobActor): Promise<Job> {
-    const job = this.jobs.find((item) => item.jobId === id);
+    const job = await this.repository.findById(id);
 
     if (!job) {
       throw new NotFoundError(`No job ${id}`);
     }
 
-    if (!evidenceHash?.trim()) {
-      throw new ValidationError(["evidenceHash is required"]);
+    if (!/^[0-9a-f]{64}$/i.test(evidenceHash ?? "")) {
+      throw new ValidationError(["evidenceHash must be a 64-character SHA-256 hex digest"]);
     }
 
     this.assertTransition(job.status, "COMPLETED");
@@ -155,12 +160,13 @@ export class JobsServiceImpl implements JobsService {
 
     job.status = "COMPLETED";
     job.completedAt = new Date().toISOString();
+    await this.repository.save(job);
 
     return job;
   }
 
   async approve(id: string, actor: JobActor): Promise<Job> {
-    const job = this.jobs.find((item) => item.jobId === id);
+    const job = await this.repository.findById(id);
 
     if (!job) {
       throw new NotFoundError(`No job ${id}`);
@@ -175,12 +181,13 @@ export class JobsServiceImpl implements JobsService {
 
     job.status = "VERIFIED";
     job.verifierId = actor.identityId;
+    await this.repository.save(job);
 
     return job;
   }
 
   async reject(id: string, reason: string, actor: JobActor): Promise<Job> {
-    const job = this.jobs.find((item) => item.jobId === id);
+    const job = await this.repository.findById(id);
 
     if (!job) {
       throw new NotFoundError(`No job ${id}`);
@@ -200,6 +207,7 @@ export class JobsServiceImpl implements JobsService {
 
     job.status = "REJECTED";
     job.verifierId = actor.identityId;
+    await this.repository.save(job);
 
     return job;
   }

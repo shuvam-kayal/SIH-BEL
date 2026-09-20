@@ -124,3 +124,29 @@ model AuthorizationGrant {
   target Identity @relation("GrantTarget", fields: [actorIdentityId], references: [identityId])
   grantor Identity @relation("Grantor", fields: [grantedByIdentityId], references: [identityId])
 }
+
+model AssetRecord {
+  assetId String @id
+  nftId String
+  assetType String
+  ownerId String
+  custodianId String
+  parentAssetId String?
+  status String
+  jobs JobRecord[]
+}
+
+model JobRecord {
+  jobId String @id
+  assetId String
+  createdBy String
+  assignedTo String
+  verifierId String?
+  status String
+  priority String
+  createdAt DateTime
+  completedAt DateTime?
+  asset AssetRecord @relation(fields: [assetId], references: [assetId])
+
+  @@index([assetId])
+}
