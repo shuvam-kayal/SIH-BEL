@@ -23,6 +23,7 @@
 // | JOB_START / JOB_APPROVE                | JobManager.startJob/approveJob      | jobId                                                            |
 // | JOB_COMPLETE                           | JobManager.completeJob              | jobId, evidenceHash (32-byte hex, with or without 0x)            |
 // | JOB_REJECT                             | JobManager.rejectJob                | jobId, reason                                                    |
+// | GRANT_CREATE / GRANT_REVOKE             | AssetRegistry.setTransferGrant     | assetId, actorIdentityId, authorizationGrantId, expiresAt       |
 //
 // Off-chain-only fields (assetType, priority, verifierId, deviceId, ...) are
 // ignored here: they never go on-chain (ADR-005).
@@ -67,6 +68,14 @@ function optionalAddress(type: string, p: Payload, keys: string[]): string | und
 
 function requiredAddress(type: string, p: Payload, keys: string[]): string {
   return optionalAddress(type, p, keys) ?? invalid(type, `payload.${keys[0]} is required`);
+}
+
+function grantExpiry(type: string, p: Payload): number {
+  const value = p.expiresAt;
+  if (value === undefined || value === null || value === "") return 0;
+  const seconds = typeof value === "number" ? Math.floor(value) : Math.floor(Date.parse(String(value)) / 1000);
+  if (!Number.isFinite(seconds) || seconds < 0 || seconds > 0xffffffffffffffff) invalid(type, "payload.expiresAt is invalid");
+  return seconds;
 }
 
 /** Resolves "DID or address" to an address (ACTIVE wallet when a DID is given). */
@@ -159,6 +168,22 @@ export async function buildCallPlan(tx: Transaction, lookups: ChainLookups): Pro
         contract: "AssetRegistry",
         method: "transferAsset",
         args: [await nftRef(type, p, ["assetId"], ["nftId"], lookups), await party(type, p, ["newOwnerId", "newOwnerWallet", "newOwner"], lookups, true)],
+      };
+    }
+    case "GRANT_CREATE":
+    case "GRANT_REVOKE": {
+      const actorIdentityId = str(type, p, ["actorIdentityId"]);
+      const grantId = str(type, p, ["authorizationGrantId"]);
+      return {
+        contract: "AssetRegistry",
+        method: "setTransferGrant",
+        args: [
+          await nftRef(type, p, ["resourceId", "assetId"], ["nftId"], lookups),
+          await party(type, p, ["actorIdentityId"], lookups, true),
+          grantExpiry(type, p),
+          type === "GRANT_CREATE",
+          grantId,
+        ],
       };
     }
     case "ASSET_STATE_CHANGE": {

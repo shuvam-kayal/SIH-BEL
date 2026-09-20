@@ -175,12 +175,17 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     const withoutGrant = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: engineer.identityId, newCustodianId: engineer.identityId });
     expect(withoutGrant.status).toBe(403);
     const grantResponse = await request(app).post(`/admin/users/${engineer.identityId}/grants`).set("Authorization", `Bearer ${admin.token}`).send({ resourceType: "ASSET", resourceId: assetId, action: "TRANSFER_ASSET" });
-    expect(grantResponse.status).toBe(201);
+    expect(grantResponse.status, JSON.stringify(grantResponse.body)).toBe(201);
     const transferred = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: engineer.identityId, newCustodianId: engineer.identityId });
     expect(transferred.status).toBe(200);
     expect(transferred.body).toMatchObject({ assetId, ownerId: engineer.identityId, custodianId: engineer.identityId });
     expect(await prisma.assetRecord.findUnique({ where: { assetId } })).toMatchObject({ ownerId: engineer.identityId, custodianId: engineer.identityId });
     expect(await chain.getAsset(assetId)).toMatchObject({ ownerId: engineer.identityId, custodianId: engineer.identityId });
+    const transferEvents = await assetRegistry.queryFilter(assetRegistry.filters.AssetTransferred());
+    expect(transferEvents.some((event) => {
+      const args = "args" in event ? event.args : undefined;
+      return args?.[2]?.toString().toLowerCase() === engineer.walletAddress.toLowerCase();
+    })).toBe(true);
     expect(await chain.getAuditTrail(assetId)).toEqual(expect.arrayContaining([expect.objectContaining({ entityType: "ASSET", entityId: assetId, action: "ASSET_TRANSFER", actorIdentityId: engineer.identityId })]));
     const revokedGrant = await request(app).post(`/admin/users/${engineer.identityId}/grants/${grantResponse.body.authorizationGrantId}/revoke`).set("Authorization", `Bearer ${admin.token}`);
     expect(revokedGrant.status).toBe(200);

@@ -45,6 +45,8 @@ describe("buildCallPlan: every transaction type maps to its CONTRACT_SPEC functi
     ["ROLE_REVOKE", { walletAddress: W1, role: "ADMIN" }, "RoleRegistry", "revokeRole", [W1, 0]],
     ["ASSET_MINT", { assetId: "PUMP-2", ownerId: "DID:BEL:TECH", assetType: "PUMP" }, "AssetRegistry", "mintAsset", ["PUMP-2", W2]],
     ["ASSET_TRANSFER", { assetId: "PUMP-1", newOwnerId: W1 }, "AssetRegistry", "transferAsset", [7n, W1]],
+    ["GRANT_CREATE", { resourceId: "PUMP-1", actorIdentityId: "DID:BEL:TECH", authorizationGrantId: "GRANT-1", expiresAt: 1_900_000_000 }, "AssetRegistry", "setTransferGrant", [7n, W2, 1_900_000_000, true, "GRANT-1"]],
+    ["GRANT_REVOKE", { resourceId: "PUMP-1", actorIdentityId: "DID:BEL:TECH", authorizationGrantId: "GRANT-1" }, "AssetRegistry", "setTransferGrant", [7n, W2, 0, false, "GRANT-1"]],
     ["ASSET_STATE_CHANGE", { nftId: "7", newState: "IN_MAINTENANCE" }, "AssetRegistry", "changeAssetState", [7n, "IN_MAINTENANCE"]],
     ["COMPONENT_ATTACH", { parentAssetId: "PUMP-1", componentAssetId: "VALVE-1" }, "AssetRegistry", "attachComponent", [7n, 8n]],
     ["COMPONENT_REMOVE", { parentNftId: 7, componentId: "VALVE-1" }, "AssetRegistry", "removeComponent", [7n, 8n]],

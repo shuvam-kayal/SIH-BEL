@@ -60,5 +60,7 @@ export const TRANSACTION_TYPES = [
   "JOB_REJECT",
   "COMPONENT_ATTACH",
   "COMPONENT_REMOVE",
+  "GRANT_CREATE",
+  "GRANT_REVOKE",
 ] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];

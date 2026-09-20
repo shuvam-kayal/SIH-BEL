@@ -36,6 +36,68 @@ function run(command, args, extraEnv = {}) {
   if (result.error) fail(`${command} failed to start: ${result.error.message}`);
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
+
+function runForge(args, extraEnv = {}) {
+  const native = spawnSync("forge", args, {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...env, ...extraEnv },
+  });
+
+  if (!native.error) {
+    if (native.status !== 0) process.exit(native.status ?? 1);
+    return;
+  }
+
+  if (native.error.code !== "ENOENT") {
+    fail(`forge failed to start: ${native.error.message}`);
+  }
+
+  console.log("[E2E] Native forge not found; using Docker Foundry.");
+
+  const dockerForgeArgs = args.map((arg, index) => {
+    const previous = args[index - 1];
+    return previous === "--rpc-url" && /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?/.test(arg)
+      ? arg.replace(/(https?:\/\/)?(127\.0\.0\.1|localhost)/, "http://host.docker.internal")
+      : arg;
+  });
+  const forgeCommand = ["forge", ...dockerForgeArgs]
+    .filter((arg) => arg !== "--root" && arg !== "contracts")
+    .join(" ");
+  const dockerArgs = [
+  "run",
+  "--rm",
+  "--add-host",
+  "host.docker.internal:host-gateway",
+  ...Object.entries(extraEnv).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+  "-v",
+  `${root}:/workspace`,
+  "-w",
+  "/workspace/contracts",
+  "ghcr.io/foundry-rs/foundry:latest",
+  forgeCommand,
+];
+
+  const dockerEnv = {
+    ...env,
+    ...extraEnv,
+  };
+
+  const docker = spawnSync("docker", dockerArgs, {
+    cwd: root,
+    stdio: "inherit",
+    env: dockerEnv,
+  });
+
+  if (docker.error) {
+    fail(`Docker Foundry failed to start: ${docker.error.message}`);
+  }
+
+  if (docker.status !== 0) {
+    process.exit(docker.status ?? 1);
+  }
+}
+
 run(process.execPath, ["node_modules/prisma/build/index.js", "generate", "--schema", "backend/prisma/schema.prisma"]);
 run(process.execPath, ["node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "backend/prisma/schema.prisma"]);
 const mnemonic = "test test test test test test test test test test test junk";
@@ -43,7 +105,7 @@ const wallets = [HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0"
 const admin = wallets[0];
 const publicKey = `0x${admin.signingKey.publicKey.slice(4)}`;
 const e2eKeys = wallets.map((wallet) => wallet.privateKey);
-run("forge", ["script", "script/Deploy.s.sol:DeployScript", "--root", "contracts", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
+runForge(["script", "script/Deploy.s.sol:DeployScript", "--root", "contracts", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
   BEL_NETWORK: "local",
   BEL_BOOTSTRAP_ADMIN_WALLET: admin.address,
   BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",
