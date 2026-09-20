@@ -65,7 +65,7 @@ class FakeBlockchain implements BlockchainService {
 
 const actor = { identityId: "DID:BEL:ADMIN", walletAddress: "0xAdmin" };
 
-async function createSession(container: ReturnType<typeof createContainer>, employeeId: string, role: "ENGINEER") {
+async function seedIdentity(container: ReturnType<typeof createContainer>, identityId: string, role: "ADMIN" | "ENGINEER") {\n  return container.users.createUser({ identityId, employeeId: identityId, fullName: identityId, role, department: "TEST" });\n}\n\nasync function createSession(container: ReturnType<typeof createContainer>, employeeId: string, role: "ENGINEER") {
   const created = await container.users.createUser({ employeeId, fullName: employeeId, role, department: "TEST" });
   await container.users.registerDevice(employeeId, `${employeeId}-DEVICE`, `${employeeId}-CREDENTIAL`, `PUBLIC-${employeeId}`);
   await container.users.registerWallet(employeeId, `${employeeId}-DEVICE`, `0xTEST-${employeeId}`);
