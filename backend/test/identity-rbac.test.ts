@@ -4,6 +4,8 @@ import { AuthServiceImpl } from "../src/auth/auth.service";
 import { UsersServiceImpl } from "../src/users/users.service";
 import { clearIdentityStore, identityStore } from "../src/users/identity.store";
 import { createMemoryRepositories } from "../src/users/repository-implementations";
+import type { BlockchainService } from "../../shared/api";
+import type { Transaction } from "../../shared/types";
 
 describe("identity, authentication, and wallet lifecycle", () => {
   const chain = new MockBlockchainAdapter();
@@ -71,6 +73,25 @@ describe("identity, authentication, and wallet lifecycle", () => {
     await expect(users.assignRole("EMP004", "EMP004", "MANAGER")).rejects.toMatchObject({ code: "FORBIDDEN" });
     const changed = await users.assignRole(admin.identity.identityId, "EMP004", "MANAGER");
     expect(changed.role).toBe("MANAGER");
+  });
+
+  it("does not persist an active role when blockchain role assignment fails", async () => {
+    const admin = await provision("ADMIN-FAIL", "ADMIN");
+    await provision("EMP-FAIL");
+    const repositories = createMemoryRepositories(identityStore);
+    const baseChain = new MockBlockchainAdapter();
+    const failingChain = {
+      ...baseChain,
+      submitTransaction: async (tx: Transaction) => tx.type === "ROLE_ASSIGN"
+        ? { txId: tx.txId, status: "REJECTED" }
+        : baseChain.submitTransaction(tx),
+    } as unknown as BlockchainService;
+    const failingUsers = new UsersServiceImpl(failingChain, repositories);
+
+    await expect(failingUsers.assignRole(admin.identity.identityId, "EMP-FAIL", "MANAGER"))
+      .rejects.toThrow("Blockchain rejected ROLE_ASSIGN");
+    expect((await failingUsers.getIdentity("EMP-FAIL"))?.role).toBe("ENGINEER");
+    expect((await failingUsers.getById("EMP-FAIL"))?.role).toBe("ENGINEER");
   });
 
   it("revoking a device revokes its active wallet and credential", async () => {

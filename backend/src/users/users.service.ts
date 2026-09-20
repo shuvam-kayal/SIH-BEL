@@ -302,16 +302,22 @@ export class UsersServiceImpl implements UsersService {
     const user = await this.repositories.users.findByIdentityId(target.identityId);
     if (!user) {
       if (target.status !== "PENDING") throw new NotFoundError(`No user for ${target.employeeId}`);
-      target.role = role; await this.repositories.identities.save(target);
+      target.role = role;
+      await this.repositories.identities.save(target);
       // Pending identities are assigned on-chain during activation, after
       // IDENTITY_CREATE has made the DID resolvable by RoleRegistry.
       await this.commit("IDENTITY", target.identityId, "ROLE_ASSIGN", actor.identityId, { entityType: "IDENTITY", entityId: target.identityId, role: target.role });
       return this.toUser(target, "");
     }
+    // The chain is authoritative for active role changes. Submit first so a
+    // rejected ROLE_ASSIGN cannot leave either PostgreSQL row claiming success.
     await this.submit("ROLE_ASSIGN", actor, { identityId: target.identityId, role });
-    target.role = role; await this.repositories.identities.save(target);
-    user.role = role; await this.repositories.users.save(user);
-    await this.commit("IDENTITY", target.identityId, "ROLE_ASSIGN", actor.identityId, { entityType: "IDENTITY", entityId: target.identityId, role: target.role }); return { ...user };
+    target.role = role;
+    user.role = role;
+    await this.repositories.identities.save(target);
+    await this.repositories.users.save(user);
+    await this.commit("IDENTITY", target.identityId, "ROLE_ASSIGN", actor.identityId, { entityType: "IDENTITY", entityId: target.identityId, role: target.role });
+    return { ...user };
   }
 
   async getById(id: string): Promise<User | null> { const direct = await this.repositories.users.findById(id); if (direct) return { ...direct }; const identity = await this.resolveIdentity(id); const user = identity ? await this.repositories.users.findByIdentityId(identity.identityId) : null; return user ? { ...user } : null; }

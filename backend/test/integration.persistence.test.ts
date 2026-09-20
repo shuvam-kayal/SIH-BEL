@@ -6,6 +6,9 @@ import { createContainer, type Container } from "../src/container";
 import { MemoryIntegrityAdapter } from "../src/integrity/integrity";
 
 const run = process.env.BEL_RUN_INTEGRATION === "true";
+// The verification runner sets this explicitly after checking that the
+// configured PostgreSQL endpoint is reachable; ordinary unit runs stay fast
+// and never fall back to an in-memory substitute for this suite.
 const suite = run ? describe : describe.skip;
 
 suite("PostgreSQL persistence integration", () => {

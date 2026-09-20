@@ -24,11 +24,14 @@ decision, not an individual one:
 
 ## Quickstart
 
-Requires Node 20+. Python 3.11+ for the consensus simulator, Foundry for
-contracts — both optional depending on what you own.
+Requires Node 20+ and Docker Desktop for the full verification flow. Python
+3.11+ is additionally required for the consensus simulator. Foundry is run
+from the pinned Docker image, so a host `forge`/`anvil` installation is not
+required.
 
 ```bash
-./scripts/bootstrap.sh     # installs every workspace
+npm ci                      # installs every workspace from the lockfile
+npm run verify              # Prisma, typechecks, PostgreSQL, EVM, Solidity
 npm run dev                # backend on :4000, frontend on :3000
 ```
 
@@ -38,7 +41,8 @@ npm run dev                # backend on :4000, frontend on :3000
 | `npm test` | All TypeScript tests |
 | `npm run typecheck` | All workspaces |
 | `npm run test:consensus` | Person 4's simulator tests (pytest) |
-| `npm run test:contracts` | `forge test` |
+| `npm run test:contracts` | Docker Foundry `forge build && forge test -vv` |
+| `npm run verify` | Checks PostgreSQL and Anvil, then runs the complete integration suite |
 | `docker compose up` | Everything behind nginx on :8080 |
 
 The frontend renders from `mocks/mock-api` and needs no backend. The
@@ -108,7 +112,7 @@ ADR to `docs/DECISIONS.md`.
 Clone the repository, create your own feature branch, and install dependencies from the root:
 
 ```bash
-npm install
+npm ci
 ```
 
 Then run the workstream-appropriate checks:
@@ -119,6 +123,7 @@ npm test --workspace=bel-backend
 npm run test --workspace=bel-frontend
 npm run test:consensus
 npm run test:contracts
+npm run verify
 ```
 
 See `docs/BASELINE_FREEZE.md` before changing shared contracts. No teammate should require another teammate's feature branch to start work.
