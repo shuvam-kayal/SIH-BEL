@@ -72,7 +72,7 @@ export type ProvisioningChallenge = {
   challengeId: string;
   deviceId: string;
   challenge: string;
-  purpose: "WALLET_INITIALIZATION" | "AUTHENTICATION";
+  purpose: "WALLET_INITIALIZATION" | "AUTHENTICATION" | "FRESH_AUTHENTICATION";
   expiresAt: string;
   usedAt: string | null;
   metadata?: Record<string, unknown> | null;

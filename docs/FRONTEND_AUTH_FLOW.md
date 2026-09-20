@@ -49,4 +49,10 @@ The frontend uses the typed `ApiClient` methods `requestProvisioningChallenge`, 
 
 ## Prototype versus target
 
-The current backend exposes the protocol and a `DeviceAttestationAdapter` seam. It does not claim production hardware-backed secure storage or a live BEL device-management/VPN attestation provider.
+The current backend exposes the protocol and a `ManagedDeviceAttestationProvider` seam. The frontend exposes a `PlatformAuthenticator` boundary; production refuses the development mock until a real platform adapter is injected. It does not claim production hardware-backed secure storage, Windows Hello/WebAuthn integration, or a live BEL device-management/VPN attestation provider.
+
+The backend also exposes `/auth/fresh-challenge`. A platform authenticator
+must locally verify the user and return the signed proof in the
+`X-BEL-Fresh-Auth` header for configured high-impact operations. The proof is
+bound to the current session, device, operation, and resource and cannot be
+reused.

@@ -329,7 +329,7 @@ components:
         challengeId: { type: string }
         deviceId: { type: string }
         challenge: { type: string }
-        purpose: { type: string, enum: [WALLET_INITIALIZATION, AUTHENTICATION] }
+        purpose: { type: string, enum: [WALLET_INITIALIZATION, AUTHENTICATION, FRESH_AUTHENTICATION] }
         expiresAt: { type: string, format: date-time }
         usedAt: { type: string, format: date-time, nullable: true }
         metadata:
@@ -467,6 +467,25 @@ paths:
       responses:
         '201':
           description: Authentication challenge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningChallenge' }
+  /auth/fresh-challenge:
+    post:
+      summary: Create a short-lived proof challenge for a configured high-impact operation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation]
+              properties:
+                operation: { type: string }
+                resourceId: { type: string }
+      responses:
+        '201':
+          description: Fresh-authentication challenge
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ProvisioningChallenge' }

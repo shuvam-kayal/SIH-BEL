@@ -41,7 +41,7 @@ This document expands `SYSTEM_SPEC.md` security assumptions into concrete threat
 
 - Who owns off-chain document storage and its access control (T7)?
 - What nonce/replay-protection scheme will be enforced by the on-chain transaction layer (T8)?
-- What concrete wallet/signature scheme supplies the cryptographic `walletAddress` ↔ `publicKey` binding required before activation (T13)?
+- The EVM deployment implements the canonical `walletAddress` ↔ `publicKey` binding and rejects malformed or mismatched values. Other wallet/signature schemes remain integration gates.
 - Does the selected blockchain client provide any T5/T6 mitigations out of the box, or does Person 4's feasibility work need to define them?
 - What production device-attestation mechanism replaces the prototype adapter before deployment?
 

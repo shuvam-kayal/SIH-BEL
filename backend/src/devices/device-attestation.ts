@@ -17,9 +17,13 @@ export type DeviceAttestationResult = {
   evidence?: Record<string, unknown>;
 };
 
-export interface DeviceAttestationAdapter {
+/** Production integration seam. A real BEL MDM/VPN provider implements this
+ * interface; the backend never treats request metadata as attestation. */
+export interface ManagedDeviceAttestationProvider {
   attest(request: DeviceAttestationRequest): Promise<DeviceAttestationResult>;
 }
+
+export interface DeviceAttestationAdapter extends ManagedDeviceAttestationProvider {}
 
 /** Default-safe adapter: onboarding is unavailable until a real integration
  * is configured. It never trusts client metadata. */
@@ -28,6 +32,9 @@ export class RejectingDeviceAttestationAdapter implements DeviceAttestationAdapt
     return { verified: false, managedDevice: false, networkApproved: false, evidence: { adapter: "unconfigured" } };
   }
 }
+
+/** Explicit fail-closed production placeholder until BEL supplies a provider. */
+export class NotConfiguredManagedDeviceAttestationProvider extends RejectingDeviceAttestationAdapter {}
 
 /** Deterministic test adapter. Approval is configured out-of-band by the
  * test, and request metadata is intentionally ignored. */

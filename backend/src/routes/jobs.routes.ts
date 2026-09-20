@@ -8,6 +8,7 @@ import { Router } from "express";
 import type { Container } from "../container";
 import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
+import { requireFreshAuthentication } from "../auth/fresh-auth.middleware";
 import { NotFoundError, ValidationError } from "../errors";
 
 function actor(req: Express.Request) {
@@ -99,6 +100,7 @@ export function jobsRouter(c: Container): Router {
   router.post(
     "/jobs/:id/approve",
     requireSession,
+    requireFreshAuthentication(c.auth, "JOB_VERIFY", (req) => req.params.id),
     requirePermission("VERIFY_MAINTENANCE"),
     async (req, res, next) => {
       try {
@@ -112,6 +114,7 @@ export function jobsRouter(c: Container): Router {
   router.post(
     "/jobs/:id/reject",
     requireSession,
+    requireFreshAuthentication(c.auth, "JOB_VERIFY", (req) => req.params.id),
     requirePermission("VERIFY_MAINTENANCE"),
     async (req, res, next) => {
       try {
