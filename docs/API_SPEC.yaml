@@ -329,7 +329,7 @@ components:
         challengeId: { type: string }
         deviceId: { type: string }
         challenge: { type: string }
-        purpose: { type: string, enum: [WALLET_INITIALIZATION, AUTHENTICATION] }
+        purpose: { type: string, enum: [WALLET_INITIALIZATION, AUTHENTICATION, FRESH_AUTHENTICATION] }
         expiresAt: { type: string, format: date-time }
         usedAt: { type: string, format: date-time, nullable: true }
         metadata:
@@ -420,7 +420,7 @@ paths:
     post:
       summary: Login from a managed BEL workstation
       security: []
-      description: The human action is only Click Sign In. The managed-device wallet component handles the challenge, local signature, public key, and proof fields automatically. A legacy device credential is development-only and disabled in production. Private keys never cross the API.
+      description: The human action is only Click Sign In. The managed authenticator performs device-local user verification using its approved platform modality (for example device PIN, Windows Hello, fingerprint, face, or hardware authenticator), then the device wallet signs the backend-issued challenge locally. The frontend transports the resulting LoginProofRequest; it does not collect challenge IDs, signatures, public keys, PINs, biometrics, or private keys. The backend verifies the registered public-key proof and returns Session { user, token }. A legacy device credential is development-only and disabled in production.
       requestBody:
         required: true
         content:
@@ -454,6 +454,7 @@ paths:
   /auth/login-challenge:
     post:
       summary: Create a short-lived challenge for device-signature login (handled automatically by the device wallet)
+      description: The frontend/device wallet requests this after the user clicks Sign In. Local user verification occurs inside the managed authenticator before signing; the local PIN/biometric result and private key are never sent to BEL.
       security: []
       requestBody:
         required: true
@@ -467,6 +468,26 @@ paths:
       responses:
         '201':
           description: Authentication challenge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningChallenge' }
+  /auth/fresh-challenge:
+    post:
+      summary: Create a short-lived proof challenge for a configured high-impact operation
+      description: A bearer session may not be sufficient for a configured high-impact operation. The device performs local user verification and signs a short-lived, single-use proof bound to the current session, operation, and resource where applicable. The frontend transports the proof in the existing protected-operation request; it does not handle private-key storage or local PIN/biometric processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation]
+              properties:
+                operation: { type: string }
+                resourceId: { type: string }
+      responses:
+        '201':
+          description: Fresh-authentication challenge
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ProvisioningChallenge' }

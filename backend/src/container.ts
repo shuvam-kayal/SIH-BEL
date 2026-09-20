@@ -15,8 +15,8 @@ import { UsersServiceImpl, type UsersService } from "./users/users.service";
 import { createMemoryRepositories, createPrismaRepositories } from "./users/repository-implementations";
 import type { IdentityRepositories } from "./users/repositories";
 import { MemoryIntegrityAdapter, type IntegrityAdapter } from "./integrity/integrity";
-import { MockDeviceAttestationAdapter, RejectingDeviceAttestationAdapter, type DeviceAttestationAdapter } from "./devices/device-attestation";
 import { ValidatorServiceImpl, type ValidatorService } from "./validators/validator.service";
+import { MockDeviceAttestationAdapter, NotConfiguredManagedDeviceAttestationProvider, type DeviceAttestationAdapter } from "./devices/device-attestation";
 import { MemoryAssetRepository, MemoryJobRepository, PrismaAssetRepository, PrismaJobRepository, type AssetRepository, type JobRepository } from "./domain/repositories";
 
 export type Container = {
@@ -42,8 +42,9 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
   // Development may use the recording adapter, but production must provide
   // an explicit durable adapter backed by the permissioned blockchain.
   const production = process.env.BEL_ENV === "production";
-  if (production && (!process.env.DATABASE_URL || !options.integrity || !options.attestation || options.repositories)) {
-    throw new Error("Production requires DATABASE_URL and an explicit durable integrity adapter; an explicit device-attestation adapter is also required");
+  const attestationProvider = process.env.BEL_DEVICE_ATTESTATION_PROVIDER?.trim();
+  if (production && (!process.env.DATABASE_URL || !options.integrity || !options.attestation || options.repositories || options.attestation instanceof MockDeviceAttestationAdapter || attestationProvider !== "managed")) {
+    throw new Error("Production requires DATABASE_URL and an explicit durable integrity adapter; it also requires BEL_DEVICE_ATTESTATION_PROVIDER=managed and an authoritative device-attestation adapter");
   }
   const integration = process.env.BEL_RUN_INTEGRATION === "true";
   const prisma = options.prisma ?? ((production || integration || Boolean(options.integrity)) && process.env.DATABASE_URL ? new PrismaClient() : undefined);
@@ -51,7 +52,7 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
   const integrity = options.integrity ?? new MemoryIntegrityAdapter();
   const useMockAttestation = !production && process.env.BEL_DEVICE_ATTESTATION === "mock";
   const approvedDeviceIds = (process.env.BEL_MOCK_APPROVED_DEVICE_IDS ?? "").split(",").map((id) => id.trim()).filter(Boolean);
-  const attestation = options.attestation ?? (useMockAttestation ? new MockDeviceAttestationAdapter(approvedDeviceIds) : new RejectingDeviceAttestationAdapter());
+  const attestation = options.attestation ?? (useMockAttestation ? new MockDeviceAttestationAdapter(approvedDeviceIds) : new NotConfiguredManagedDeviceAttestationProvider());
   // Unit tests may load DATABASE_URL from the developer .env while using
   // explicit memory identity repositories. Keep those tests hermetic; the
   // real persistence suites pass their Prisma client explicitly, and
