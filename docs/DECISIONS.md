@@ -48,9 +48,8 @@ controls access to them is not yet decided — see THREAT_MODEL.md (T7).
 round.
 **Why:** Full-validator-set voting doesn't scale with N; a random
 committee gives probabilistic security while keeping message/vote
-overhead bounded. Exact committee size and selection mechanism are
-still being benchmarked — see CONSENSUS_SPEC.md and
-docs/CONSENSUS_SPEC.md and the Besu BEL module.
+overhead bounded. The resolved committee rule is documented in
+CONSENSUS_SPEC.md and implemented through the Besu BEL module.
 
 ### ADR-007: Adapter pattern for parallel development
 **Decision:** Backend and frontend depend on interfaces
@@ -196,3 +195,67 @@ Besu consensus work therefore proceeds behind `VrfProvider` with
 cryptography, and not production-grade. The RFC backend
 remains isolated and cannot be enabled until all required official-vector and
 negative tests pass.
+
+
+### ADR-024: Public selection seed
+**Status:** Accepted.
+
+**Decision:** For block height h, committee selection derives its public seed
+from the previous finalized block hash plus the frozen domain-separated
+height/chain context.
+
+**Limitation:** The previous finalized block hash is deterministic and
+verifiable but is not claimed to be a bias-resistant distributed randomness
+beacon.
+
+### ADR-025: Frozen committee probability and minimum
+**Status:** Accepted.
+
+**Decision:** For active validator population N >= 70, committee selection
+uses `p_N = min(1, max(70/N, 0.0132))`. If fewer than 70 valid VRF tickets
+are selected, the 70 smallest valid tickets under canonical
+`(vrfOutput, validatorId)` ordering form the committee.
+
+**Consequence:** Committee size varies between blocks; it is not a fixed
+constant. The value 0.0132 is a frozen protocol parameter, not a claim of
+formal optimization.
+
+### ADR-026: Per-round randomized leader selection
+**Status:** Accepted.
+
+**Decision:** The leader is selected from the ordered committee for every round
+using the domain-separated `BEL-LEADER` hash-index rule over the public seed,
+height, round, and canonical committee encoding. There is no separate leader
+VRF ticket set.
+
+**Consequence:** A round change changes the leader while keeping the committee
+fixed for the block height.
+
+### ADR-027: QBFT quorum and failure handling
+**Status:** Accepted.
+
+**Decision:** The consensus layer retains QBFT-style PREPARE/COMMIT finality with
+`Q = floor(2K/3)+1`. Offline validators do not contribute to quorum. Invalid
+or conflicting Byzantine messages are rejected through consensus validation
+and evidence handling. Leader failure triggers round change, with preservation
+of the highest valid prepared value.
+
+**Consequence:** Safety is not weakened to recover liveness during failures.
+For f = floor((K-1)/3), the quorum relation is Q >= 2f+1; equality is not
+universal for all K.
+
+### ADR-028: Besu is the consensus implementation boundary
+**Status:** Accepted.
+
+**Decision:** The customized Hyperledger Besu/QBFT source tree is the actual
+consensus implementation and source of truth for validator/committee
+consensus behavior. Smart contracts do not implement or replace consensus.
+
+**Current evidence:** Compilation and consensus tests pass; BEL committee RPC
+plumbing is implemented; Byzantine evidence validation is covered. The
+4-node WSL network is an infrastructure/P2P/RPC smoke test, not proof of live
+dynamic-committee finality.
+
+**Open production items:** RFC 9381 VRF backend, validator admission/removal,
+randomness robustness, large-scale evaluation, and comprehensive live failure
+testing.
