@@ -48,9 +48,9 @@ controls access to them is not yet decided — see THREAT_MODEL.md (T7).
 round.
 **Why:** Full-validator-set voting doesn't scale with N; a random
 committee gives probabilistic security while keeping message/vote
-overhead bounded. Exact committee size and selection mechanism are
-still being benchmarked — see CONSENSUS_SPEC.md and
-blockchain/simulator/.
+overhead bounded. The frozen committee rule is specified in
+CONSENSUS_SPEC.md; the simulator remains available for security and
+performance evaluation.
 
 ### ADR-007: Adapter pattern for parallel development
 **Decision:** Backend and frontend depend on interfaces
@@ -154,3 +154,24 @@ rather than silently resolved. Decide before first release.
 **Decision:** PostgreSQL stores mutable operational state; SHA-256 commitments are sent through `IntegrityAdapter` for permissioned-blockchain anchoring.
 **Why:** Operational queries need a durable database while lifecycle history needs tamper-evident evidence.
 **Consequences:** Other workstreams consume repository/API contracts and do not couple directly to Prisma tables.
+
+
+### ADR-022: QBFT with VRF-based dynamic committees
+**Decision:** The permissioned chain uses Hyperledger Besu's QBFT consensus machinery with a VRF-based committee selected for every block and randomized per-round leadership. The initial validator population is assumed to satisfy N >= 70. Committee selection does not modify the authoritative validator set.
+**Why:** The design reduces the number of validators participating in each block's BFT voting while retaining QBFT's established safety/finality machinery. A minimum committee of 70 is required by the current committee-size rule.
+**Consequences:** Quorum is Q = floor(2K/3)+1 with f = floor((K-1)/3), leader failure is handled by QBFT round change, and finality occurs after the required commit quorum. Validator admission/removal remains a separate lifecycle mechanism.
+
+### ADR-023: Public selection seed is derived from the previous finalized block
+**Decision:** The current protocol derives the public committee/leader selection seed from the previous finalized block hash plus frozen protocol context, then uses the configured VRF for selection.
+**Why:** Every honest validator can independently derive the same selection input without a coordinator.
+**Consequences:** This seed is deterministic public entropy, not a claimed bias-resistant randomness beacon. Production deployment requires explicit grinding/bias analysis and may require a stronger randomness source. The current deterministic VRF provider is test-only and is not a production RFC 9381 ECVRF implementation.
+
+### ADR-024: Consensus is implemented in Hyperledger Besu
+**Decision:** Hyperledger Besu is the blockchain client for the consensus implementation, using its QBFT consensus architecture rather than application-level Solidity logic to implement consensus.
+**Why:** The implementation requires access to validator, committee, voting, round-change, and finality machinery at the consensus layer. The Besu integration has demonstrated the required validator/committee plumbing and QBFT test/build feasibility.
+**Consequences:** The 4-node WSL smoke environment is treated as infrastructure/P2P/RPC validation, not as proof of complete live dynamic-committee finality. Production VRF integration, validator lifecycle, large-scale evaluation, and comprehensive live failure testing remain open.
+
+### ADR-025: Quorum formula
+**Decision:** For committee size K, quorum is Q = floor(2K/3)+1 and Byzantine tolerance is f = floor((K-1)/3), giving Q >= 2f+1.
+**Why:** This is the exact integer threshold used by the protocol and avoids incorrectly asserting Q = 2f+1 for every committee size.
+**Consequences:** Quorum is never weakened because of offline or Byzantine validators.

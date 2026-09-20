@@ -36,9 +36,9 @@ CONSENSUS_SPEC.md, DATA_MODEL.md) — this file is the map connecting them.
                          │
 ┌───────────────────────▼─────────────────────────────────┐
 │ Blockchain / Consensus (Permissioned)                      │
-│  - Authorized validator set, leader + committee selection,  │
-│    BFT quorum finality (docs/CONSENSUS_SPEC.md — still       │
-│    draft, owned by Person 4).                                │
+│  - Authorized validator set, VRF-based per-block committee,  │
+│    randomized per-round leader, QBFT quorum/finality         │
+│    (docs/CONSENSUS_SPEC.md).                                 │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -137,3 +137,14 @@ early rather than falling through the cracks:
   key is generated/stored/rotated on-device — touches Person 1's auth
   work and Person 4/5's chain work). The backend protocol is defined, but
   hardware-backed secure storage remains future device-side work.
+
+
+## Consensus implementation boundary
+
+The consensus layer is implemented in Hyperledger Besu using its QBFT machinery. The authoritative validator population is distinct from the per-block committee: committee selection never admits or removes validators. The current baseline assumes an initial validator population N >= 70.
+
+For each block, the previous finalized block hash plus frozen protocol context provides the public selection seed. VRF-based selection derives the committee and randomized leader. The committee uses QBFT PREPARE/COMMIT and quorum Q = floor(2K/3)+1. Leader failure is handled through QBFT round change; validator/network failure does not lower the quorum threshold.
+
+The consensus-layer source of truth is exposed to the backend through the agreed blockchain integration seam. Application contracts do not implement or reconstruct consensus membership.
+
+The current Besu work establishes blockchain-client feasibility, but production VRF integration, validator admission/removal, randomness robustness evaluation, large-scale benchmarking, and comprehensive live failure testing remain open items.

@@ -48,8 +48,8 @@ The following are deliberately unfinished in base-v1 and do not block cloning:
 - Concrete Solidity implementations.
 - Production authentication/device attestation.
 - Production backend persistence.
-- Real blockchain networking/node implementation.
-- Exact consensus algorithm/client choice for Person 4's research spike.
+- Production-complete blockchain networking/deployment.
+- Production VRF backend, validator lifecycle, large-scale evaluation, and comprehensive live failure testing remain open in docs/CONSENSUS_SPEC.md.
 
 The interfaces around those modules are frozen. Replace implementations behind those seams; do not redesign the seams branch-by-branch.
 
