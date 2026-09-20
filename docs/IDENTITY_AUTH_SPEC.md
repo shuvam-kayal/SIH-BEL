@@ -74,6 +74,13 @@ Backend creates a bearer session
 
 The employee does not manually enter `challengeId`, `signature`, `publicKey`, or a private key. The frontend/device wallet integration handles those fields transparently. Every request revalidates identity, device, wallet, status, and session expiry; revocation invalidates access.
 
+These are two distinct trust boundaries:
+
+- Local device verification answers: “Is the person currently operating the managed device authorized to use the device-held credential?” The managed authenticator/platform decides this using its approved modality, such as a device PIN, Windows Hello, fingerprint, face, security key, or another approved mechanism.
+- BEL backend authentication answers: “Can the backend cryptographically verify that the registered device credential signed this server-issued challenge?” The backend verifies the public-key proof and creates the bearer application session.
+
+The local verification result is not a BEL application PIN and is not submitted to the backend. PINs, biometric data, private keys, seeds, and mnemonics never cross the frontend/backend boundary.
+
 For EVM, `walletAddress` must equal the address derived from the canonical secp256k1 public key (`X || Y`, without the SEC1 prefix). The backend rejects malformed or mismatched pairs during initialization, activation, login, and session validation; this is cryptographically validated by the wallet/blockchain integration adapter before activation. Other future wallet/signature schemes require their own binding rules.
 
 Development-only legacy credential login may remain for bootstrap and compatibility. It is explicitly disabled when `BEL_ENV=production`; production authentication uses cryptographic device proof.
@@ -104,4 +111,8 @@ specified.
 
 Bearer sessions remain the normal request mechanism. Configured high-impact
 routes can require a short-lived, single-use proof from `/auth/fresh-challenge`.
-The proof is bound to the session, device, operation, and resource.
+The frontend/device flow is: protected operation → fresh challenge → device-local
+user verification → device signs the operation/resource/session-bound proof →
+backend verifies the one-time proof → operation proceeds. An existing bearer
+session is not necessarily sufficient. The frontend does not know how the
+private key is stored or how local PIN/biometric processing occurs.
