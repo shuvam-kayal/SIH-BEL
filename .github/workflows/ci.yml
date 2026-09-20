@@ -88,6 +88,8 @@ jobs:
       - run: forge build
         working-directory: contracts
       - run: npm run prisma:generate
+      - name: Prepare Foundry runtime directories
+        run: mkdir -p contracts/deployments contracts/broadcast
       - run: npm run test:evm
       - name: Run complete cross-person E2E workflow
         run: npm run test:e2e:workflow
