@@ -8,6 +8,16 @@ const actor = {
   walletAddress: "0x0000000000000000000000000000000000000001",
 };
 
+const technician = {
+  identityId: "TECH-1",
+  walletAddress: "0x0000000000000000000000000000000000000002",
+};
+
+const verifier = {
+  identityId: "VERIFIER-1",
+  walletAddress: "0x0000000000000000000000000000000000000003",
+};
+
 const mockChain: BlockchainService = {
   submitTransaction: async () => ({
     txId: "TX-001",
@@ -199,7 +209,7 @@ describe("JobsService", () => {
 
     await service.assign("JOB-1", "TECH-001", actor);
 
-    const job = await service.start("JOB-1", actor);
+    const job = await service.start("JOB-1", { ...actor, identityId: "TECH-001" });
 
     expect(job.status).toBe("IN_PROGRESS");
     expect(job.assignedTo).toBe("TECH-001");
@@ -245,13 +255,22 @@ describe("JobsService", () => {
     );
 
     await service.assign("JOB-1", "TECH-001", actor);
-    await service.start("JOB-1", actor);
+    await service.start("JOB-1", { ...actor, identityId: "TECH-001" });
 
     await expect(
       service.start("JOB-1", actor)
     ).rejects.toThrow(
       "Invalid job transition: IN_PROGRESS -> IN_PROGRESS"
     );
+  });
+
+  it("start() rejects a technician who is not assigned to the job", async () => {
+    const service = new JobsServiceImpl(mockChain);
+    await service.create({ assetId: "ASSET-001", createdBy: "IDENTITY-001", priority: "HIGH" }, actor);
+    await service.assign("JOB-1", technician.identityId, actor);
+
+    await expect(service.start("JOB-1", { ...technician, identityId: "TECH-2" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
   });
 
   it("complete() completes an in-progress job", async () => {
@@ -267,12 +286,12 @@ describe("JobsService", () => {
     );
 
     await service.assign("JOB-1", "TECH-001", actor);
-    await service.start("JOB-1", actor);
+    await service.start("JOB-1", { ...actor, identityId: "TECH-001" });
 
     const job = await service.complete(
       "JOB-1",
       "HASH-001",
-      actor
+      { ...actor, identityId: "TECH-001" }
     );
 
     expect(job.status).toBe("COMPLETED");
@@ -341,14 +360,24 @@ describe("JobsService", () => {
     );
 
     await service.assign("JOB-1", "TECH-001", actor);
-    await service.start("JOB-1", actor);
-    await service.complete("JOB-1", "HASH-001", actor);
+    await service.start("JOB-1", { ...actor, identityId: "TECH-001" });
+    await service.complete("JOB-1", "HASH-001", { ...actor, identityId: "TECH-001" });
 
     await expect(
       service.complete("JOB-1", "HASH-002", actor)
     ).rejects.toThrow(
       "Invalid job transition: COMPLETED -> COMPLETED"
     );
+  });
+
+  it("complete() rejects a technician who is not assigned to the job", async () => {
+    const service = new JobsServiceImpl(mockChain);
+    await service.create({ assetId: "ASSET-001", createdBy: "IDENTITY-001", priority: "HIGH" }, actor);
+    await service.assign("JOB-1", technician.identityId, actor);
+    await service.start("JOB-1", technician);
+
+    await expect(service.complete("JOB-1", "HASH-001", { ...technician, identityId: "TECH-2" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
   });
 
   it("approves a completed job", async () => {
@@ -363,13 +392,14 @@ describe("JobsService", () => {
       actor
     );
 
-    await service.assign(job.jobId, "TECH-1", actor);
-    await service.start(job.jobId, actor);
-    await service.complete(job.jobId, "hash-123", actor);
+    await service.assign(job.jobId, technician.identityId, actor);
+    await service.start(job.jobId, technician);
+    await service.complete(job.jobId, "hash-123", technician);
 
-    const approved = await service.approve(job.jobId, actor);
+    const approved = await service.approve(job.jobId, verifier);
 
     expect(approved.status).toBe("VERIFIED");
+    expect(approved.verifierId).toBe(verifier.identityId);
   });
 
   it("rejects approval for a missing job", async () => {
@@ -378,6 +408,17 @@ describe("JobsService", () => {
     await expect(
       service.approve("JOB-999", actor)
     ).rejects.toThrow("No job JOB-999");
+  });
+
+  it("rejects the assigned technician from approving their own completed job", async () => {
+    const service = new JobsServiceImpl(mockChain);
+    const job = await service.create({ assetId: "ASSET-1", createdBy: "USER-1", priority: "HIGH" }, actor);
+    await service.assign(job.jobId, technician.identityId, actor);
+    await service.start(job.jobId, technician);
+    await service.complete(job.jobId, "hash-123", technician);
+
+    await expect(service.approve(job.jobId, technician))
+      .rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
   });
 
   it("rejects approval when the job is not completed", async () => {
@@ -409,10 +450,10 @@ describe("JobsService", () => {
       actor
     );
 
-    await service.assign(job.jobId, "TECH-1", actor);
-    await service.start(job.jobId, actor);
-    await service.complete(job.jobId, "hash-123", actor);
-    await service.approve(job.jobId, actor);
+    await service.assign(job.jobId, technician.identityId, actor);
+    await service.start(job.jobId, technician);
+    await service.complete(job.jobId, "hash-123", technician);
+    await service.approve(job.jobId, verifier);
 
     await expect(
       service.approve(job.jobId, actor)
@@ -431,14 +472,14 @@ describe("JobsService", () => {
       actor
     );
 
-    await service.assign(job.jobId, "TECH-1", actor);
-    await service.start(job.jobId, actor);
-    await service.complete(job.jobId, "hash-123", actor);
+    await service.assign(job.jobId, technician.identityId, actor);
+    await service.start(job.jobId, technician);
+    await service.complete(job.jobId, "hash-123", technician);
 
     const rejected = await service.reject(
       job.jobId,
       "Maintenance work is incomplete",
-      actor
+      verifier
     );
 
     expect(rejected.status).toBe("REJECTED");
@@ -468,9 +509,9 @@ describe("JobsService", () => {
       actor
     );
 
-    await service.assign(job.jobId, "TECH-1", actor);
-    await service.start(job.jobId, actor);
-    await service.complete(job.jobId, "hash-123", actor);
+    await service.assign(job.jobId, technician.identityId, actor);
+    await service.start(job.jobId, technician);
+    await service.complete(job.jobId, "hash-123", technician);
 
     await expect(
       service.reject(job.jobId, "", actor)
@@ -493,7 +534,7 @@ describe("JobsService", () => {
       service.reject(
         job.jobId,
         "Invalid maintenance",
-        actor
+        verifier
       )
     ).rejects.toThrow(/Invalid job transition/);
   });

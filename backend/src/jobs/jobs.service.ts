@@ -8,7 +8,7 @@
 
 import { Job, JobStatus } from "../../../shared/types";
 import { BlockchainService } from "../adapters/BlockchainService";
-import { NotFoundError, ValidationError } from "../errors";
+import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { randomUUID } from "node:crypto";
 
 type JobActor = {
@@ -70,7 +70,7 @@ export class JobsServiceImpl implements JobsService {
     }
 
     const job: Job = {
-      jobId: `JOB-${this.jobs.length + 1}`,
+      jobId: typeof input.jobId === "string" && input.jobId.trim() ? input.jobId.trim() : `JOB-${this.jobs.length + 1}`,
       assetId: input.assetId!,
       createdBy: input.createdBy!,
       assignedTo: "",
@@ -123,6 +123,7 @@ export class JobsServiceImpl implements JobsService {
     }
 
     this.assertTransition(job.status, "IN_PROGRESS");
+    this.requireAssignedTechnician(job, actor);
 
     await this.submit("JOB_START", actor, {
       jobId: job.jobId,
@@ -145,6 +146,7 @@ export class JobsServiceImpl implements JobsService {
     }
 
     this.assertTransition(job.status, "COMPLETED");
+    this.requireAssignedTechnician(job, actor);
 
     await this.submit("JOB_COMPLETE", actor, {
       jobId: job.jobId,
@@ -165,12 +167,14 @@ export class JobsServiceImpl implements JobsService {
     }
 
     this.assertTransition(job.status, "VERIFIED");
+    this.requireIndependentVerifier(job, actor);
 
     await this.submit("JOB_APPROVE", actor, {
       jobId: job.jobId,
     });
 
     job.status = "VERIFIED";
+    job.verifierId = actor.identityId;
 
     return job;
   }
@@ -187,6 +191,7 @@ export class JobsServiceImpl implements JobsService {
     }
 
     this.assertTransition(job.status, "REJECTED");
+    this.requireIndependentVerifier(job, actor);
 
     await this.submit("JOB_REJECT", actor, {
       jobId: job.jobId,
@@ -194,6 +199,7 @@ export class JobsServiceImpl implements JobsService {
     });
 
     job.status = "REJECTED";
+    job.verifierId = actor.identityId;
 
     return job;
   }
@@ -221,6 +227,25 @@ export class JobsServiceImpl implements JobsService {
 
     if (result.status !== "SUCCESS") {
       throw new Error(`Blockchain rejected ${type}`);
+    }
+  }
+
+  /** Resource-level OWN semantics. The contract checks this too, but the
+   * backend must reject before spending a transaction on an impossible call. */
+  private requireAssignedTechnician(job: Job, actor: JobActor): void {
+    if (!job.assignedTo || job.assignedTo !== actor.identityId) {
+      throw new ForbiddenError("Only the assigned technician may perform maintenance");
+    }
+  }
+
+  /** Separation of duties: the technician who performed the work cannot
+   * verify it. A pre-selected verifier, when present, is also authoritative. */
+  private requireIndependentVerifier(job: Job, actor: JobActor): void {
+    if (job.assignedTo === actor.identityId) {
+      throw new ForbiddenError("The assigned technician cannot verify their own work");
+    }
+    if (job.verifierId && job.verifierId !== actor.identityId) {
+      throw new ForbiddenError("Only the assigned verifier may verify this job");
     }
   }
 }

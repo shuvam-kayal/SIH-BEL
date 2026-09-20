@@ -8,7 +8,7 @@ Run `npm test`. These tests inject the in-memory repository implementations and 
 
 ## B. PostgreSQL integration tests
 
-Start the BEL-controlled database with `docker compose up -d postgres`, set `DATABASE_URL`, run `npm run db:migrate`, then run `npm run test:integration`. The command fails clearly when PostgreSQL is unavailable and never falls back to memory.
+Start the BEL-controlled database with `docker compose up -d postgres`, set `DATABASE_URL`, run `npm run db:migrate`, then run `npm run test:integration`. For the complete Docker-backed validation, use `npm run verify`; it checks PostgreSQL and the Anvil RPC endpoint before enabling this suite and never falls back to memory.
 
 The integration test proves:
 

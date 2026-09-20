@@ -16,6 +16,8 @@ import { waitForReceipt } from "../src/blockchain/evm-adapter";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const OUT = resolve(ROOT, "contracts/out");
 const MNEMONIC = "test test test test test test test test test test test junk"; // anvil's public dev mnemonic
+const configuredRpcUrl = process.env.BEL_EVM_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim();
+const useExternalNode = Boolean(configuredRpcUrl);
 
 function findAnvil(): string | null {
   const candidates = [process.env.ANVIL_BIN, resolve(homedir(), ".foundry/bin/anvil"), "anvil"].filter(Boolean) as string[];
@@ -26,7 +28,9 @@ function findAnvil(): string | null {
 }
 const anvilBin = findAnvil();
 const haveArtifacts = existsSync(resolve(OUT, "JobManager.sol/JobManager.json"));
-const skipReason = !anvilBin ? "anvil not installed" : !haveArtifacts ? "contracts/out missing (run forge build)" : null;
+const skipReason = !useExternalNode && !anvilBin
+  ? "no configured EVM RPC endpoint and local anvil is not installed"
+  : !haveArtifacts ? "contracts/out missing (run forge build)" : null;
 if (skipReason) console.warn(`[blockchain.evm.integration] SKIPPED: ${skipReason}`);
 
 const key = (i: number) => HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${i}`).privateKey;
@@ -57,10 +61,18 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
 
   beforeAll(async () => {
     const port = 18545 + Math.floor(Math.random() * 1000);
-    anvil = spawn(anvilBin!, ["--port", String(port), "--silent"], { stdio: "ignore" });
-    provider = new JsonRpcProvider(`http://127.0.0.1:${port}`, 31337, { staticNetwork: true, pollingInterval: 50 });
+    const rpcUrl = configuredRpcUrl ?? `http://127.0.0.1:${port}`;
+    if (!useExternalNode) anvil = spawn(anvilBin!, ["--port", String(port), "--silent"], { stdio: "ignore" });
+    provider = new JsonRpcProvider(rpcUrl, 31337, { staticNetwork: true, pollingInterval: 50 });
     for (let i = 0; ; i++) {
-      try { await provider.send("eth_chainId", []); break; } catch { if (i > 50) throw new Error("anvil did not start"); await new Promise((r) => setTimeout(r, 100)); }
+      try {
+        const chainId = await provider.send("eth_chainId", []);
+        if (BigInt(chainId) !== 31337n) throw new Error(`expected chain id 31337, got ${chainId}`);
+        break;
+      } catch (error) {
+        if (i > 50) throw new Error(`configured EVM endpoint did not become reachable: ${String(error)}`);
+        await new Promise((r) => setTimeout(r, 100));
+      }
     }
 
     // Same sequence as contracts/script/Deploy.s.sol.
@@ -87,7 +99,7 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
     }
 
     config = {
-      rpcUrl: `http://127.0.0.1:${port}`,
+      rpcUrl,
       deployment: {
         network: "vitest", chainId: 31337,
         contracts: { IdentityRegistry: addrs[0], RoleRegistry: addrs[1], AssetRegistry: addrs[2], JobManager: addrs[3], AuditRegistry: auditAddr },
@@ -108,7 +120,7 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
     await onboard("DID:BEL:ISSUER", ISSUER, "ISSUER");
   }, 60_000);
 
-  afterAll(() => { anvil?.kill(); });
+  afterAll(() => { if (!useExternalNode) anvil?.kill(); });
 
   it("identity and wallet reads reflect on-chain state", async () => {
     expect(await adapter.getWallet(TECH)).toMatchObject({ address: TECH, identityId: "DID:BEL:TECH", status: "ACTIVE", revokedAt: null });
