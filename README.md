@@ -18,7 +18,7 @@ decision, not an individual one:
 | `docs/RBAC_MATRIX.md` | Who may do what |
 | `docs/API_SPEC.yaml` | The REST surface |
 | `docs/CONTRACT_SPEC.md` | Transaction types and contract interfaces |
-| `docs/CONSENSUS_SPEC.md` | Frozen/submitted Committee-PoA protocol |
+| `docs/CONSENSUS_SPEC.md` | Frozen BEL committee/QBFT consensus protocol |
 | `docs/DECISIONS.md` | Why things are the way they are |
 | `docs/THREAT_MODEL.md` | Including dev shortcuts that must not ship |
 
@@ -100,7 +100,7 @@ cd ..
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-besu-bel-demo.ps1 -ValidatorCount 70
 ```
 
-Implemented here are BEL committee selection, deterministic leader selection, PREPARE/COMMIT/finality, quorum, round change, Besu QBFT integration, and integration-level Byzantine/equivocation validation. The current VRF provider is test-only; the production RFC 9381 backend remains blocked. A live 70-validator finality demonstration and live peer-to-peer Byzantine injection are not claimed.
+Resolved protocol decisions implemented/documented here are: an initial active validator population of N >= 70; per-block VRF-based committee selection with p_N = min(1, max(70/N, 0.0132)) and a deterministic 70-ticket minimum fallback; a committee fixed for all rounds of a block; deterministic hash-based randomized leader selection per round; QBFT PREPARE/COMMIT finality with Q = floor(2K/3)+1; round-change with the committee unchanged; and safety-first handling of invalid, conflicting, offline, or failed validators. The previous finalized block hash is the public selection input, but is explicitly not claimed to be a bias-resistant randomness beacon. The production RFC 9381 VRF backend, validator admission/removal, large-scale evaluation, and live Byzantine/finality demonstrations remain open production items.
 ## Ownership
 
 | Person | Area | Primary directories |
