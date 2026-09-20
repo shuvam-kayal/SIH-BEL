@@ -25,7 +25,7 @@ User, Identity, Device, Wallet, AuthorizationGrant, Asset, Component, Job, Audit
 
 ### Employee provisioning
 
-1. An employee starts on an eligible BEL-managed device and BEL internal network or approved VPN.
+1. An employee starts on a device whose eligibility is approved by the server-side `DeviceAttestationAdapter` backed by the authoritative BEL device-management/network provider; client metadata alone is not trusted.
 2. The device wallet component generates the key pair locally; the private key never leaves the device.
 3. The backend receives employee-entered details, public key/address, metadata, and challenge proof.
 4. The backend creates PENDING identity, device, and wallet records.

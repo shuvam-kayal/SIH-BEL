@@ -40,8 +40,9 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
   // Development may use the recording adapter, but production must provide
   // an explicit durable adapter backed by the permissioned blockchain.
   const production = process.env.BEL_ENV === "production";
-  if (production && (!process.env.DATABASE_URL || !options.integrity || !options.attestation || options.repositories || options.attestation instanceof MockDeviceAttestationAdapter)) {
-    throw new Error("Production requires DATABASE_URL and an explicit durable integrity adapter; an explicit device-attestation adapter is also required");
+  const attestationProvider = process.env.BEL_DEVICE_ATTESTATION_PROVIDER?.trim();
+  if (production && (!process.env.DATABASE_URL || !options.integrity || !options.attestation || options.repositories || options.attestation instanceof MockDeviceAttestationAdapter || attestationProvider !== "managed")) {
+    throw new Error("Production requires DATABASE_URL and an explicit durable integrity adapter; it also requires BEL_DEVICE_ATTESTATION_PROVIDER=managed and an authoritative device-attestation adapter");
   }
   const integration = process.env.BEL_RUN_INTEGRATION === "true";
   const prisma = options.prisma ?? ((production || integration || Boolean(options.integrity)) && process.env.DATABASE_URL ? new PrismaClient() : undefined);

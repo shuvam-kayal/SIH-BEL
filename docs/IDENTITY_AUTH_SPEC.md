@@ -74,7 +74,7 @@ Backend creates a bearer session
 
 The employee does not manually enter `challengeId`, `signature`, `publicKey`, or a private key. The frontend/device wallet integration handles those fields transparently. Every request revalidates identity, device, wallet, status, and session expiry; revocation invalidates access.
 
-Public-key/address binding is an integration invariant: `walletAddress` must correspond to the submitted `publicKey` under the eventual wallet/signature scheme. The backend may retain the pair while a registration is pending, but the binding must be cryptographically validated by the wallet/blockchain integration adapter before activation. This document does not invent a blockchain-specific derivation algorithm. In the implemented EVM scheme, this is cryptographically validated by the wallet/blockchain integration adapter before activation using the canonical secp256k1 public key.
+For EVM, `walletAddress` must equal the address derived from the canonical secp256k1 public key (`X || Y`, without the SEC1 prefix). The backend rejects malformed or mismatched pairs during initialization, activation, login, and session validation; this is cryptographically validated by the wallet/blockchain integration adapter before activation. Other future wallet/signature schemes require their own binding rules.
 
 Development-only legacy credential login may remain for bootstrap and compatibility. It is explicitly disabled when `BEL_ENV=production`; production authentication uses cryptographic device proof.
 
@@ -90,7 +90,7 @@ Identity A remains the same. Historical device and wallet records remain availab
 
 ## Current prototype versus target deployment
 
-The current implementation has repository-backed lifecycle state, public-key challenge verification, an EVM wallet/public-key binding, single-use authentication challenges, and configurable fresh authentication for high-impact operations. The mock/rejecting adapter is not proof of BEL hardware trust. Secure hardware-backed private-key storage, device-management integration, and production network attestation remain future deployment work.
+The current implementation has repository-backed lifecycle state, public-key challenge verification, an EVM wallet/public-key binding, single-use authentication challenges, configurable fresh authentication for high-impact operations, and an explicit fail-closed production attestation boundary. The mock/rejecting adapter is not proof of BEL hardware trust. Secure hardware-backed private-key storage, the authoritative BEL device-management/MDM provider, and production network/VPN attestation remain external deployment work.
 
 ## Platform user verification and fresh authentication
 

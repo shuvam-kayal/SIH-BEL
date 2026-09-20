@@ -14,6 +14,10 @@ export type DeviceAttestationResult = {
   verified: boolean;
   managedDevice: boolean;
   networkApproved: boolean;
+  provider: string;
+  deviceId?: string;
+  evidenceId?: string;
+  reason?: string;
   evidence?: Record<string, unknown>;
 };
 
@@ -29,7 +33,7 @@ export interface DeviceAttestationAdapter extends ManagedDeviceAttestationProvid
  * is configured. It never trusts client metadata. */
 export class RejectingDeviceAttestationAdapter implements DeviceAttestationAdapter {
   async attest(_request: DeviceAttestationRequest): Promise<DeviceAttestationResult> {
-    return { verified: false, managedDevice: false, networkApproved: false, evidence: { adapter: "unconfigured" } };
+    return { verified: false, managedDevice: false, networkApproved: false, provider: "not-configured", reason: "authoritative device-trust provider is not configured", evidence: { adapter: "unconfigured" } };
   }
 }
 
@@ -53,6 +57,9 @@ export class MockDeviceAttestationAdapter implements DeviceAttestationAdapter {
       verified: approved,
       managedDevice: approved,
       networkApproved: approved,
+      provider: "mock",
+      deviceId: request.deviceId,
+      reason: approved ? undefined : "device is not approved by the test fixture",
       evidence: { adapter: "mock", deviceId: request.deviceId, decision: approved ? "approved" : "denied" },
     };
   }

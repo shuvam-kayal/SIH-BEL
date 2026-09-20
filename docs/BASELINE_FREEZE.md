@@ -46,7 +46,7 @@ A change to one of these requires an ADR in `docs/DECISIONS.md` and synchronized
 The following are deliberately unfinished in base-v1 and do not block cloning:
 
 - Concrete Solidity implementations.
-- Production authentication/device attestation.
+- Authentication protocol and the server-side device-attestation boundary are implemented behind frozen interfaces. The production device-attestation provider is an explicit integration seam; an authoritative BEL device-management/VPN provider remains an external deployment requirement until its interface is available.
 - Production backend persistence.
 - Real blockchain networking/node implementation.
 - Exact consensus algorithm/client choice for Person 4's research spike.
@@ -66,7 +66,7 @@ The current application contract uses a challenge-response onboarding/authentica
 
 `PENDING` is a lifecycle status, not a separate `VERIFIED` status. Administrative verification is represented by the verification fields and is a prerequisite to activation. The shared status enums remain the source of truth.
 
-The `walletAddress` submitted with a device public key must cryptographically correspond to that public key under the eventual wallet/signature scheme. The concrete derivation/binding mechanism is an integration responsibility of the wallet/blockchain adapter; no blockchain-specific derivation is invented by the backend contract.
+For the implemented EVM scheme, the backend derives the wallet address from the canonical secp256k1 public key and rejects malformed or mismatched pairs before activation and relevant authentication flows. Other wallet/signature schemes require their own binding rules.
 
 ## Dependency installation
 

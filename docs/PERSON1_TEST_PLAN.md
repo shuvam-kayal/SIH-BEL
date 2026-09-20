@@ -47,7 +47,7 @@ Commitments contain state hashes and minimum event metadata, not plaintext crede
 
 ## Environment
 
-Required for the real backend: `DATABASE_URL`, `BEL_ENV`, and optionally `BEL_SESSION_TTL_SECONDS`. Development bootstrap additionally requires `BEL_DEV_BOOTSTRAP=true`, `BEL_BOOTSTRAP_CREDENTIAL`, `BEL_BOOTSTRAP_WALLET_ADDRESS`, and `BEL_BOOTSTRAP_PUBLIC_KEY`. PostgreSQL remains an internal BEL service and must not be exposed through frontend configuration.
+Required for the real backend: `DATABASE_URL`, `BEL_ENV`, and optionally `BEL_SESSION_TTL_SECONDS`. Production additionally requires `BEL_DEVICE_ATTESTATION_PROVIDER=managed` and an injected authoritative provider. Development bootstrap additionally requires `BEL_DEV_BOOTSTRAP=true`, `BEL_BOOTSTRAP_CREDENTIAL`, `BEL_BOOTSTRAP_WALLET_ADDRESS`, and `BEL_BOOTSTRAP_PUBLIC_KEY`. PostgreSQL remains an internal BEL service and must not be exposed through frontend configuration.
 
 ## E. Employee self-initialization and proof tests
 
@@ -64,4 +64,4 @@ The Person 1 suite must also cover:
 - PostgreSQL restart preserves pending registrations, verification, activation, and revocation;
 - integrity commitments exist for initialization, device/wallet registration, verification, role assignment, activation, and revocation.
 
-The current `DeviceAttestationAdapter` is a mock/rejecting seam in tests. These tests must not claim that hardware-backed secure storage or production device attestation exists.
+The current `DeviceAttestationAdapter` is a mock/rejecting seam in tests, while production requires the explicit provider boundary and fails closed without an authoritative implementation. These tests must not claim that hardware-backed secure storage or the external BEL provider exists.

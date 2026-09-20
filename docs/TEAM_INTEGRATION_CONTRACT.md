@@ -25,7 +25,7 @@ This contract describes the current Person 1 prototype boundary. It does not cla
 - `managedDevice`, `onBelNetwork`, hostname, MAC, IP, and VPN fields are evidence only. The backend's `DeviceAttestationAdapter` result controls eligibility.
 - Login is a transparent device protocol: the user clicks Sign In; the device requests a challenge, signs locally, and submits proof. The user does not manually enter challenge IDs, signatures, or public keys.
 - The active dashboard is available only after identity, device, and wallet are ACTIVE.
-- `walletAddress` must correspond to the submitted device-generated `publicKey`. This binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; no blockchain-specific derivation is assumed by this contract.
+- For EVM, `walletAddress` must equal the address derived from the canonical secp256k1 `publicKey` (`X || Y`, without the SEC1 prefix). The backend rejects malformed or mismatched pairs before activation and relevant authentication flows; this is cryptographically validated by the wallet/blockchain integration adapter before activation. Other wallet/signature schemes require their own binding rules.
 
 ## Persons 2 and 3 — assets and jobs
 
@@ -36,4 +36,4 @@ This contract describes the current Person 1 prototype boundary. It does not cla
 
 ## Current prototype boundary
 
-The backend has a mock/rejecting attestation seam and cryptographic proof verification. A real BEL device-management/VPN integration and secure hardware-backed key storage are future deployment work.
+The backend has an explicit fail-closed attestation seam and cryptographic proof verification. The mock/rejecting adapters are test/development behavior only. A real BEL device-management/MDM and network/VPN integration, plus secure hardware-backed key storage, remain external deployment work.

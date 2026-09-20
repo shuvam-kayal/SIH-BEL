@@ -138,7 +138,7 @@ rather than silently resolved. Decide before first release.
 ### ADR-018: Device attestation abstraction
 **Decision:** Eligibility is decided through `DeviceAttestationAdapter`, not client-supplied managed/network flags.
 **Why:** MAC, IP, hostname, and VPN fields are spoofable evidence rather than trust anchors.
-**Consequences:** The prototype uses mock/rejecting adapters; trusted BEL device-management/VPN integration remains future work.
+**Consequences:** The prototype uses mock/rejecting adapters only in development/tests. Production requires explicit `BEL_DEVICE_ATTESTATION_PROVIDER=managed` plus an injected authoritative provider; the actual BEL device-management/MDM and network/VPN integration remains an external deployment requirement.
 
 ### ADR-019: Pending registration is verified before activation
 **Decision:** Initialization creates a `PENDING` Identity/Device/Wallet registration. An administrator verifies the submitted employee data, assigns or confirms the employee/department information and role, and then activates the registration. There is no separate `VERIFIED` identity status.
