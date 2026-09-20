@@ -43,6 +43,11 @@ const wallets = [HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0"
 const admin = wallets[0];
 const publicKey = `0x${admin.signingKey.publicKey.slice(4)}`;
 const e2eKeys = wallets.map((wallet) => wallet.privateKey);
+run("forge", ["--root", "contracts", "script", "script/Deploy.s.sol:DeployScript", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
+  BEL_NETWORK: "local",
+  BEL_BOOTSTRAP_ADMIN_WALLET: admin.address,
+  BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",
+});
 for (const wallet of wallets.slice(1)) {
   const funding = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_setBalance", params: [wallet.address, "0x56BC75E2D63100000"] }) });
   const fundingBody = await funding.json();
@@ -53,6 +58,7 @@ for (const wallet of wallets.slice(1)) {
 // equivalent POSIX hook before loading its CLI when it is unavailable.
 run(process.execPath, ["--import", "data:text/javascript,process.geteuid=()=>0", "node_modules/tsx/dist/cli.mjs", "scripts/bootstrap-dev.ts"], {
   BEL_ENV: "development",
+  BEL_RUN_INTEGRATION: "true",
   BEL_DEV_BOOTSTRAP: "true",
   BEL_BLOCKCHAIN: "evm",
   BEL_CHAIN_RPC_URL: rpc,

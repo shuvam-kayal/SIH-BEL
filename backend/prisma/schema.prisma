@@ -47,6 +47,11 @@ model Identity {
   wallets Wallet[]
   grants AuthorizationGrant[] @relation("GrantTarget")
   granted AuthorizationGrant[] @relation("Grantor")
+  assetsOwned AssetRecord[] @relation("AssetOwner")
+  assetsCustodied AssetRecord[] @relation("AssetCustodian")
+  jobsCreated JobRecord[] @relation("JobCreator")
+  jobsAssigned JobRecord[] @relation("JobAssignee")
+  jobsVerified JobRecord[] @relation("JobVerifier")
 }
 
 model User {
@@ -134,19 +139,24 @@ model AssetRecord {
   parentAssetId String?
   status String
   jobs JobRecord[]
+  owner Identity @relation("AssetOwner", fields: [ownerId], references: [identityId])
+  custodian Identity @relation("AssetCustodian", fields: [custodianId], references: [identityId])
 }
 
 model JobRecord {
   jobId String @id
   assetId String
   createdBy String
-  assignedTo String
+  assignedTo String?
   verifierId String?
   status String
   priority String
   createdAt DateTime
   completedAt DateTime?
   asset AssetRecord @relation(fields: [assetId], references: [assetId])
+  creator Identity @relation("JobCreator", fields: [createdBy], references: [identityId])
+  assignee Identity? @relation("JobAssignee", fields: [assignedTo], references: [identityId])
+  verifier Identity? @relation("JobVerifier", fields: [verifierId], references: [identityId])
 
   @@index([assetId])
 }

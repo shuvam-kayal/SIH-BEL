@@ -30,6 +30,8 @@ export type Container = {
   integrity: IntegrityAdapter;
   attestation: DeviceAttestationAdapter;
   prisma?: PrismaClient;
+  assetRepository: AssetRepository;
+  jobRepository: JobRepository;
 };
 
 export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; attestation?: DeviceAttestationAdapter; prisma?: PrismaClient; assets?: AssetRepository; jobs?: JobRepository };
@@ -41,7 +43,8 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
   if (production && (!process.env.DATABASE_URL || !options.integrity || !options.attestation || options.repositories)) {
     throw new Error("Production requires DATABASE_URL and an explicit durable integrity adapter; an explicit device-attestation adapter is also required");
   }
-  const prisma = options.prisma ?? ((production || Boolean(options.integrity) || process.env.BEL_RUN_INTEGRATION === "true") && process.env.DATABASE_URL ? new PrismaClient() : undefined);
+  const integration = process.env.BEL_RUN_INTEGRATION === "true";
+  const prisma = options.prisma ?? ((production || integration || Boolean(options.integrity)) && process.env.DATABASE_URL ? new PrismaClient() : undefined);
   const repositories = options.repositories ?? (prisma ? createPrismaRepositories(prisma) : createMemoryRepositories());
   const integrity = options.integrity ?? new MemoryIntegrityAdapter();
   const useMockAttestation = !production && process.env.BEL_DEVICE_ATTESTATION === "mock";
@@ -51,20 +54,28 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
   // explicit memory identity repositories. Keep those tests hermetic; the
   // real persistence suites pass their Prisma client explicitly, and
   // production always uses the configured database.
-  const domainPrisma = options.prisma ?? (production ? prisma : undefined);
+  // Explicit environment policy: integration+DATABASE_URL and production use
+  // PostgreSQL; lightweight unit containers retain isolated memory stores.
+  const domainPrisma = options.prisma ?? ((integration || production) ? prisma : undefined);
   const assetRepository = options.assets ?? (domainPrisma ? new PrismaAssetRepository(domainPrisma) : new MemoryAssetRepository());
   const jobRepository = options.jobs ?? (domainPrisma ? new PrismaJobRepository(domainPrisma) : new MemoryJobRepository());
-  const assets = new AssetsServiceImpl(chain, assetRepository);
+  const users = new UsersServiceImpl(chain, repositories, integrity, attestation);
+  const identityExists = domainPrisma
+    ? async (identityId: string) => Boolean(await repositories.identities.findById(identityId))
+    : undefined;
+  const assets = new AssetsServiceImpl(chain, assetRepository, identityExists);
   return {
     chain,
     repositories,
     integrity,
     attestation,
     prisma,
+    assetRepository,
+    jobRepository,
     auth: new AuthServiceImpl(repositories),
-    users: new UsersServiceImpl(chain, repositories, integrity, attestation),
+    users,
     assets,
-    jobs: new JobsServiceImpl(chain, jobRepository, assetRepository),
+    jobs: new JobsServiceImpl(chain, jobRepository, assetRepository, identityExists),
     audit: new AuditServiceImpl(chain),
     blockchain: new BlockchainController(chain),
   };

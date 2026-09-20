@@ -46,8 +46,8 @@ export class PrismaJobRepository implements JobRepository {
 }
 
 const assetData = (asset: Asset) => ({ assetId: asset.assetId, nftId: asset.nftId, assetType: asset.assetType, ownerId: asset.ownerId, custodianId: asset.custodianId, parentAssetId: asset.parentAssetId ?? null, status: asset.status });
-const jobData = (job: Job) => ({ jobId: job.jobId, assetId: job.assetId, createdBy: job.createdBy, assignedTo: job.assignedTo, verifierId: job.verifierId ?? null, status: job.status, priority: job.priority, createdAt: new Date(job.createdAt), completedAt: job.completedAt ? new Date(job.completedAt) : null });
+const jobData = (job: Job) => ({ jobId: job.jobId, assetId: job.assetId, createdBy: job.createdBy, assignedTo: job.assignedTo || null, verifierId: job.verifierId ?? null, status: job.status, priority: job.priority, createdAt: new Date(job.createdAt), completedAt: job.completedAt ? new Date(job.completedAt) : null });
 const mapAsset = (row: any): Asset => ({ assetId: row.assetId, nftId: row.nftId, assetType: row.assetType, ownerId: row.ownerId, custodianId: row.custodianId, parentAssetId: row.parentAssetId, status: row.status });
 const mapAssetNullable = (row: any): Asset | null => row ? mapAsset(row) : null;
-const mapJob = (row: any): Job => ({ jobId: row.jobId, assetId: row.assetId, createdBy: row.createdBy, assignedTo: row.assignedTo, verifierId: row.verifierId, status: row.status, priority: row.priority, createdAt: row.createdAt.toISOString(), completedAt: row.completedAt?.toISOString() ?? null });
+const mapJob = (row: any): Job => ({ jobId: row.jobId, assetId: row.assetId, createdBy: row.createdBy, assignedTo: row.assignedTo ?? "", verifierId: row.verifierId, status: row.status, priority: row.priority, createdAt: row.createdAt.toISOString(), completedAt: row.completedAt?.toISOString() ?? null });
 const mapJobNullable = (row: any): Job | null => row ? mapJob(row) : null;

@@ -61,7 +61,7 @@ type DetailedBlockchainService = BlockchainService & {
 export class AssetsServiceImpl implements AssetsService {
   private readonly assets = new Map<string, Asset>();
 
-  constructor(private readonly chain: BlockchainService, private readonly repository: AssetRepository = new MemoryAssetRepository()) {}
+  constructor(private readonly chain: BlockchainService, private readonly repository: AssetRepository = new MemoryAssetRepository(), private readonly identityExists?: (identityId: string) => Promise<boolean>) {}
 
   async list(): Promise<Asset[]> {
     const stored = await this.repository.list();
@@ -84,6 +84,9 @@ export class AssetsServiceImpl implements AssetsService {
     const assetType = this.requiredString(input.assetType, "assetType");
     const ownerId = this.requiredString(input.ownerId, "ownerId");
     const custodianId = this.requiredString(input.custodianId, "custodianId");
+    if (this.identityExists && (!(await this.identityExists(ownerId)) || !(await this.identityExists(custodianId)))) {
+      throw new NotFoundError("Asset owner and custodian identities must exist");
+    }
     if (custodianId !== ownerId) {
       throw new ValidationError([
         "custodianId must equal ownerId because the frozen mintAsset interface mints custody to the owner",
@@ -131,6 +134,7 @@ export class AssetsServiceImpl implements AssetsService {
   ): Promise<Asset> {
     const asset = await this.requireAsset(id);
     const ownerId = this.requiredString(newOwnerId, "newOwnerId");
+    if (this.identityExists && !(await this.identityExists(ownerId))) throw new NotFoundError(`No identity ${ownerId}`);
     const custodianId = newCustodianId === undefined
       ? ownerId
       : this.requiredString(newCustodianId, "newCustodianId");

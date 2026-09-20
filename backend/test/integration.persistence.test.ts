@@ -73,6 +73,24 @@ suite("PostgreSQL persistence integration", () => {
     expect(integrity.commitments.length).toBeGreaterThan(0);
   });
 
+  it("reconstructs Asset and Job records from PostgreSQL after a container restart", async () => {
+    const admin = await container.users.getById("INTEGRATION-ADMIN");
+    const employee = await container.users.getById(employeeId);
+    expect(admin?.identityId).toBeTruthy();
+    expect(employee?.identityId).toBeTruthy();
+    const assetId = `ASSET-PERSIST-${Date.now()}`;
+    const asset = await container.assets.create({ assetId, assetType: "PUMP", ownerId: employee!.identityId, custodianId: employee!.identityId }, { identityId: admin!.identityId, walletAddress: admin!.walletAddress });
+    const job = await container.jobs.create({ jobId: `JOB-PERSIST-${Date.now()}`, assetId, createdBy: employee!.identityId, priority: "LOW" }, { identityId: employee!.identityId, walletAddress: employee!.walletAddress });
+    expect(await container.prisma!.assetRecord.findUnique({ where: { assetId } })).toMatchObject({ assetId, nftId: asset.nftId });
+    expect(await container.prisma!.jobRecord.findUnique({ where: { jobId: job.jobId } })).toMatchObject({ jobId: job.jobId, assetId });
+
+    await container.prisma?.$disconnect();
+    container = createContainer(new MockBlockchainAdapter(), { integrity });
+    await container.prisma?.$connect();
+    expect(await container.assets.getById(assetId)).toMatchObject({ assetId, ownerId: employee!.identityId });
+    expect(await container.jobs.list()).toEqual(expect.arrayContaining([expect.objectContaining({ jobId: job.jobId, assetId })]));
+  });
+
   it("persists wallet/device revocation, role changes, and grant lifecycle", async () => {
     await container.users.assignRole(adminId, employeeId, "MANAGER");
     expect((await container.users.getById(employeeId))?.role).toBe("MANAGER");

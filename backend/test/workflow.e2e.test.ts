@@ -6,7 +6,6 @@ import { createApp } from "../src/app";
 import { createContainer, type Container } from "../src/container";
 import { EvmBlockchainAdapter, loadChainConfigFromEnv } from "../src/blockchain";
 import { MockDeviceAttestationAdapter } from "../src/devices/device-attestation";
-import type { Transaction } from "../../shared/types";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 const configuredKeys = process.env.BEL_E2E_PRIVATE_KEYS?.split(",").map((value) => value.trim()).filter(Boolean);
@@ -19,11 +18,12 @@ const adminDeviceId = process.env.BEL_E2E_ADMIN_DEVICE_ID?.trim() || "BEL-DEV-AD
 
 type Actor = { identityId: string; employeeId: string; walletAddress: string; token: string };
 
-describe("Person 1 -> Person 3 -> Person 5 real workflow", () => {
+describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
   let prisma: PrismaClient;
   let container: Container;
   let app: ReturnType<typeof createApp>;
   let chain: EvmBlockchainAdapter;
+  let assetRegistry: Contract;
   let jobManager: Contract;
   let admin: Actor;
   let technician: Actor;
@@ -81,13 +81,6 @@ describe("Person 1 -> Person 3 -> Person 5 real workflow", () => {
     return login(deviceId, wallet);
   }
 
-  async function submit(tx: Omit<Transaction, "txId" | "timestamp" | "signature">) {
-    const envelope: Transaction = { ...tx, txId: `e2e-${Date.now()}-${Math.random()}`, timestamp: new Date().toISOString(), signature: "development" };
-    const result = await chain.submitTransaction(envelope);
-    expect(result.status).toBe("SUCCESS");
-    return result;
-  }
-
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required; start Docker PostgreSQL first");
     const keys = [0, 1, 2, 3, 4, 5].map((i) => key(i).privateKey);
@@ -95,6 +88,7 @@ describe("Person 1 -> Person 3 -> Person 5 real workflow", () => {
     expect(await provider.send("eth_chainId", [])).toBe("0x7a69");
     const config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEV_SIGNER_KEYS: keys.join(",") });
     chain = new EvmBlockchainAdapter(config, { provider });
+    assetRegistry = new Contract(config.deployment.contracts.AssetRegistry, config.abis.AssetRegistry, provider);
     jobManager = new Contract(config.deployment.contracts.JobManager, config.abis.JobManager, provider);
     prisma = new PrismaClient();
     await prisma.$connect();
@@ -106,6 +100,8 @@ describe("Person 1 -> Person 3 -> Person 5 real workflow", () => {
     await prisma.wallet.deleteMany({ where: { identityId: { not: adminUser.identityId } } });
     await prisma.device.deleteMany({ where: { identityId: { not: adminUser.identityId } } });
     await prisma.user.deleteMany({ where: { identityId: { not: adminUser.identityId } } });
+    await prisma.jobRecord.deleteMany();
+    await prisma.assetRecord.deleteMany();
     await prisma.identity.deleteMany({ where: { identityId: { not: adminUser.identityId } } });
     container = createContainer(chain, { prisma, attestation: new MockDeviceAttestationAdapter(["E2E-TECHNICIAN-DEVICE", "E2E-TECHNICIAN-2-DEVICE", "E2E-ENGINEER-DEVICE", "E2E-VERIFIER-DEVICE"]) });
     app = createApp(container);
@@ -123,8 +119,23 @@ describe("Person 1 -> Person 3 -> Person 5 real workflow", () => {
 
   it("executes the authenticated job workflow against PostgreSQL and JobManager", async () => {
     const assetId = `E2E-ASSET-${Date.now()}`;
-    await submit({ type: "ASSET_MINT", actorIdentity: engineer.identityId, actorWallet: engineer.walletAddress, payload: { assetId, ownerId: technician.identityId, assetType: "TEST" } });
-    expect(await chain.getAsset(assetId)).toMatchObject({ assetId, ownerId: technician.identityId, status: "ACTIVE" });
+    const assetResponse = await request(app)
+      .post("/assets")
+      .set("Authorization", `Bearer ${engineer.token}`)
+      .send({ assetId, assetType: "TEST", ownerId: technician.identityId, custodianId: technician.identityId });
+    expect(assetResponse.status, JSON.stringify(assetResponse.body)).toBe(201);
+    expect(assetResponse.body).toMatchObject({ assetId, assetType: "TEST", ownerId: technician.identityId, custodianId: technician.identityId, status: "ACTIVE" });
+    const dbAsset = await prisma.assetRecord.findUnique({ where: { assetId } });
+    expect(dbAsset).toMatchObject({ assetId, assetType: "TEST", ownerId: technician.identityId, custodianId: technician.identityId, status: "ACTIVE" });
+    const onChainAsset = await chain.getAsset(assetId);
+    expect(onChainAsset).toMatchObject({ assetId, ownerId: technician.identityId, custodianId: technician.identityId, status: "ACTIVE" });
+    expect(assetResponse.body.nftId).toBe(onChainAsset?.nftId);
+    const mintEvents = await assetRegistry.queryFilter(assetRegistry.filters.AssetMinted());
+    expect(mintEvents.some((event) => "args" in event && event.args?.[1] === assetId)).toBe(true);
+    expect(await chain.getAuditTrail(assetId)).toEqual(expect.arrayContaining([expect.objectContaining({ entityType: "ASSET", entityId: assetId, action: "ASSET_MINT", actorIdentityId: engineer.identityId })]));
+
+    const missingAssetJob = await request(app).post("/jobs").set("Authorization", `Bearer ${engineer.token}`).send({ assetId: "DOES-NOT-EXIST", priority: "LOW" });
+    expect(missingAssetJob.status).toBe(404);
 
     const requestedJobId = `E2E-JOB-${Date.now()}-A`;
     const created = await request(app).post("/jobs").set("Authorization", `Bearer ${engineer.token}`).send({ jobId: requestedJobId, assetId, priority: "HIGH" });
@@ -132,8 +143,10 @@ describe("Person 1 -> Person 3 -> Person 5 real workflow", () => {
     expect(created.body).toMatchObject({ jobId: expect.any(String), assetId, createdBy: engineer.identityId, status: "CREATED" });
     const actualJobId = created.body.jobId as string;
     expect(await chain.getJob(actualJobId)).toMatchObject({ jobId: actualJobId, assetId, createdBy: engineer.identityId, status: "CREATED" });
+    expect(await prisma.jobRecord.findUnique({ where: { jobId: actualJobId } })).toMatchObject({ jobId: actualJobId, assetId, createdBy: engineer.identityId, status: "CREATED" });
     const createdOnChain = await jobManager.getJob(actualJobId);
     expect(createdOnChain.createdBy).toBe(engineer.walletAddress);
+    expect(await chain.getAuditTrail(actualJobId)).toEqual(expect.arrayContaining([expect.objectContaining({ entityType: "JOB", entityId: actualJobId, action: "JOB_CREATE", actorIdentityId: engineer.identityId })]));
 
     const assigned = await request(app).post(`/jobs/${actualJobId}/assign`).set("Authorization", `Bearer ${engineer.token}`).send({ technicianId: technician.identityId });
     expect(assigned.status).toBe(200);
@@ -147,6 +160,7 @@ describe("Person 1 -> Person 3 -> Person 5 real workflow", () => {
 
     const evidenceHash = "ab".repeat(32);
     expect((await request(app).post(`/jobs/${actualJobId}/complete`).set("Authorization", `Bearer ${technician2.token}`).send({ evidenceHash })).status).toBe(403);
+    expect((await request(app).post(`/jobs/${actualJobId}/complete`).set("Authorization", `Bearer ${technician.token}`).send({ evidenceHash: "malformed" })).status).toBe(400);
     const completed = await request(app).post(`/jobs/${actualJobId}/complete`).set("Authorization", `Bearer ${technician.token}`).send({ evidenceHash });
     expect(completed.body).toMatchObject({ status: "COMPLETED", completedAt: expect.any(String) });
     expect(await chain.getJob(actualJobId)).toMatchObject({ status: "COMPLETED" });
@@ -157,11 +171,27 @@ describe("Person 1 -> Person 3 -> Person 5 real workflow", () => {
     expect(approved.body).toMatchObject({ status: "VERIFIED", verifierId: verifier.identityId });
     expect(await chain.getJob(actualJobId)).toMatchObject({ status: "VERIFIED", verifierId: verifier.identityId });
     expect((await jobManager.getJob(actualJobId)).verifier).toBe(verifier.walletAddress);
+
+    const withoutGrant = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: engineer.identityId, newCustodianId: engineer.identityId });
+    expect(withoutGrant.status).toBe(403);
+    const grantResponse = await request(app).post(`/admin/users/${engineer.identityId}/grants`).set("Authorization", `Bearer ${admin.token}`).send({ resourceType: "ASSET", resourceId: assetId, action: "TRANSFER_ASSET" });
+    expect(grantResponse.status).toBe(201);
+    const transferred = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: engineer.identityId, newCustodianId: engineer.identityId });
+    expect(transferred.status).toBe(200);
+    expect(transferred.body).toMatchObject({ assetId, ownerId: engineer.identityId, custodianId: engineer.identityId });
+    expect(await prisma.assetRecord.findUnique({ where: { assetId } })).toMatchObject({ ownerId: engineer.identityId, custodianId: engineer.identityId });
+    expect(await chain.getAsset(assetId)).toMatchObject({ ownerId: engineer.identityId, custodianId: engineer.identityId });
+    expect(await chain.getAuditTrail(assetId)).toEqual(expect.arrayContaining([expect.objectContaining({ entityType: "ASSET", entityId: assetId, action: "ASSET_TRANSFER", actorIdentityId: engineer.identityId })]));
+    const revokedGrant = await request(app).post(`/admin/users/${engineer.identityId}/grants/${grantResponse.body.authorizationGrantId}/revoke`).set("Authorization", `Bearer ${admin.token}`);
+    expect(revokedGrant.status).toBe(200);
+    const afterRevoke = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: technician.identityId, newCustodianId: technician.identityId });
+    expect(afterRevoke.status).toBe(403);
   });
 
   it("executes rejection, reassignment, completion, and final approval", async () => {
     const assetId = `E2E-ASSET-REJECT-${Date.now()}`;
-    await submit({ type: "ASSET_MINT", actorIdentity: engineer.identityId, actorWallet: engineer.walletAddress, payload: { assetId, ownerId: technician.identityId, assetType: "TEST" } });
+    const assetResponse = await request(app).post("/assets").set("Authorization", `Bearer ${engineer.token}`).send({ assetId, assetType: "TEST", ownerId: technician.identityId, custodianId: technician.identityId });
+    expect(assetResponse.status).toBe(201);
     const requestedJobId = `E2E-JOB-${Date.now()}-B`;
     const created = await request(app).post("/jobs").set("Authorization", `Bearer ${engineer.token}`).send({ jobId: requestedJobId, assetId, priority: "MEDIUM" });
     const jobId = created.body.jobId as string;

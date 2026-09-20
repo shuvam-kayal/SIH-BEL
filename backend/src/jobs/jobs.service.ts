@@ -38,6 +38,7 @@ export class JobsServiceImpl implements JobsService {
     private readonly chain: BlockchainService,
     private readonly repository: JobRepository = new MemoryJobRepository(),
     private readonly assets?: AssetRepository,
+    private readonly identityExists?: (identityId: string) => Promise<boolean>,
   ) {}
 
   /** Exposed so the state machine can be tested without a datastore. */
@@ -83,6 +84,7 @@ export class JobsServiceImpl implements JobsService {
     };
 
     if (this.assets && !(await this.assets.findById(job.assetId))) throw new NotFoundError(`No asset ${job.assetId}`);
+    if (this.identityExists && !(await this.identityExists(job.createdBy))) throw new NotFoundError(`No identity ${job.createdBy}`);
     if (await this.repository.findById(job.jobId)) throw new ValidationError([`jobId ${job.jobId} already exists`]);
     await this.submit("JOB_CREATE", actor, {
       jobId: job.jobId,
@@ -104,6 +106,7 @@ export class JobsServiceImpl implements JobsService {
     if (!technicianId?.trim()) {
       throw new ValidationError(["technicianId is required"]);
     }
+    if (this.identityExists && !(await this.identityExists(technicianId))) throw new NotFoundError(`No identity ${technicianId}`);
 
     this.assertTransition(job.status, "ASSIGNED");
 
