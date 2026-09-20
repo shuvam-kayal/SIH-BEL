@@ -37,6 +37,9 @@ export type CompleteJobRequest = { evidenceHash: string };
 export type RejectJobRequest = { reason: string };
 export type BlockchainStatus = { height: number; healthy: boolean; finalityLag: number; lastFinalizedHeight: number };
 export type CommitteeResponse = { height: number; validatorIds: string[] };
+export type ValidatorRequestInput = { walletAddress: string; nodeId: string; nodeAddress: string; publicKey: string; signingPublicKey: string };
+export type ValidatorApprovalInput = { activationHeight: number };
+export type ValidatorRemovalInput = { removalHeight: number; reason: string };
 
 export interface ApiClient {
   login(input?: string | LoginProofRequest): Promise<Session>;
@@ -74,6 +77,7 @@ export interface ApiClient {
   getBlockchainStatus(): Promise<BlockchainStatus>;
   getValidators(): Promise<Validator[]>;
   getCommittee(height: number): Promise<CommitteeResponse>;
+
 }
 
 export type MockBlockchainResult = { txId: string; status: "SUCCESS" | "REJECTED" };

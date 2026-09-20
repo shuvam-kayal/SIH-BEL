@@ -124,3 +124,22 @@ model AuthorizationGrant {
   target Identity @relation("GrantTarget", fields: [actorIdentityId], references: [identityId])
   grantor Identity @relation("Grantor", fields: [grantedByIdentityId], references: [identityId])
 }
+
+model ValidatorRegistration {
+  registrationId String @id
+  validatorId String @unique
+  identityId String
+  walletAddress String
+  nodeId String
+  nodeAddress String
+  publicKey String
+  signingPublicKey String
+  status String
+  requestedAt DateTime
+  approvedAt DateTime?
+  approvedBy String?
+  activationHeight Int?
+  removalHeight Int?
+  removedAt DateTime?
+  removalReason String?
+}

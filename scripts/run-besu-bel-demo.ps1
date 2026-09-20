@@ -1,7 +1,8 @@
 param(
   [int]$ValidatorCount = 70,
   [int]$BaseP2pPort = 30303,
-  [int]$BaseRpcPort = 8545
+  [int]$BaseRpcPort = 8545,
+  [string]$ValidatorContractAddress = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +52,7 @@ $generatorConfig = [ordered]@{
 }
 
 $configFile = Join-Path $configRoot 'network-config.json'
+if ($ValidatorContractAddress.Trim()) { $generatorConfig.genesis.config.qbft.validatorcontractaddress = $ValidatorContractAddress.Trim() }
 $json = $generatorConfig | ConvertTo-Json -Depth 12
 [System.IO.File]::WriteAllText($configFile, $json, (New-Object System.Text.UTF8Encoding($false)))
 
@@ -118,3 +120,6 @@ Write-Output "BEL demo started: $runRoot"
 Write-Output "Validators: $ValidatorCount"
 Write-Output "Genesis: $genesis"
 Write-Output "Run metadata: $(Join-Path $runRoot 'run.json')"
+
+
+

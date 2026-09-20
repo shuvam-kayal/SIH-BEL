@@ -22,6 +22,8 @@
 // | JOB_ASSIGN                             | JobManager.assignJob                | jobId, technicianId (DID or address; alias technicianWallet)     |
 // | JOB_START / JOB_APPROVE                | JobManager.startJob/approveJob      | jobId                                                            |
 // | JOB_COMPLETE                           | JobManager.completeJob              | jobId, evidenceHash (32-byte hex, with or without 0x)            |
+// | VALIDATOR_REGISTER / VALIDATOR_ACTIVATE | ValidatorRegistry.registerValidator | validatorId, publicKey, signingPublicKey, activationHeight |
+// | VALIDATOR_REMOVE                      | ValidatorRegistry.scheduleRemoval | validatorId, removalHeight, reason |
 // | JOB_REJECT                             | JobManager.rejectJob                | jobId, reason                                                    |
 //
 // Off-chain-only fields (assetType, priority, verifierId, deviceId, ...) are
@@ -118,7 +120,21 @@ export async function buildCallPlan(tx: Transaction, lookups: ChainLookups): Pro
   const wallet = ["walletAddress", "address", "wallet"];
 
   switch (type) {
-    case "IDENTITY_CREATE":
+    case "VALIDATOR_REGISTER":
+    case "VALIDATOR_ACTIVATE": {
+      const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
+      const publicKey = str(type, p, ["publicKey"]);
+      const signingPublicKey = str(type, p, ["signingPublicKey"]);
+      const activationHeight = p.activationHeight;
+      if (!(typeof activationHeight === "number" && Number.isSafeInteger(activationHeight) && activationHeight > 0)) invalid(type, "payload.activationHeight must be a positive integer");
+      return { contract: "ValidatorRegistry", method: "registerValidator", args: [validator, publicKey, signingPublicKey, activationHeight] };
+    }
+    case "VALIDATOR_REMOVE": {
+      const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
+      const removalHeight = p.removalHeight;
+      if (!(typeof removalHeight === "number" && Number.isSafeInteger(removalHeight) && removalHeight > 0)) invalid(type, "payload.removalHeight must be a positive integer");
+      return { contract: "ValidatorRegistry", method: "scheduleRemoval", args: [validator, removalHeight, str(type, p, ["reason"])] };
+    }    case "IDENTITY_CREATE":
     case "IDENTITY_REGISTER":
     case "WALLET_REGISTER":
       return {
@@ -202,3 +218,4 @@ export async function buildCallPlan(tx: Transaction, lookups: ChainLookups): Pro
       return { contract: "JobManager", method: "rejectJob", args: [str(type, p, ["jobId"]), str(type, p, ["reason"])] };
   }
 }
+

@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { getAddress, isAddress, type InterfaceAbi } from "ethers";
 import { BlockchainError } from "./errors";
 
-export const CONTRACT_NAMES = ["IdentityRegistry", "RoleRegistry", "AssetRegistry", "JobManager", "AuditRegistry"] as const;
+export const CONTRACT_NAMES = ["IdentityRegistry", "RoleRegistry", "AssetRegistry", "JobManager", "AuditRegistry", "ValidatorRegistry"] as const;
 export type ContractName = (typeof CONTRACT_NAMES)[number];
 
 export type DeploymentFile = {
@@ -128,3 +128,4 @@ export function loadChainConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Ev
     devSignerKeys,
   };
 }
+

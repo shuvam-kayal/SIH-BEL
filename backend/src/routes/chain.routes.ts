@@ -4,7 +4,7 @@
 
 import { Router } from "express";
 import type { Container } from "../container";
-import { requirePermission } from "../auth/rbac.middleware";
+import { requirePermission, requireActiveIdentity, requireRole } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
 import { ValidationError } from "../errors";
 
@@ -68,5 +68,20 @@ export function chainRouter(c: Container): Router {
     }
   );
 
+  router.post("/validators/request", requireSession, requireActiveIdentity, async (req, res, next) => {
+    try { res.status(202).json(await c.validators.request(req.user!.identityId, req.body)); } catch (err) { next(err); }
+  });
+  router.get("/admin/validators/requests", requireSession, requireRole("ADMIN"), async (_req, res, next) => {
+    try { res.json(await c.validators.list()); } catch (err) { next(err); }
+  });
+  router.post("/admin/validators/:id/approve", requireSession, requireRole("ADMIN"), async (req, res, next) => {
+    try { res.json(await c.validators.approve(req.user!.identityId, req.params.id, { activationHeight: Number(req.body?.activationHeight) })); } catch (err) { next(err); }
+  });
+  router.post("/admin/validators/:id/register", requireSession, requireRole("ADMIN"), async (req, res, next) => {
+    try { res.json(await c.validators.registerMetadata(req.user!.identityId, req.params.id, req.body)); } catch (err) { next(err); }
+  });
+  router.post("/admin/validators/:id/remove", requireSession, requireRole("ADMIN"), async (req, res, next) => {
+    try { res.json(await c.validators.remove(req.user!.identityId, req.params.id, { removalHeight: Number(req.body?.removalHeight), reason: req.body?.reason })); } catch (err) { next(err); }
+  });
   return router;
 }

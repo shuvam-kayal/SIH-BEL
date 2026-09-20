@@ -5,7 +5,10 @@ command -v setsid >/dev/null 2>&1 || { echo "This launcher requires a Linux envi
 VALIDATOR_COUNT="${1:-70}"
 BASE_P2P_PORT="${2:-30303}"
 BASE_RPC_PORT="${3:-8545}"
+VALIDATOR_CONTRACT_ADDRESS="${BEL_VALIDATOR_CONTRACT_ADDRESS:-}"
 BESU_DEMO_JAVA_OPTS="${BESU_DEMO_JAVA_OPTS:--Xms128m -Xmx256m}"
+VALIDATOR_CONFIG=""
+if [[ -n "${VALIDATOR_CONTRACT_ADDRESS}" ]]; then VALIDATOR_CONFIG=$(printf ',\n        "validatorcontractaddress": "%s"' "${VALIDATOR_CONTRACT_ADDRESS}"); fi
 
 if (( VALIDATOR_COUNT < 70 )); then
   echo "BEL requires at least 70 active validators." >&2
@@ -36,7 +39,7 @@ cat > "${CONFIG_ROOT}/network-config.json" <<EOF
       "qbft": {
         "blockperiodseconds": 1,
         "epochlength": 30000,
-        "requesttimeoutseconds": 2
+        "requesttimeoutseconds": 2${VALIDATOR_CONFIG}
       }
     },
     "nonce": "0x0",
@@ -111,3 +114,6 @@ EOF
 echo "BEL Linux demo started: ${RUN_ROOT}"
 echo "Validators: ${VALIDATOR_COUNT}"
 echo "Genesis: ${GENESIS}"
+
+
+
