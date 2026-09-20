@@ -14,26 +14,75 @@ jobs:
   typescript:
     name: Typecheck and test (shared, backend, frontend, mocks)
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://bel:bel@localhost:5432/bel
+      BEL_RUN_INTEGRATION: "true"
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bel
+          POSTGRES_PASSWORD: bel
+          POSTGRES_DB: bel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bel -d bel"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run prisma:generate
+      - run: npm run db:migrate
       - run: npm run typecheck
       - run: npm test --workspace=bel-backend
       - run: npm test --workspace=bel-frontend --if-present
       - run: npm run build --workspace=bel-frontend
+
+  evm-integration:
+    name: Backend EVM integration
+    runs-on: ubuntu-latest
+    env:
+      BEL_EVM_RPC_URL: http://127.0.0.1:8545
+      BEL_CHAIN_RPC_URL: http://127.0.0.1:8545
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Start Anvil Docker service
+        run: |
+          docker run -d --name bel-anvil -p 8545:8545 --entrypoint anvil ghcr.io/foundry-rs/foundry:latest --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000
+          for i in {1..30}; do cast rpc --rpc-url http://127.0.0.1:8545 eth_chainId && break; sleep 1; done
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install pinned Solidity dependencies
+        run: bash scripts/setup-contracts.sh
+      - run: forge build
+        working-directory: contracts
+      - run: npm run prisma:generate
+      - run: npm run test:evm
 
   contracts:
     name: Build and test contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install pinned Solidity dependencies
         run: bash scripts/setup-contracts.sh
       - run: forge build

@@ -23,7 +23,7 @@ This document expands `SYSTEM_SPEC.md` security assumptions into concrete threat
 | T5 | Malicious or offline leader disrupts block production | Consensus failure handling remains an open research/integration item owned by Person 4. | Person 4 |
 | T6 | Predictable committee selection lets an attacker pre-position validators | Committee randomness and anti-grinding properties remain an open consensus-design item. | Person 4 |
 | T7 | Sensitive document content leaked via on-chain data | Only hashes/references belong on-chain; off-chain storage access control remains an open architecture/integration item. | Unowned — needs assignment |
-| T8 | Replay of a valid transaction (e.g. re-submitting a JOB_APPROVE) | The transaction envelope specifies nonce/txId uniqueness requirements, but enforcement remains a Person 5 contract/integration item. | Person 5 |
+| T8 | Replay of a valid transaction (e.g. re-submitting a JOB_APPROVE) | Backend job state transitions reject replay before submission; the EVM adapter and JobManager also enforce transaction/account nonces and on-chain state transitions. | Person 3 + Person 5 |
 | T9 | Audit log tampering (rewriting history of who did what) | On-chain integrity/audit evidence is intended to be append-only. Backend operational rows must not be treated as the authoritative immutable audit history. | Person 2/3 + Person 5 |
 | T10 | Device/network trust assumption violated (e.g. unmanaged device gains access) | Eligibility is decided by `DeviceAttestationAdapter`; client-supplied managed/network flags are evidence only. Production BEL device-management/VPN integration remains future work. | Person 1 + Person 6 + infra |
 | T11 | Stolen/reused bearer session remains usable after credential lifecycle changes | Protected requests resolve the bearer token against server-side session state and re-check current Identity, Device, and Wallet status. Revocation/suspension therefore invalidates the session path without relying on client headers. | Person 1 |
@@ -69,5 +69,6 @@ The following must hold before the Identity/Auth/RBAC baseline is considered val
 6. A protected request requires a valid server-issued bearer session.
 7. The session is invalid if the Identity, Device, or Wallet is no longer in the required active state.
 8. The actor's role and action must pass the shared RBAC matrix; `AUTH` and `OWN` actions additionally require their resource-level authorization semantics.
-9. Wallet replacement preserves the persistent Identity while revoking the old wallet and preserving historical ownership/actor references.
-10. Activation cannot bypass the `walletAddress` ↔ `publicKey` cryptographic binding requirement once the concrete wallet adapter is integrated.
+9. Job maintenance operations are resource-scoped: only the assigned technician may start or complete a job, and only an independent permitted verifier may approve or reject it. These checks run before blockchain submission and are enforced again by `JobManager`.
+10. Wallet replacement preserves the persistent Identity while revoking the old wallet and preserving historical ownership/actor references.
+11. Activation cannot bypass the `walletAddress` ↔ `publicKey` cryptographic binding requirement once the concrete wallet adapter is integrated.
