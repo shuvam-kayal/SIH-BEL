@@ -58,7 +58,7 @@ function runForge(args, extraEnv = {}) {
   const nativeForge = findNativeForge();
   if (nativeForge) {
     const native = spawnSync(nativeForge, args, {
-      cwd: root,
+      cwd: resolve(root, "contracts"),
       stdio: "inherit",
       env: { ...env, ...extraEnv },
     });
@@ -107,7 +107,7 @@ const wallets = [HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0"
 const admin = wallets[0];
 const publicKey = `0x${admin.signingKey.publicKey.slice(4)}`;
 const e2eKeys = wallets.map((wallet) => wallet.privateKey);
-runForge(["script", "script/Deploy.s.sol:DeployScript", "--root", "contracts", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
+runForge(["script", "script/Deploy.s.sol:DeployScript", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
   BEL_NETWORK: "local",
   BEL_BOOTSTRAP_ADMIN_WALLET: admin.address,
   BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",
