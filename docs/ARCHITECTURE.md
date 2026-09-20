@@ -111,9 +111,11 @@ PostgreSQL is mutable operational state. The blockchain is the tamper-evident hi
 - **Backend depends on an interface, not an implementation.** The
   `BlockchainService` interface (`backend/src/adapters`) is the seam
   that lets Persons 1–3 build and test against a mock chain
-  (`mocks/mock-blockchain`) while Person 4 is still building the real
-  one. Swapping the implementation at integration time should not
-  require changing any service code, only the wiring/bootstrap file.
+  (`mocks/mock-blockchain`). With `BEL_BLOCKCHAIN=evm`, the factory creates
+  one EVM JSON-RPC provider, shares it with `EvmBlockchainAdapter` and
+  `BesuConsensusSource`, and delegates validator/committee reads to Besu's
+  `bel_getValidators` and `bel_getCommittee` methods. Swapping between mock
+  and EVM implementations requires no domain-service changes.
 - **RBAC is enforced twice, deliberately.** Once in the backend
   (fast rejection, good UX) and once in the smart contracts (the actual
   trust boundary — a compromised or buggy backend must not be able to

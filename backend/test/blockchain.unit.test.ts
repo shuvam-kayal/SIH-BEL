@@ -166,9 +166,22 @@ describe("adapter failure handling without a chain", () => {
     expect(classifyError(new Error("ECONNREFUSED"), "ctx")).toMatchObject({ kind: "NETWORK", status: 502 });
   });
 
-  it("validators/committee are 501 until Person 4 provides a consensus source", async () => {
+  it("validators/committee remain 501 only when no consensus source is injected", async () => {
     await expect(adapter().getValidators()).rejects.toMatchObject({ status: 501 });
     await expect(adapter().getCommittee(1)).rejects.toMatchObject({ status: 501 });
+  });
+
+  it("delegates validator and committee reads to the injected consensus source", async () => {
+    const consensus = {
+      getValidators: async () => [{ validatorId: "v", publicKey: "pk", status: "ACTIVE" as const, joinedAt: "2026-01-01T00:00:00Z" }],
+      getCommittee: async (height: number) => [`committee-${height}`],
+    };
+    const a = new EvmBlockchainAdapter(
+      loadChainConfigFromEnv({ BEL_CHAIN_RPC_URL: "http://127.0.0.1:1" }),
+      { consensus },
+    );
+    await expect(a.getValidators()).resolves.toEqual(await consensus.getValidators());
+    await expect(a.getCommittee(7)).resolves.toEqual(["committee-7"]);
   });
 });
 
