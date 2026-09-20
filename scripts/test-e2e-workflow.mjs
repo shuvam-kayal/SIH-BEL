@@ -1,10 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { URL } from "node:url";
 import { HDNodeWallet, Wallet } from "ethers";
 
 const root = process.cwd();
+const nodeModule = (path) => resolve(root, "node_modules", path);
 function loadEnv(path) {
   if (!existsSync(path)) return {};
   return Object.fromEntries(readFileSync(path, "utf8").split(/\r?\n/).flatMap((line) => {
@@ -37,20 +40,31 @@ function run(command, args, extraEnv = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-function runForge(args, extraEnv = {}) {
-  const native = spawnSync("forge", args, {
-    cwd: root,
-    stdio: "inherit",
-    env: { ...env, ...extraEnv },
-  });
+function findNativeForge() {
+  const executable = process.platform === "win32" ? "forge.exe" : "forge";
+  const candidates = [
+    process.env.FORGE_BIN,
+    join(homedir(), ".foundry", "bin", executable),
+    executable,
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const probe = spawnSync(candidate, ["--version"], { cwd: root, stdio: "ignore" });
+    if (!probe.error && probe.status === 0) return candidate;
+  }
+  return null;
+}
 
-  if (!native.error) {
+function runForge(args, extraEnv = {}) {
+  const nativeForge = findNativeForge();
+  if (nativeForge) {
+    const native = spawnSync(nativeForge, args, {
+      cwd: root,
+      stdio: "inherit",
+      env: { ...env, ...extraEnv },
+    });
+    if (native.error) fail(`${nativeForge} failed to start: ${native.error.message}`);
     if (native.status !== 0) process.exit(native.status ?? 1);
     return;
-  }
-
-  if (native.error.code !== "ENOENT") {
-    fail(`forge failed to start: ${native.error.message}`);
   }
 
   console.log("[E2E] Native forge not found; using Docker Foundry.");
@@ -65,41 +79,29 @@ function runForge(args, extraEnv = {}) {
     .filter((arg) => arg !== "--root" && arg !== "contracts")
     .join(" ");
   const dockerArgs = [
-  "run",
-  "--rm",
-  "--add-host",
-  "host.docker.internal:host-gateway",
-  ...Object.entries(extraEnv).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
-  "-v",
-  `${root}:/workspace`,
-  "-w",
-  "/workspace/contracts",
-  "ghcr.io/foundry-rs/foundry:latest",
-  forgeCommand,
-];
-
-  const dockerEnv = {
-    ...env,
-    ...extraEnv,
-  };
-
+    "run",
+    "--rm",
+    "--add-host",
+    "host.docker.internal:host-gateway",
+    ...Object.entries(extraEnv).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+    "-v",
+    `${root}:/workspace`,
+    "-w",
+    "/workspace/contracts",
+    "ghcr.io/foundry-rs/foundry:latest",
+    forgeCommand,
+  ];
   const docker = spawnSync("docker", dockerArgs, {
     cwd: root,
     stdio: "inherit",
-    env: dockerEnv,
+    env: { ...env, ...extraEnv },
   });
-
-  if (docker.error) {
-    fail(`Docker Foundry failed to start: ${docker.error.message}`);
-  }
-
-  if (docker.status !== 0) {
-    process.exit(docker.status ?? 1);
-  }
+  if (docker.error) fail(`Docker Foundry failed to start: ${docker.error.message}`);
+  if (docker.status !== 0) process.exit(docker.status ?? 1);
 }
 
-run(process.execPath, ["node_modules/prisma/build/index.js", "generate", "--schema", "backend/prisma/schema.prisma"]);
-run(process.execPath, ["node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "backend/prisma/schema.prisma"]);
+run(process.execPath, [nodeModule("prisma/build/index.js"), "generate", "--schema", resolve(root, "backend/prisma/schema.prisma")]);
+run(process.execPath, [nodeModule("prisma/build/index.js"), "migrate", "deploy", "--schema", resolve(root, "backend/prisma/schema.prisma")]);
 const mnemonic = "test test test test test test test test test test test junk";
 const wallets = [HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0"), ...Array.from({ length: 5 }, () => Wallet.createRandom())];
 const admin = wallets[0];
@@ -118,7 +120,10 @@ for (const wallet of wallets.slice(1)) {
 // Node 24 can fail os.userInfo() in constrained Windows CI containers. tsx
 // only needs the username to name its temporary directory, so provide the
 // equivalent POSIX hook before loading its CLI when it is unavailable.
-run(process.execPath, ["--import", "data:text/javascript,process.geteuid=()=>0", "node_modules/tsx/dist/cli.mjs", "scripts/bootstrap-dev.ts"], {
+const bootstrapShim = process.platform === "win32"
+  ? `${env.NODE_OPTIONS ? `${env.NODE_OPTIONS} ` : ""}--require=${resolve(root, "scripts/node-userinfo-shim.cjs")}`
+  : env.NODE_OPTIONS;
+run(process.execPath, ["--import", "data:text/javascript,process.geteuid=()=>0", nodeModule("tsx/dist/cli.mjs"), resolve(root, "scripts/bootstrap-dev.ts")], {
   BEL_ENV: "development",
   BEL_RUN_INTEGRATION: "true",
   BEL_DEV_BOOTSTRAP: "true",
@@ -130,9 +135,9 @@ run(process.execPath, ["--import", "data:text/javascript,process.geteuid=()=>0",
   BEL_BOOTSTRAP_WALLET_ADDRESS: admin.address,
   BEL_BOOTSTRAP_PUBLIC_KEY: publicKey,
   BEL_BOOTSTRAP_CREDENTIAL: "e2e-admin-credential",
-  NODE_OPTIONS: `${env.NODE_OPTIONS ? `${env.NODE_OPTIONS} ` : ""}--require=${root}/scripts/node-userinfo-shim.cjs`,
+  NODE_OPTIONS: bootstrapShim ?? "",
 });
-const result = spawnSync(process.execPath, ["node_modules/vitest/vitest.mjs", "run", "backend/test/workflow.e2e.test.ts"], {
+const result = spawnSync(process.execPath, [nodeModule("vitest/vitest.mjs"), "run", resolve(root, "backend/test/workflow.e2e.test.ts")], {
   cwd: process.cwd(),
   stdio: "inherit",
   env: { ...env, BEL_BLOCKCHAIN: "evm", BEL_E2E_PRIVATE_KEYS: e2eKeys.join(","), BEL_E2E_RPC_URL: rpc, BEL_CHAIN_RPC_URL: rpc, BEL_RUN_E2E: "true", BEL_RUN_INTEGRATION: "true" },

@@ -147,6 +147,8 @@ describe("AssetsServiceImpl", () => {
   it("blocks an Engineer transfer without an active asset grant", async () => {
     const chain = new FakeBlockchain();
     const container = createContainer(chain);
+    await seedIdentity(container, "DID:BEL:OWNER", "ADMIN");
+    await seedIdentity(container, "DID:BEL:NEW", "ENGINEER");
     await container.assets.create({
       assetId: "AST-AUTH",
       assetType: "TOOL",
@@ -168,6 +170,8 @@ describe("AssetsServiceImpl", () => {
   it("accepts an active grant and keeps custody consistent with ownership", async () => {
     const chain = new FakeBlockchain();
     const container = createContainer(chain);
+    await seedIdentity(container, "DID:BEL:OWNER", "ADMIN");
+    await seedIdentity(container, "DID:BEL:NEW", "ENGINEER");
     await container.assets.create({
       assetId: "AST-GRANTED",
       assetType: "TOOL",
