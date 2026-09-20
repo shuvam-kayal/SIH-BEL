@@ -3,6 +3,8 @@ import request from "supertest";
 import type { BlockchainService } from "../src/adapters/BlockchainService";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
+import { createMemoryRepositories } from "../src/users/repository-implementations";
+import { IdentityStore } from "../src/users/identity.store";
 import { AssetsServiceImpl } from "../src/assets/assets.service";
 import type { BlockchainStatus, MockBlockchainResult } from "../../shared/api";
 import type { Asset, Block, Identity, Job, Transaction, Validator, Wallet } from "../../shared/types";
@@ -146,7 +148,7 @@ describe("AssetsServiceImpl", () => {
 
   it("blocks an Engineer transfer without an active asset grant", async () => {
     const chain = new FakeBlockchain();
-    const container = createContainer(chain);
+    const container = createContainer(chain, { repositories: createMemoryRepositories(new IdentityStore()) });
     await seedIdentity(container, "DID:BEL:OWNER", "ADMIN");
     await seedIdentity(container, "DID:BEL:NEW", "ENGINEER");
     await container.assets.create({
@@ -169,7 +171,7 @@ describe("AssetsServiceImpl", () => {
 
   it("accepts an active grant and keeps custody consistent with ownership", async () => {
     const chain = new FakeBlockchain();
-    const container = createContainer(chain);
+    const container = createContainer(chain, { repositories: createMemoryRepositories(new IdentityStore()) });
     await seedIdentity(container, "DID:BEL:OWNER", "ADMIN");
     await seedIdentity(container, "DID:BEL:NEW", "ENGINEER");
     await container.assets.create({
