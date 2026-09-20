@@ -8,11 +8,13 @@ import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
+import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
+import { MemoryAssetRepository } from "../src/domain/repositories";
 import { createMemoryRepositories } from "../src/users/repository-implementations";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const container = createContainer(undefined, { repositories: createMemoryRepositories() });
+const container = createContainer(new MockBlockchainAdapter(), { repositories: createMemoryRepositories(), assets: new MemoryAssetRepository() });
 const app = createApp(container);
 const tokens: Record<string, string> = {};
 
