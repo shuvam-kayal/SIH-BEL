@@ -69,7 +69,12 @@ revoked and a new one issued without changing the underlying Identity.
 | revokedReason | string \| null | |
 | publicKey | string \| null | Public key only; the backend never stores a private key |
 
-Wallet address binding: `walletAddress` must correspond to the device-generated `publicKey` under the eventual wallet/signature scheme. The binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; no blockchain-specific derivation is defined here.
+Wallet address binding: in the implemented EVM scheme, `walletAddress` must
+equal the address derived from the canonical secp256k1 `publicKey` (X || Y,
+without the SEC1 prefix). Provisioning, wallet registration/activation, login,
+session validation, and replacement activation enforce this invariant. Other
+future wallet/signature schemes may use a different derivation and are not
+silently treated as equivalent. This is cryptographically validated by the wallet/blockchain integration adapter before activation.
 
 ## ProvisioningChallenge
 
@@ -82,7 +87,7 @@ not contain private-key material.
 | challengeId | string | Primary key |
 | deviceId | string | Bound device reference |
 | challenge | string | Unique nonce |
-| purpose | `WALLET_INITIALIZATION` \| `AUTHENTICATION` | Protocol purpose |
+| purpose | `WALLET_INITIALIZATION` \| `AUTHENTICATION` \| `FRESH_AUTHENTICATION` | Protocol purpose |
 | expiresAt | string (ISO 8601) | Short TTL |
 | usedAt | string (ISO 8601) \| null | Replay protection |
 | metadata | object \| null | Attestation result/evidence, not trust from raw client flags |

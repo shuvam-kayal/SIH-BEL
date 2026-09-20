@@ -25,7 +25,7 @@ User, Identity, Device, Wallet, AuthorizationGrant, Asset, Component, Job, Audit
 
 ### Employee provisioning
 
-1. An employee starts on an eligible BEL-managed device and BEL internal network or approved VPN.
+1. An employee starts on a device whose eligibility is approved by the server-side `DeviceAttestationAdapter` backed by the authoritative BEL device-management/network provider; client metadata alone is not trusted.
 2. The device wallet component generates the key pair locally; the private key never leaves the device.
 3. The backend receives employee-entered details, public key/address, metadata, and challenge proof.
 4. The backend creates PENDING identity, device, and wallet records.
@@ -35,13 +35,35 @@ User, Identity, Device, Wallet, AuthorizationGrant, Asset, Component, Job, Audit
 
 ### Login
 
-1. The device requests an authentication challenge.
-2. The device wallet signs it locally.
-3. The backend verifies the public-key signature.
-4. The backend creates a bearer session.
-5. Session validation rechecks identity, device, wallet, status, and expiry.
+1. The user clicks **Sign In**.
+2. The frontend/device wallet requests an authentication challenge.
+3. The managed authenticator performs its device-local user verification, using its approved platform modality; the frontend does not collect a BEL application PIN.
+4. The device wallet signs the challenge locally.
+5. The frontend/device submits the existing `LoginProofRequest` to `/auth/login`.
+6. The backend verifies the public-key signature and creates a bearer session.
+7. The frontend uses `Authorization: Bearer <token>`; session validation rechecks identity, device, wallet, status, and expiry.
 
-Challenge fields are handled by the device wallet integration; the employee only clicks **Sign In**. Development-only credential login may remain for compatibility and is disabled in production.
+Local device verification and BEL backend authentication are separate trust boundaries. The device decides whether its credential may be used; BEL verifies that the registered public key signed the server challenge. The backend never receives the local PIN, biometric data, private key, seed, or mnemonic. Development-only credential login may remain for compatibility and is disabled in production.
+
+### High-impact operations
+
+For a configured high-impact operation, an existing bearer session may not be enough:
+
+```text
+protected operation
+        ↓
+backend requires fresh authentication
+        ↓
+device obtains fresh challenge
+        ↓
+local authenticator/user verification
+        ↓
+device signs session + operation + resource-bound proof
+        ↓
+backend verifies short-lived, single-use proof
+        ↓
+operation proceeds
+```
 
 ### Wallet activation and replacement
 

@@ -44,7 +44,7 @@ The current API is `POST /auth/provisioning-challenge` followed by `POST /auth/i
 
 ## Device attestation
 
-The backend uses the `DeviceAttestationAdapter` abstraction. Its result, not client flags, determines whether initialization is eligible. The current prototype provides a rejecting default adapter and a deterministic mock adapter for tests. A future BEL deployment will connect this seam to trusted device-management and network/VPN attestation.
+The backend uses the `ManagedDeviceAttestationProvider`/`DeviceAttestationAdapter` abstraction. Its result, not client flags, determines whether initialization is eligible. The current prototype provides an explicit rejecting `NotConfiguredManagedDeviceAttestationProvider` and a deterministic `MockDeviceAttestationAdapter` for tests. Production rejects the mock adapter and requires an injected provider. A future BEL deployment will connect this seam to trusted device-management and network/VPN attestation.
 
 Client values such as `managedDevice`, `onBelNetwork`, hostname, MAC, IP, and VPN metadata may be retained as evidence, but cannot by themselves authorize initialization.
 
@@ -74,7 +74,14 @@ Backend creates a bearer session
 
 The employee does not manually enter `challengeId`, `signature`, `publicKey`, or a private key. The frontend/device wallet integration handles those fields transparently. Every request revalidates identity, device, wallet, status, and session expiry; revocation invalidates access.
 
-Public-key/address binding is an integration invariant: `walletAddress` must correspond to the submitted `publicKey` under the eventual wallet/signature scheme. The backend may retain the pair while a registration is pending, but the binding must be cryptographically validated by the wallet/blockchain integration adapter before activation. This document does not invent a blockchain-specific derivation algorithm.
+These are two distinct trust boundaries:
+
+- Local device verification answers: “Is the person currently operating the managed device authorized to use the device-held credential?” The managed authenticator/platform decides this using its approved modality, such as a device PIN, Windows Hello, fingerprint, face, security key, or another approved mechanism.
+- BEL backend authentication answers: “Can the backend cryptographically verify that the registered device credential signed this server-issued challenge?” The backend verifies the public-key proof and creates the bearer application session.
+
+The local verification result is not a BEL application PIN and is not submitted to the backend. PINs, biometric data, private keys, seeds, and mnemonics never cross the frontend/backend boundary.
+
+For EVM, `walletAddress` must equal the address derived from the canonical secp256k1 public key (`X || Y`, without the SEC1 prefix). The backend rejects malformed or mismatched pairs during initialization, activation, login, and session validation; this is cryptographically validated by the wallet/blockchain integration adapter before activation. Other future wallet/signature schemes require their own binding rules.
 
 Development-only legacy credential login may remain for bootstrap and compatibility. It is explicitly disabled when `BEL_ENV=production`; production authentication uses cryptographic device proof.
 
@@ -90,4 +97,22 @@ Identity A remains the same. Historical device and wallet records remain availab
 
 ## Current prototype versus target deployment
 
-The current implementation has repository-backed lifecycle state, public-key challenge verification, and an attestation adapter seam. The mock/rejecting adapter is not proof of BEL hardware trust. Secure hardware-backed private-key storage, device-management integration, and production network attestation remain future deployment work.
+The current implementation has repository-backed lifecycle state, public-key challenge verification, an EVM wallet/public-key binding, single-use authentication challenges, configurable fresh authentication for high-impact operations, and an explicit fail-closed production attestation boundary. The mock/rejecting adapter is not proof of BEL hardware trust. Secure hardware-backed private-key storage, the authoritative BEL device-management/MDM provider, and production network/VPN attestation remain external deployment work.
+
+## Platform user verification and fresh authentication
+
+The backend never receives a PIN, biometric, or private key. A client-side
+platform authenticator must perform local user verification and return only a
+signature and public key. The web client exposes an explicit
+`PlatformAuthenticator` seam and refuses a fake production fallback; a real
+Windows Hello/WebAuthn adapter remains integration work. WebAuthn credential
+keys are distinct from the BEL EVM wallet key until a protocol adapter is
+specified.
+
+Bearer sessions remain the normal request mechanism. Configured high-impact
+routes can require a short-lived, single-use proof from `/auth/fresh-challenge`.
+The frontend/device flow is: protected operation → fresh challenge → device-local
+user verification → device signs the operation/resource/session-bound proof →
+backend verifies the one-time proof → operation proceeds. An existing bearer
+session is not necessarily sufficient. The frontend does not know how the
+private key is stored or how local PIN/biometric processing occurs.

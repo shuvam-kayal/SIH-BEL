@@ -5,7 +5,9 @@ import type { JobPriority, Role } from "./enums";
 
 export type ApiErrorCode = "VALIDATION_FAILED" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "NOT_IMPLEMENTED" | "INTERNAL_ERROR";
 export type ApiError = { code: ApiErrorCode; message: string };
+/** Returned after backend verification of a device-signed challenge. */
 export type Session = { user: User; token: string };
+/** Transport shape only: the device authenticator signs locally; the frontend never collects key material or local verification data. */
 export type LoginProofRequest = { deviceId: string; challengeId: string; publicKey: string; signature: string };
 
 export type CreateUserRequest = { employeeId: string; fullName: string; role: Role; department: string };

@@ -138,7 +138,7 @@ rather than silently resolved. Decide before first release.
 ### ADR-018: Device attestation abstraction
 **Decision:** Eligibility is decided through `DeviceAttestationAdapter`, not client-supplied managed/network flags.
 **Why:** MAC, IP, hostname, and VPN fields are spoofable evidence rather than trust anchors.
-**Consequences:** The prototype uses mock/rejecting adapters; trusted BEL device-management/VPN integration remains future work.
+**Consequences:** The prototype uses mock/rejecting adapters only in development/tests. Production requires explicit `BEL_DEVICE_ATTESTATION_PROVIDER=managed` plus an injected authoritative provider; the actual BEL device-management/MDM and network/VPN integration remains an external deployment requirement.
 
 ### ADR-019: Pending registration is verified before activation
 **Decision:** Initialization creates a `PENDING` Identity/Device/Wallet registration. An administrator verifies the submitted employee data, assigns or confirms the employee/department information and role, and then activates the registration. There is no separate `VERIFIED` identity status.
@@ -154,3 +154,8 @@ rather than silently resolved. Decide before first release.
 **Decision:** PostgreSQL stores mutable operational state; SHA-256 commitments are sent through `IntegrityAdapter` for permissioned-blockchain anchoring.
 **Why:** Operational queries need a durable database while lifecycle history needs tamper-evident evidence.
 **Consequences:** Other workstreams consume repository/API contracts and do not couple directly to Prisma tables.
+
+### ADR-022: Local device verification is separate from BEL authentication
+**Decision:** The managed authenticator controls local user verification and authorizes use of the device-held private key. BEL authentication remains the backend-issued challenge, device signature, public-key verification, and bearer-session protocol.
+**Why:** Device PINs, Windows Hello, biometrics, security keys, and other approved modalities are platform-specific and must not become a BEL application PIN or cross the API boundary.
+**Consequences:** The frontend transports challenge proofs but never collects or receives local verification data or private-key material. High-impact operations use the existing short-lived, single-use, session/operation/resource-bound fresh-auth proof.
