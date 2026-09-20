@@ -22,7 +22,8 @@ This document expands `SYSTEM_SPEC.md` security assumptions into concrete threat
 | T4 | Role escalation via a bug in RBAC middleware | Backend authorization uses the shared RBAC matrix, while contracts enforce their own authorization. Tests cover the backend Role × Action matrix; contract tests must remain aligned with the documented matrix. | Person 1 + Person 5 |
 | T5 | Malicious or offline leader disrupts block production | Consensus failure handling remains an open research/integration item owned by Person 4. | Person 4 |
 | T6 | Predictable committee selection lets an attacker pre-position validators | Committee randomness and anti-grinding properties remain an open consensus-design item. | Person 4 |
-| T7 | Sensitive document content leaked via on-chain data | Only hashes/references belong on-chain; off-chain storage access control remains an open architecture/integration item. | Unowned — needs assignment |
+| T7 | Sensitive document content leaked via on-chain data or an open gateway | Only SHA-256 evidence hashes belong on-chain. Document bytes remain in private IPFS, the Kubo API is internal to Compose, and backend session/RBAC checks precede retrieval. A CID is not an authorization token. | Backend + infra |
+| T14 | Off-chain evidence is altered or served from a corrupted object | The backend recalculates SHA-256 over retrieved bytes and compares it with the PostgreSQL record before returning the file. The same digest is supplied to `JobManager.completeJob`; a mismatch is rejected and logged. | Backend |
 | T8 | Replay of a valid transaction (e.g. re-submitting a JOB_APPROVE) | Backend job state transitions reject replay before submission; the EVM adapter and JobManager also enforce transaction/account nonces and on-chain state transitions. | Person 3 + Person 5 |
 | T9 | Audit log tampering (rewriting history of who did what) | On-chain integrity/audit evidence is intended to be append-only. Backend operational rows must not be treated as the authoritative immutable audit history. | Person 2/3 + Person 5 |
 | T10 | Device/network trust assumption violated (e.g. unmanaged device gains access) | Eligibility is decided by `DeviceAttestationAdapter`; client-supplied managed/network flags are evidence only. Production BEL device-management/VPN integration remains future work. | Person 1 + Person 6 + infra |
@@ -39,7 +40,7 @@ This document expands `SYSTEM_SPEC.md` security assumptions into concrete threat
 
 ## Open questions / integration gates
 
-- Who owns off-chain document storage and its access control (T7)?
+- How will IPFS pin retention, backup, and orphan-object reconciliation be operated in production?
 - What nonce/replay-protection scheme will be enforced by the on-chain transaction layer (T8)?
 - What concrete wallet/signature scheme supplies the cryptographic `walletAddress` ↔ `publicKey` binding required before activation (T13)?
 - Does the selected blockchain client provide any T5/T6 mitigations out of the box, or does Person 4's feasibility work need to define them?

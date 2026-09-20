@@ -39,8 +39,18 @@ classified or sensitive document content.
 **Why:** Chain data is effectively permanent and broadly readable by
 participants; off-chain storage keeps access control possible and
 avoids putting sensitive content somewhere it can never be deleted.
-**Open follow-up:** where off-chain documents actually live and who
-controls access to them is not yet decided — see THREAT_MODEL.md (T7).
+**Decision:** Evidence bytes live in a private, self-hosted IPFS/Kubo service;
+PostgreSQL stores metadata and the CID; the backend is the only retrieval
+boundary. Existing `PERFORM_MAINTENANCE` controls upload and
+`VIEW_AUDIT_HISTORY` controls list/download, including the existing OWN
+semantics for technicians.
+**Why:** This keeps documents off-chain while preserving job-scoped access
+control and allows the storage implementation to be replaced behind an
+interface. A CID is an address, not authorization; IPFS is not RBAC.
+**Consequences:** Retrieval verifies SHA-256 before serving bytes. IPFS
+objects are retained rather than automatically deleted, and failed metadata
+writes may require operator cleanup. The prototype still needs production
+backup, malware scanning, retention, and key/network hardening.
 
 ### ADR-006: Randomized verification committee
 **Decision:** Blocks are validated by a randomly-selected committee

@@ -17,6 +17,9 @@ import type { IdentityRepositories } from "./users/repositories";
 import { MemoryIntegrityAdapter, type IntegrityAdapter } from "./integrity/integrity";
 import { MockDeviceAttestationAdapter, RejectingDeviceAttestationAdapter, type DeviceAttestationAdapter } from "./devices/device-attestation";
 import { MemoryAssetRepository, MemoryJobRepository, PrismaAssetRepository, PrismaJobRepository, type AssetRepository, type JobRepository } from "./domain/repositories";
+import { EvidenceServiceImpl } from "./evidence/evidence.service";
+import { IpfsEvidenceStorage, type EvidenceStorage } from "./evidence/evidence.storage";
+import { MemoryEvidenceRepository, PrismaEvidenceRepository, type EvidenceRepository } from "./evidence/evidence.repository";
 
 export type Container = {
   chain: BlockchainService;
@@ -32,9 +35,12 @@ export type Container = {
   prisma?: PrismaClient;
   assetRepository: AssetRepository;
   jobRepository: JobRepository;
+  evidence: EvidenceServiceImpl;
+  evidenceRepository: EvidenceRepository;
+  evidenceStorage: EvidenceStorage;
 };
 
-export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; attestation?: DeviceAttestationAdapter; prisma?: PrismaClient; assets?: AssetRepository; jobs?: JobRepository };
+export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; attestation?: DeviceAttestationAdapter; prisma?: PrismaClient; assets?: AssetRepository; jobs?: JobRepository; evidenceRepository?: EvidenceRepository; evidenceStorage?: EvidenceStorage };
 
 export function createContainer(chain: BlockchainService = createBlockchainServiceFromEnv(), options: ContainerOptions = {}): Container {
   // Development may use the recording adapter, but production must provide
@@ -59,6 +65,8 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
   const domainPrisma = options.prisma ?? ((integration || production) ? prisma : undefined);
   const assetRepository = options.assets ?? (domainPrisma ? new PrismaAssetRepository(domainPrisma) : new MemoryAssetRepository());
   const jobRepository = options.jobs ?? (domainPrisma ? new PrismaJobRepository(domainPrisma) : new MemoryJobRepository());
+  const evidenceRepository = options.evidenceRepository ?? (domainPrisma ? new PrismaEvidenceRepository(domainPrisma) : new MemoryEvidenceRepository());
+  const evidenceStorage = options.evidenceStorage ?? new IpfsEvidenceStorage();
   const users = new UsersServiceImpl(chain, repositories, integrity, attestation);
   const identityExists = domainPrisma
     ? async (identityId: string) => Boolean(await repositories.identities.findById(identityId))
@@ -76,6 +84,9 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
     users,
     assets,
     jobs: new JobsServiceImpl(chain, jobRepository, assetRepository, identityExists),
+    evidence: new EvidenceServiceImpl(evidenceRepository, evidenceStorage, jobRepository),
+    evidenceRepository,
+    evidenceStorage,
     audit: new AuditServiceImpl(chain),
     blockchain: new BlockchainController(chain),
   };

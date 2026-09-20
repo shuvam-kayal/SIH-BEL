@@ -119,18 +119,24 @@ PostgreSQL is mutable operational state. The blockchain is the tamper-evident hi
   trust boundary — a compromised or buggy backend must not be able to
   bypass on-chain authorization). Both read from the same frozen
   `docs/RBAC_MATRIX.md` so they can't silently diverge.
-- **Sensitive data stays off-chain.** Per `SYSTEM_SPEC.md`'s security
-  assumptions, the chain only stores hashes/references. Where the
-  underlying documents/files live is out of scope for this file —
-  raise it in `docs/DECISIONS.md` as an ADR once decided.
+- **Sensitive data stays off-chain.** Evidence bytes are stored in the
+  private Kubo IPFS service. PostgreSQL stores the job relationship, CID,
+  uploader, filename, content type, size, and SHA-256. Every download goes
+  through the authenticated backend, which applies the existing
+  `VIEW_AUDIT_HISTORY` RBAC semantics and verifies the retrieved bytes before
+  serving them. The blockchain receives only the SHA-256 as `evidenceHash`.
+- **CID is not authorization.** A CID identifies content; it does not grant
+  access. IPFS is not RBAC, and clients never receive unrestricted access to
+  the private IPFS API.
 
 ## Cross-cutting concerns not yet owned
 
 These don't map cleanly to one person and should get an explicit owner
 early rather than falling through the cracks:
 
-- **Off-chain document storage** (where hashed documents actually live,
-  who can read them, retention).
+- **Evidence retention and orphan reconciliation.** IPFS objects are not
+  deleted when metadata is removed. An upload whose database write fails can
+  leave a pinned object requiring operator reconciliation.
 - **Observability** (logging, tracing across backend + chain + frontend
   for debugging a failed transaction end-to-end).
 - **Key management on the managed workstation** (how a Wallet's private

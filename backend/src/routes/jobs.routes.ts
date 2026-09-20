@@ -85,7 +85,19 @@ export function jobsRouter(c: Container): Router {
     requirePermission("PERFORM_MAINTENANCE"),
     async (req, res, next) => {
       try {
-        const evidenceHash = req.body?.evidenceHash;
+        let evidenceHash = req.body?.evidenceHash;
+        const evidenceId = req.body?.evidenceId;
+        if (typeof evidenceId === "string" && evidenceId.trim()) {
+          const storedHash = await c.evidence.getHash(req.params.id, evidenceId, {
+            identityId: req.user!.identityId,
+            walletAddress: req.user!.walletAddress,
+            role: req.user!.role,
+          });
+          if (evidenceHash !== undefined && (typeof evidenceHash !== "string" || evidenceHash.toLowerCase().replace(/^0x/, "") !== storedHash)) {
+            throw new ValidationError(["evidenceHash does not match the selected evidence"]);
+          }
+          evidenceHash = storedHash;
+        }
         if (typeof evidenceHash !== "string" || evidenceHash.trim() === "") {
           throw new ValidationError(["evidenceHash is required"]);
         }
