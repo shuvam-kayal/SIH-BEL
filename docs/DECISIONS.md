@@ -48,9 +48,9 @@ controls access to them is not yet decided — see THREAT_MODEL.md (T7).
 round.
 **Why:** Full-validator-set voting doesn't scale with N; a random
 committee gives probabilistic security while keeping message/vote
-overhead bounded. Exact committee size and selection mechanism are
-still being benchmarked — see CONSENSUS_SPEC.md and
-blockchain/simulator/.
+overhead bounded. The frozen committee rule is specified in
+CONSENSUS_SPEC.md; the simulator remains available for security and
+performance evaluation.
 
 ### ADR-007: Adapter pattern for parallel development
 **Decision:** Backend and frontend depend on interfaces
