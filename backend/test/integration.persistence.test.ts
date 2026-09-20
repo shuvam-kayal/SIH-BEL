@@ -26,6 +26,8 @@ suite("PostgreSQL persistence integration", () => {
     await cleanup.prisma?.$connect();
     await cleanup.prisma?.session.deleteMany();
     await cleanup.prisma?.authorizationGrant.deleteMany();
+    await cleanup.prisma?.jobRecord.deleteMany();
+    await cleanup.prisma?.assetRecord.deleteMany();
     await cleanup.prisma?.credential.deleteMany();
     await cleanup.prisma?.wallet.deleteMany();
     await cleanup.prisma?.device.deleteMany();
@@ -71,6 +73,24 @@ suite("PostgreSQL persistence integration", () => {
     expect((await request(app).get("/users/me").set("Authorization", `Bearer ${employeeToken}`)).status).toBe(200);
     expect((await request(app).get("/users/me").set("Authorization", `Bearer ${employeeToken}`)).body.employeeId).toBe(employeeId);
     expect(integrity.commitments.length).toBeGreaterThan(0);
+  });
+
+  it("reconstructs Asset and Job records from PostgreSQL after a container restart", async () => {
+    const admin = await container.users.getById("INTEGRATION-ADMIN");
+    const employee = await container.users.getById(employeeId);
+    expect(admin?.identityId).toBeTruthy();
+    expect(employee?.identityId).toBeTruthy();
+    const assetId = `ASSET-PERSIST-${Date.now()}`;
+    const asset = await container.assets.create({ assetId, assetType: "PUMP", ownerId: employee!.identityId, custodianId: employee!.identityId }, { identityId: admin!.identityId, walletAddress: admin!.walletAddress });
+    const job = await container.jobs.create({ jobId: `JOB-PERSIST-${Date.now()}`, assetId, createdBy: employee!.identityId, priority: "LOW" }, { identityId: employee!.identityId, walletAddress: employee!.walletAddress });
+    expect(await container.prisma!.assetRecord.findUnique({ where: { assetId } })).toMatchObject({ assetId, nftId: asset.nftId });
+    expect(await container.prisma!.jobRecord.findUnique({ where: { jobId: job.jobId } })).toMatchObject({ jobId: job.jobId, assetId });
+
+    await container.prisma?.$disconnect();
+    container = createContainer(new MockBlockchainAdapter(), { integrity });
+    await container.prisma?.$connect();
+    expect(await container.assets.getById(assetId)).toMatchObject({ assetId, ownerId: employee!.identityId });
+    expect(await container.jobs.list()).toEqual(expect.arrayContaining([expect.objectContaining({ jobId: job.jobId, assetId })]));
   });
 
   it("persists wallet/device revocation, role changes, and grant lifecycle", async () => {

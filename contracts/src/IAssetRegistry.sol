@@ -20,10 +20,13 @@ interface IAssetRegistry {
     event ComponentAttached(uint256 indexed parentNftId, uint256 indexed componentNftId);
     /// COMPONENT_REMOVE
     event ComponentRemoved(uint256 indexed parentNftId, uint256 indexed componentNftId);
+    event TransferGrantSet(uint256 indexed nftId, address indexed actor, uint64 expiresAt, bool active, string grantId);
 
     function mintAsset(string calldata assetId, address owner) external returns (uint256 nftId);
 
     function transferAsset(uint256 nftId, address newOwner) external;
+
+    function setTransferGrant(uint256 nftId, address actor, uint64 expiresAt, bool active, string calldata grantId) external;
 
     /// @param newState must be one of shared/enums ASSET_STATUSES.
     function changeAssetState(uint256 nftId, string calldata newState) external;
