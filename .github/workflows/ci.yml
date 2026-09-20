@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://bel:bel@localhost:5432/bel
-      BEL_RUN_INTEGRATION: "true"
     services:
       postgres:
         image: postgres:16-alpine
@@ -41,6 +40,10 @@ jobs:
       - run: npm run db:migrate
       - run: npm run typecheck
       - run: npm test --workspace=bel-backend
+      - name: Run PostgreSQL persistence integration tests
+        run: npm run test:integration
+        env:
+          BEL_RUN_INTEGRATION: "true"
       - run: npm test --workspace=bel-frontend --if-present
       - run: npm run build --workspace=bel-frontend
 
