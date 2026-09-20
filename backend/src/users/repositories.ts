@@ -10,8 +10,14 @@ export interface WalletRepository { findByAddress(address: string): Promise<Wall
 export interface CredentialRepository { findDeviceId(verifier: string): Promise<string | null>; save(verifier: string, deviceId: string): Promise<void>; revoke(verifier: string): Promise<void>; revokeForDevice(deviceId: string): Promise<void>; }
 export interface SessionRepository { find(token: string): Promise<SessionRecord | null>; save(session: SessionRecord): Promise<void>; delete(token: string): Promise<void>; }
 export interface AuthorizationGrantRepository { findById(id: string): Promise<AuthorizationGrant | null>; listByIdentityId(identityId: string): Promise<AuthorizationGrant[]>; save(grant: AuthorizationGrant): Promise<void>; }
-export interface ProvisioningChallengeRepository { findById(id: string): Promise<ProvisioningChallenge | null>; save(challenge: ProvisioningChallenge): Promise<void>; }
+
 export interface ValidatorRepository { findById(id: string): Promise<ValidatorRegistration | null>; findByValidatorId(id: string): Promise<ValidatorRegistration | null>; list(): Promise<ValidatorRegistration[]>; save(registration: ValidatorRegistration): Promise<void>; }
+export interface ProvisioningChallengeRepository {
+  findById(id: string): Promise<ProvisioningChallenge | null>;
+  save(challenge: ProvisioningChallenge): Promise<void>;
+  /** Atomically consume an unused challenge. Returns false when it is absent or already used. */
+  consumeIfUnused(id: string, usedAt: string): Promise<boolean>;
+}
 
 export type IdentityRepositories = {
   identities: IdentityRepository;

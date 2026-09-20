@@ -16,11 +16,12 @@ export function chainRouter(c: Container): Router {
   router.get(
     "/audit/assets/:id",
     requireSession,
-    requirePermission("VIEW_AUDIT_HISTORY", async (_req) => ({
-      // TODO(Person 3): resolve the asset's related job assignee so a
-      // TECHNICIAN's OWN check can succeed for their own work.
-      resourceOwnerId: undefined,
-    })),
+    requirePermission("VIEW_AUDIT_HISTORY", async (req) => {
+      const asset = await c.assets.getById(req.params.id);
+      const jobs = await c.jobs.list();
+      const ownJob = jobs.find((job) => job.assetId === req.params.id && (job.assignedTo === req.user!.identityId || job.createdBy === req.user!.identityId));
+      return { resourceOwnerId: ownJob?.assignedTo ?? asset?.ownerId };
+    }),
     async (req, res, next) => {
       try {
         res.json(await c.audit.getTrailForAsset(req.params.id));

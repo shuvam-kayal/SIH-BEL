@@ -28,17 +28,21 @@ Requires Node 20+. The BEL consensus prototype is implemented in the nested Besu
 contracts — both optional depending on what you own.
 
 ```bash
-./scripts/bootstrap.sh     # installs every workspace
+npm ci                      # installs every workspace from the lockfile
+npm run verify              # Prisma, typechecks, PostgreSQL, EVM, Solidity
 npm run dev                # backend on :4000, frontend on :3000
 ```
-
-| Command | What it does |
-| :--- | :--- |
-| `npm run dev` | Backend and frontend together |
-| `npm test` | All TypeScript tests |
-| `npm run typecheck` | All workspaces |
-| `npm run test:contracts` | `forge test` |
-| `docker compose up` | Everything behind nginx on :8080 |
+| Command                            | What it does                                                          |
+| :--------------------------------- | :-------------------------------------------------------------------- |
+| `npm run dev`                      | Backend and frontend together                                         |
+| `npm test`                         | All TypeScript tests                                                  |
+| `npm run typecheck`                | All workspaces                                                        |
+| `npm run test:contracts:validator` | Validator management / `bel-contracts` tests                          |
+| `npm run test:contracts:workflow`  | Existing contract workflow tests                                      |
+| `npm run test:contracts`           | Runs both contract test suites                                        |
+| `npm run test:consensus`           | Person 4's simulator tests (pytest)                                   |
+| `npm run verify`                   | Checks PostgreSQL and Anvil, then runs the complete integration suite |
+| `docker compose up`                | Everything behind nginx on `:8080`                                    |
 
 The frontend renders from `mocks/mock-api` and needs no backend. The
 backend runs against `mocks/mock-blockchain` and needs no chain. Both
@@ -138,7 +142,7 @@ ADR to `docs/DECISIONS.md`.
 Clone the repository, create your own feature branch, and install dependencies from the root:
 
 ```bash
-npm install
+npm ci
 ```
 
 Then run the workstream-appropriate checks:
@@ -148,6 +152,7 @@ npm run typecheck
 npm test --workspace=bel-backend
 npm run test --workspace=bel-frontend
 npm run test:contracts
+npm run verify
 ```
 
 See `docs/BASELINE_FREEZE.md` before changing shared contracts. No teammate should require another teammate's feature branch to start work.

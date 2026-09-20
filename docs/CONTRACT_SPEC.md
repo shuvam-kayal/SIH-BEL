@@ -73,6 +73,7 @@ Every state-changing transaction type below has a canonical contract function/ev
 | WALLET_REVOKE | IIdentityRegistry | `revokeWallet` | `WalletRevoked` |
 | ASSET_MINT | IAssetRegistry | `mintAsset` | `AssetMinted` |
 | ASSET_TRANSFER | IAssetRegistry | `transferAsset` | `AssetTransferred` |
+| GRANT_CREATE / GRANT_REVOKE | IAssetRegistry | `setTransferGrant` | `TransferGrantSet` |
 | ASSET_STATE_CHANGE | IAssetRegistry | `changeAssetState` | `AssetStateChanged` |
 | COMPONENT_ATTACH | IAssetRegistry | `attachComponent` | `ComponentAttached` |
 | COMPONENT_REMOVE | IAssetRegistry | `removeComponent` | `ComponentRemoved` |
@@ -86,6 +87,12 @@ Every state-changing transaction type below has a canonical contract function/ev
 ## Asset transfer semantics
 
 `ASSET_TRANSFER` transfers ownership and custody together by default. The request always supplies `newOwnerId` and may supply a different `newCustodianId`. The NFT owner is authoritative for ownership; custody is associated asset state.
+
+For the RBAC matrix's ENGINEER `AUTH` cell, an ADMIN registers or revokes a
+resource-scoped transfer grant through `GRANT_CREATE` / `GRANT_REVOKE` before
+the corresponding PostgreSQL AuthorizationGrant state is committed. The
+AssetRegistry checks the active actor wallet, asset NFT, and optional expiry
+again during `ASSET_TRANSFER`; ownership alone never creates this grant.
 
 ## Job rejection semantics
 

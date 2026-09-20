@@ -7,10 +7,8 @@ import { IRoleRegistry } from "./IRoleRegistry.sol";
 /// Each constant is a bitmask of the roles for which that action is
 /// ALLOW. Bit i corresponds to IRoleRegistry.Role(i).
 ///
-/// AUTH / OWN cells are NOT folded into these masks:
-///   - TRANSFER_ASSET for ENGINEER is `auth`. The frozen interfaces have
-///     no grant-verification function yet, so the contract fails closed
-///     (same as backend/src/routes/assets.routes.ts today).
+/// AUTH / OWN cells are not folded into the base masks. AssetRegistry
+/// independently checks the on-chain resource grant for ENGINEER transfers.
 ///   - PERFORM_MAINTENANCE additionally requires being the assigned
 ///     technician (enforced in JobManager).
 /// Changing a mask here requires the same team approval as changing the

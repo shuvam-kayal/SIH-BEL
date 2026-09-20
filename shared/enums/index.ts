@@ -65,6 +65,8 @@ export const TRANSACTION_TYPES = [
   "VALIDATOR_REGISTER",
   "VALIDATOR_ACTIVATE",
   "VALIDATOR_REMOVE",
+  "GRANT_CREATE",
+  "GRANT_REVOKE",
 ] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
 

@@ -5,6 +5,7 @@ import type { Container } from "../container";
 import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
 import { NotFoundError, ValidationError } from "../errors";
+import type { AuthorizationGrant } from "../../../shared/types";
 
 export function assetsRouter(c: Container): Router {
   const router = Router();
@@ -36,33 +37,63 @@ export function assetsRouter(c: Container): Router {
         if (typeof req.body?.assetType !== "string") {
           throw new ValidationError(["assetType is required"]);
         }
-        res.status(201).json(await c.assets.create(req.body));
+        res.status(201).json(
+          await c.assets.create(req.body, {
+            identityId: req.user!.identityId,
+            walletAddress: req.user!.walletAddress,
+          })
+        );
       } catch (err) {
         next(err);
       }
     }
   );
 
-  // TRANSFER_ASSET is an AUTH cell for ENGINEER: permitted only with an
-  // explicit per-asset grant. The resolver below is where Person 2 looks
-  // that grant up; until then only ADMIN/MANAGER pass, which is the
-  // safe direction to fail.
+  // TRANSFER_ASSET is an AUTH cell for ENGINEER. Grants are resolved through
+  // the repository-backed grant port wired by the main container.
   router.post(
     "/assets/:id/transfer",
     requireSession,
-    requirePermission("TRANSFER_ASSET", async (req) => ({
-      // TODO(Person 2): load the asset and return
-      // { explicitlyAuthorized: grants.has(req.user.identityId) }.
-      explicitlyAuthorized: false,
-      resourceOwnerId: undefined,
-    })),
+    requirePermission("TRANSFER_ASSET", async (req) => {
+      const asset = await c.assets.getById(req.params.id);
+      const grants = asset
+        ? await c.repositories.grants.listByIdentityId(req.user!.identityId)
+        : [];
+      let grant: AuthorizationGrant | undefined;
+      for (const candidate of grants) {
+        if (
+          candidate.resourceType !== "ASSET" ||
+          candidate.resourceId !== asset?.assetId ||
+          candidate.action !== "TRANSFER_ASSET" ||
+          candidate.status !== "ACTIVE"
+        ) continue;
+        if (await c.users.validateGrant(candidate.authorizationGrantId, req.user!.identityId, asset!.assetId, "TRANSFER_ASSET")) {
+          grant = candidate;
+          break;
+        }
+      }
+      return {
+        explicitlyAuthorized: grant !== undefined,
+        authorizationGrantId: grant?.authorizationGrantId,
+        resourceOwnerId: asset?.ownerId,
+      };
+    }),
     async (req, res, next) => {
       try {
         const newOwnerId = req.body?.newOwnerId;
         if (typeof newOwnerId !== "string") {
           throw new ValidationError(["newOwnerId is required"]);
         }
-        res.json(await c.assets.transfer(req.params.id, newOwnerId));
+        const newCustodianId = req.body?.newCustodianId;
+        if (newCustodianId !== undefined && typeof newCustodianId !== "string") {
+          throw new ValidationError(["newCustodianId must be a string"]);
+        }
+        res.json(
+          await c.assets.transfer(req.params.id, newOwnerId, newCustodianId, {
+            identityId: req.user!.identityId,
+            walletAddress: req.user!.walletAddress,
+          })
+        );
       } catch (err) {
         next(err);
       }

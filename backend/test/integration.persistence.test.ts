@@ -6,6 +6,9 @@ import { createContainer, type Container } from "../src/container";
 import { MemoryIntegrityAdapter } from "../src/integrity/integrity";
 
 const run = process.env.BEL_RUN_INTEGRATION === "true";
+// The verification runner sets this explicitly after checking that the
+// configured PostgreSQL endpoint is reachable; ordinary unit runs stay fast
+// and never fall back to an in-memory substitute for this suite.
 const suite = run ? describe : describe.skip;
 
 suite("PostgreSQL persistence integration", () => {
@@ -23,11 +26,14 @@ suite("PostgreSQL persistence integration", () => {
     await cleanup.prisma?.$connect();
     await cleanup.prisma?.session.deleteMany();
     await cleanup.prisma?.authorizationGrant.deleteMany();
+    await cleanup.prisma?.jobRecord.deleteMany();
+    await cleanup.prisma?.assetRecord.deleteMany();
     await cleanup.prisma?.credential.deleteMany();
     await cleanup.prisma?.wallet.deleteMany();
     await cleanup.prisma?.device.deleteMany();
     await cleanup.prisma?.user.deleteMany();
     await cleanup.prisma?.identity.deleteMany();
+    await cleanup.prisma?.provisioningChallenge.deleteMany();
     await cleanup.prisma?.$disconnect();
 
     container = createContainer(new MockBlockchainAdapter(), { integrity });
@@ -69,6 +75,24 @@ suite("PostgreSQL persistence integration", () => {
     expect(integrity.commitments.length).toBeGreaterThan(0);
   });
 
+  it("reconstructs Asset and Job records from PostgreSQL after a container restart", async () => {
+    const admin = await container.users.getById("INTEGRATION-ADMIN");
+    const employee = await container.users.getById(employeeId);
+    expect(admin?.identityId).toBeTruthy();
+    expect(employee?.identityId).toBeTruthy();
+    const assetId = `ASSET-PERSIST-${Date.now()}`;
+    const asset = await container.assets.create({ assetId, assetType: "PUMP", ownerId: employee!.identityId, custodianId: employee!.identityId }, { identityId: admin!.identityId, walletAddress: admin!.walletAddress });
+    const job = await container.jobs.create({ jobId: `JOB-PERSIST-${Date.now()}`, assetId, createdBy: employee!.identityId, priority: "LOW" }, { identityId: employee!.identityId, walletAddress: employee!.walletAddress });
+    expect(await container.prisma!.assetRecord.findUnique({ where: { assetId } })).toMatchObject({ assetId, nftId: asset.nftId });
+    expect(await container.prisma!.jobRecord.findUnique({ where: { jobId: job.jobId } })).toMatchObject({ jobId: job.jobId, assetId });
+
+    await container.prisma?.$disconnect();
+    container = createContainer(new MockBlockchainAdapter(), { integrity });
+    await container.prisma?.$connect();
+    expect(await container.assets.getById(assetId)).toMatchObject({ assetId, ownerId: employee!.identityId });
+    expect(await container.jobs.list()).toEqual(expect.arrayContaining([expect.objectContaining({ jobId: job.jobId, assetId })]));
+  });
+
   it("persists wallet/device revocation, role changes, and grant lifecycle", async () => {
     await container.users.assignRole(adminId, employeeId, "MANAGER");
     expect((await container.users.getById(employeeId))?.role).toBe("MANAGER");
@@ -108,5 +132,26 @@ suite("PostgreSQL persistence integration", () => {
     for (const eventType of ["IDENTITY_CREATE", "DEVICE_REGISTER", "WALLET_ACTIVATE", "ROLE_ASSIGN", "GRANT_CREATE", "GRANT_REVOKE", "WALLET_REVOKE", "DEVICE_REVOKE"]) {
       expect(integrity.commitments.some((item) => item.eventType === eventType), eventType).toBe(true);
     }
+  });
+
+  it("atomically consumes a PostgreSQL provisioning challenge once", async () => {
+    const challengeId = `INTEGRATION-CHALLENGE-${Date.now()}`;
+    await container.repositories.challenges.save({
+      challengeId,
+      deviceId: "INTEGRATION-CHALLENGE-DEVICE",
+      challenge: "integration-challenge-value",
+      purpose: "WALLET_INITIALIZATION",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      usedAt: null,
+      metadata: null,
+    });
+
+    const results = await Promise.all([
+      container.repositories.challenges.consumeIfUnused(challengeId, new Date().toISOString()),
+      container.repositories.challenges.consumeIfUnused(challengeId, new Date().toISOString()),
+    ]);
+    expect(results.sort()).toEqual([false, true]);
+    expect((await container.repositories.challenges.findById(challengeId))?.usedAt).not.toBeNull();
+    await container.prisma!.provisioningChallenge.delete({ where: { challengeId } });
   });
 });

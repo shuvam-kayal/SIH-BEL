@@ -75,6 +75,13 @@ export class PrismaProvisioningChallengeRepository implements ProvisioningChalle
   async save(challenge: ProvisioningChallenge) {
     await this.prisma.provisioningChallenge.upsert({ where: { challengeId: challenge.challengeId }, create: challengeData(challenge), update: challengeData(challenge) });
   }
+  async consumeIfUnused(challengeId: string, usedAt: string) {
+    const result = await this.prisma.provisioningChallenge.updateMany({
+      where: { challengeId, usedAt: null },
+      data: { usedAt: asDate(usedAt) },
+    });
+    return result.count === 1;
+  }
 }
 
 export class PrismaCredentialRepository implements CredentialRepository {
@@ -175,6 +182,14 @@ class MemoryProvisioningChallengeRepository implements ProvisioningChallengeRepo
   private readonly challenges = new Map<string, ProvisioningChallenge>();
   async findById(id: string) { const value = this.challenges.get(id); return value ? { ...value, metadata: value.metadata ? { ...value.metadata } : value.metadata } : null; }
   async save(value: ProvisioningChallenge) { this.challenges.set(value.challengeId, { ...value, metadata: value.metadata ? { ...value.metadata } : value.metadata }); }
+  async consumeIfUnused(id: string, usedAt: string) {
+    const value = this.challenges.get(id);
+    if (!value || value.usedAt) return false;
+    // There is no await before this read/write pair, so a Node.js event loop
+    // cannot interleave two consumers between the check and the update.
+    this.challenges.set(id, { ...value, usedAt });
+    return true;
+  }
 }
 
 export function createMemoryRepositories(store: IdentityStore = new IdentityStore()): IdentityRepositories {

@@ -47,7 +47,7 @@ services:
       - BEL_CHAIN_CONFIRMATIONS=1
       - BEL_CHAIN_DEV_SIGNER_KEYS=${BEL_CHAIN_DEV_SIGNER_KEYS:-}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -59,12 +59,24 @@ services:
 
   evm-node:
     image: ghcr.io/foundry-rs/foundry:latest
-    command: ["anvil", "--host", "0.0.0.0", "--port", "8545", "--chain-id", "31337", "--accounts", "10", "--balance", "10000"]
+    entrypoint: ["anvil"]
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8545"
+      - "--chain-id"
+      - "31337"
+      - "--accounts"
+      - "10"
+      - "--balance"
+      - "10000"
     ports:
       - "8545:8545"
 
   evm-deploy:
     image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["/bin/sh", "-c"]
     working_dir: /workspace/contracts
     volumes:
       - ./contracts:/workspace/contracts
@@ -73,11 +85,9 @@ services:
       BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN"
       BEL_NETWORK: local
     command:
-      - sh
-      - -c
       - >-
         until cast rpc --rpc-url http://evm-node:8545 eth_chainId >/dev/null 2>&1; do sleep 1; done;
-        forge script script/Deploy.s.sol --rpc-url http://evm-node:8545 --broadcast --unlocked --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+        forge script script/Deploy.s.sol --rpc-url http://evm-node:8545 --broadcast --unlocked --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --cache-path /tmp/foundry-cache
     depends_on:
       - evm-node
 

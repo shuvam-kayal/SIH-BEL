@@ -5,6 +5,7 @@ import { BelFixture } from "./utils/BelFixture.sol";
 import { BelAccess } from "../src/BelAccess.sol";
 import { BelRoles } from "../src/BelRoles.sol";
 import { IRoleRegistry } from "../src/IRoleRegistry.sol";
+import { AssetRegistry } from "../src/AssetRegistry.sol";
 
 /// Every permission boundary in docs/RBAC_MATRIX.md, checked for every role
 /// against the deployed contracts (ADR-008/ADR-009, THREAT_MODEL T3/T4).
@@ -186,7 +187,11 @@ contract AccessControlTest is BelFixture {
             address caller = walletFor(r);
             uint256 nft = mint(_uid("ASSET-T"), admin);
             if (!_allowed(TRANSFER_ASSET, r)) {
-                _expectUnauthorized(caller, TRANSFER_ASSET);
+                if (r == IRoleRegistry.Role.ENGINEER) {
+                    vm.expectRevert(abi.encodeWithSelector(AssetRegistry.TransferNotAuthorized.selector, caller, nft));
+                } else {
+                    _expectUnauthorized(caller, TRANSFER_ASSET);
+                }
             }
             vm.prank(caller);
             assets.transferAsset(nft, manager);
@@ -202,9 +207,9 @@ contract AccessControlTest is BelFixture {
         assets.transferAsset(nft, manager);
     }
 
-    function test_EngineerTransferFailsClosedWithoutGrantInterface() public {
+    function test_EngineerTransferFailsWithoutGrant() public {
         uint256 nft = mint("A-1", admin);
-        _expectUnauthorized(engineer, BelRoles.TRANSFER_ASSET);
+        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.TransferNotAuthorized.selector, engineer, nft));
         vm.prank(engineer);
         assets.transferAsset(nft, manager);
     }
