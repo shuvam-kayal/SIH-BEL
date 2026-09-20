@@ -1,15 +1,10 @@
 # BEL Decentralized Platform
 
 Monorepo for the permissioned-blockchain asset and maintenance platform.
-Six workstreams develop in parallel against frozen interfaces and mock
-adapters, then integrate in the order set out in the project plan's
-Phase 12.
 
 ## Read this first
 
-Before writing any code, read `docs/SYSTEM_SPEC.md`. Then the document
-for your area. These are frozen contracts — changing one is a team
-decision, not an individual one:
+Before writing code, read the frozen system and integration documents:
 
 | Document | What it fixes |
 | :--- | :--- |
@@ -18,21 +13,18 @@ decision, not an individual one:
 | `docs/RBAC_MATRIX.md` | Who may do what |
 | `docs/API_SPEC.yaml` | The REST surface |
 | `docs/CONTRACT_SPEC.md` | Transaction types and contract interfaces |
-| `docs/CONSENSUS_SPEC.md` | Committee-PoA protocol (**still a draft — Person 4 owns finalizing it**) |
-| `docs/DECISIONS.md` | Why things are the way they are |
-| `docs/THREAT_MODEL.md` | Including dev shortcuts that must not ship |
+| `docs/CONSENSUS_SPEC.md` | Frozen BEL VRF-committee + QBFT consensus protocol |
+| `docs/DECISIONS.md` | Why the consensus and platform decisions are the way they are |
+| `docs/THREAT_MODEL.md` | Security assumptions and development shortcuts that must not ship |
 
 ## Quickstart
 
-Requires Node 20+ and Docker Desktop for the full verification flow. Python
-3.11+ is additionally required for the consensus simulator. Foundry is run
-from the pinned Docker image, so a host `forge`/`anvil` installation is not
-required.
+Requires Node 20+ and Docker Desktop for the full application verification flow. Python 3.11+ is additionally required for the consensus simulator.
 
 ```bash
-npm ci                      # installs every workspace from the lockfile
-npm run verify              # Prisma, typechecks, PostgreSQL, EVM, Solidity
-npm run dev                # backend on :4000, frontend on :3000
+npm ci
+npm run verify
+npm run dev
 ```
 
 | Command | What it does |
@@ -40,40 +32,45 @@ npm run dev                # backend on :4000, frontend on :3000
 | `npm run dev` | Backend and frontend together |
 | `npm test` | All TypeScript tests |
 | `npm run typecheck` | All workspaces |
-| `npm run test:consensus` | Person 4's simulator tests (pytest) |
-| `npm run test:contracts` | Docker Foundry `forge build && forge test -vv` |
-| `npm run verify` | Checks PostgreSQL and Anvil, then runs the complete integration suite |
+| `npm run test:consensus` | Person 4's simulator tests |
+| `npm run test:contracts` | Solidity build/tests |
+| `npm run verify` | Complete application integration checks |
 | `docker compose up` | Everything behind nginx on :8080 |
 
-The frontend renders from `mocks/mock-api` and needs no backend. The
-backend runs against `mocks/mock-blockchain` and needs no chain. Both
-are real, working programs today.
-
-### Calling the API before authentication exists
-
-Dev sessions are header-based until Person 1 replaces them:
-
-```bash
-curl localhost:4000/users/me \
-  -H 'x-bel-employee-id: EMP001' -H 'x-bel-role: ENGINEER'
-```
-
-Endpoints whose owning module is unfinished return **501
-NOT_IMPLEMENTED** with the method name — that is expected, not a bug.
+The frontend can run against `mocks/mock-api`, and backend development can use `mocks/mock-blockchain`. The real blockchain integration is implemented behind the `BlockchainService` seam.
 
 ## Layout
 
 ```text
-docs/        Frozen specifications. Start here.
-shared/      Types, enums, validators, RBAC matrix. Imported by everyone.
-contracts/   Solidity interfaces, tests, deploy script (Foundry).
-blockchain/  Consensus simulator now; real node once Phase 8 picks a client.
+docs/        Frozen specifications and architecture decisions.
+shared/      Types, enums, validators and RBAC contracts.
+contracts/   Solidity interfaces, tests and deployment scripts.
+blockchain/  Besu/QBFT consensus integration and research simulator.
 backend/     REST API implementing docs/API_SPEC.yaml.
 frontend/    Role-based operator console.
-mocks/       mock-api (for the frontend), mock-blockchain (for the backend).
-infra/       Dockerfiles and nginx config.
-scripts/     bootstrap, contract setup, ABI generation, benchmark runner.
+mocks/       Mock API and mock blockchain adapters.
+infra/       Dockerfiles and nginx configuration.
+scripts/     Bootstrap, contract setup and benchmark helpers.
 ```
+
+## Consensus integration baseline
+
+Person 4's consensus work is implemented against a customized Hyperledger Besu/QBFT source tree. The frozen design is:
+
+- Permissioned validator population with normal deployment requirement `N >= 70`.
+- A fresh VRF-selected committee is derived for every block.
+- Selection probability is `p_N = min(1, max(70/N, 0.0132))`.
+- If fewer than 70 valid VRF tickets are available, the 70 smallest valid tickets are selected in canonical `(vrfOutput, validatorId)` order.
+- The committee remains fixed across QBFT rounds for that block.
+- The selection seed uses the previous finalized block hash plus frozen context. This is deterministic and public, but is not claimed to be an unbiased or bias-resistant randomness beacon.
+- Leadership is randomized per QBFT round with the frozen `BEL-LEADER` rule.
+- QBFT finality uses `Q = floor(2K/3) + 1`; with `f = floor((K-1)/3)`, the required relation is `Q >= 2f+1`.
+- Leader failure causes round change without changing the committee. Offline validators do not count toward quorum.
+- Existing QBFT validation rejects invalid/conflicting prepare/commit evidence; safety is not weakened to preserve liveness.
+
+The Besu integration currently includes the BEL committee RPC `bel_getCommittee`, consensus tests, and Byzantine evidence validation. The 4-node WSL smoke deployment established node startup, RPC and P2P connectivity, but did not establish live dynamic committee finality; that remains a validation gate.
+
+The deterministic VRF provider used in tests is test-only and must not be represented as the production RFC 9381 VRF implementation.
 
 ## Ownership
 
@@ -83,41 +80,23 @@ scripts/     bootstrap, contract setup, ABI generation, benchmark runner.
 | 2 | Assets, NFT lifecycle | `backend/src/assets`, `contracts/src/IAssetRegistry.sol` |
 | 3 | Jobs, maintenance | `backend/src/jobs`, `contracts/src/IJobManager.sol` |
 | 4 | Consensus | `blockchain/`, `docs/CONSENSUS_SPEC.md` |
-| 5 | Smart contracts | `contracts/` |
+| 5 | Smart contracts / blockchain integration | `contracts/`, backend blockchain seam |
 | 6 | Frontend | `frontend/`, `mocks/mock-api` |
-
-`.github/CODEOWNERS` routes reviews accordingly — replace the
-placeholder handles with real ones.
 
 ## How the plug-and-play swap works
 
-Backend services depend on the `BlockchainService` interface, never on a
-concrete chain. `backend/src/container.ts` is the only file that names an
-implementation. At Phase 12, one line there changes from
-`MockBlockchainAdapter` to the real adapter, and nothing else moves.
+Backend services depend on the `BlockchainService` interface, never on a concrete chain. The EVM adapter can delegate validator and committee reads to the Besu consensus source. The frontend consumes the backend API and does not talk to Besu directly.
 
-The frontend has the same arrangement: every page imports from
-`src/api/mockApi.ts`, and only that file changes when the real HTTP
-client arrives.
+Consensus-specific application reads currently include `bel_getCommittee`; validator metadata must come from an authoritative Besu consensus source and must not be fabricated from application-wallet data.
 
 ## Contributing
 
-Branch from `dev`, never push to `main`. One teammate review, CI green,
-then merge. `.github/pull_request_template.md` has the checklist. If a PR
-touches `shared/` or any frozen document, say so explicitly and add an
-ADR to `docs/DECISIONS.md`.
+Work on the agreed feature/integration branch for the task. Do not push directly to `main`. If a change touches `shared/` or a frozen document, record the decision in `docs/DECISIONS.md`.
 
-## Base-v1 team workflow
-
-Clone the repository, create your own feature branch, and install dependencies from the root:
+## Base-v1 workflow
 
 ```bash
 npm ci
-```
-
-Then run the workstream-appropriate checks:
-
-```bash
 npm run typecheck
 npm test --workspace=bel-backend
 npm run test --workspace=bel-frontend
@@ -126,4 +105,4 @@ npm run test:contracts
 npm run verify
 ```
 
-See `docs/BASELINE_FREEZE.md` before changing shared contracts. No teammate should require another teammate's feature branch to start work.
+See `docs/BASELINE_FREEZE.md` before changing shared contracts.

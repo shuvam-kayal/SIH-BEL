@@ -1,14 +1,13 @@
 # Base-v1 Freeze Rules
 
-This repository is the shared starting point for the six independent workstreams.
-All six people clone the same `main` commit/tag and implement only within their owned paths.
+This repository is the shared starting point for the six workstreams. Feature and integration branches may carry work beyond the original base-v1 skeleton, but shared contracts and frozen protocol decisions must remain explicit and reviewable.
 
 ## Frozen and shared
 
 The following are contract-level source of truth and must not be changed casually:
 
 - `shared/index.ts`
-- `shared/types/` (including `AuthorizationGrant` semantics)
+- `shared/types/`
 - `shared/enums/`
 - `shared/rbac/`
 - `shared/schemas/`
@@ -18,60 +17,64 @@ The following are contract-level source of truth and must not be changed casuall
 - `docs/RBAC_MATRIX.md`
 - `docs/API_SPEC.yaml`
 - `docs/CONTRACT_SPEC.md`
+- `docs/CONSENSUS_SPEC.md` for the frozen consensus baseline
 
-A change to one of these requires an ADR in `docs/DECISIONS.md` and synchronized changes to the affected mocks/tests.
+A change to a shared contract requires an ADR in `docs/DECISIONS.md` and synchronized changes to affected mocks/tests.
 
 ## Interface seams
 
-`shared/api.ts` contains two frozen interfaces:
+`shared/api.ts` contains the main application seams:
 
 - `ApiClient`: frontend <-> backend contract.
 - `BlockchainService`: backend <-> blockchain contract.
 
-`mocks/mock-api` and `mocks/mock-blockchain` implement those interfaces. Feature branches must keep the mocks usable so work can continue without another teammate's branch.
+The mock implementations remain usable for parallel development. The EVM implementation is the integration path for the real Besu deployment.
 
 ## Workstream ownership
 
-| Person | Owned paths | Must not depend on |
+| Person | Owned paths | Integration responsibility |
 |---|---|---|
-| 1 Identity/RBAC | `backend/src/auth`, `backend/src/users`, `backend/src/middleware`, `shared/rbac` | Persons 2-6 implementations |
-| 2 Assets/NFT | `backend/src/assets`, `contracts/src/IAssetRegistry.sol` implementation/tests | Person 1 implementation |
-| 3 Jobs/Maintenance | `backend/src/jobs`, `contracts/src/IJobManager.sol` implementation/tests | Persons 1-2 implementations |
-| 4 Consensus | `blockchain/**`, `docs/CONSENSUS_SPEC.md` after feasibility decisions | Persons 1-3/5/6 implementations |
-| 5 Smart Contracts | `contracts/src`, `contracts/test`, `contracts/script` | Backend/frontend implementations |
-| 6 Frontend | `frontend/**` | Backend/contract implementations |
+| 1 Identity/RBAC | `backend/src/auth`, `backend/src/users`, `backend/src/middleware`, `shared/rbac` | Identity and authorization lifecycle |
+| 2 Assets/NFT | `backend/src/assets`, `contracts/src/IAssetRegistry.sol` | Asset lifecycle |
+| 3 Jobs/Maintenance | `backend/src/jobs`, `contracts/src/IJobManager.sol` | Maintenance/job lifecycle |
+| 4 Consensus | `blockchain/**`, `docs/CONSENSUS_SPEC.md` | Besu/QBFT consensus and committee source |
+| 5 Blockchain/contracts integration | `contracts/**`, backend blockchain seam | EVM adapter and API integration |
+| 6 Frontend | `frontend/**`, `mocks/mock-api` | Operator UI |
 
-## Allowed temporary placeholders
+## Resolved consensus baseline
 
-The following are deliberately unfinished in base-v1 and do not block cloning:
+The following are no longer open research placeholders:
 
-- Concrete Solidity implementations.
-- Production authentication/device attestation.
-- Production backend persistence.
-- Real blockchain networking/node implementation.
-- Exact consensus algorithm/client choice for Person 4's research spike.
+- Besu/QBFT is the implementation boundary.
+- Committee selection is VRF-based and recomputed every block.
+- Normal deployment requires `N >= 70`.
+- `p_N = min(1, max(70/N, 0.0132))`.
+- If fewer than 70 valid tickets are available, choose the 70 smallest valid tickets by canonical `(vrfOutput, validatorId)` order.
+- The committee is fixed across rounds for a block.
+- Selection uses the previous finalized block hash plus frozen context. This is public and deterministic but not claimed to be a bias-resistant beacon.
+- `BEL-LEADER` randomizes the leader per QBFT round.
+- QBFT quorum is `floor(2K/3)+1`; offline validators do not count.
+- Leader failure uses QBFT round change without committee reselection.
+- Byzantine prepare/commit evidence is validated by the existing QBFT safety path.
+- Finality remains QBFT finality; no threshold weakening is permitted.
 
-The interfaces around those modules are frozen. Replace implementations behind those seams; do not redesign the seams branch-by-branch.
+## Evidence and remaining gates
 
-## Authentication and lifecycle baseline
+Implemented/evidenced:
 
-The current application contract uses a challenge-response onboarding/authentication model:
+- Besu/QBFT compilation and tests.
+- BEL committee RPC `bel_getCommittee`.
+- Byzantine evidence validation test.
+- 4-node WSL process/RPC/P2P smoke connectivity.
 
-1. A device requests a provisioning challenge.
-2. The device submits a device-generated public key, wallet address, challenge ID, and signature.
-3. The backend creates the Identity, Device, and Wallet in `PENDING` state.
-4. An administrator verifies the registration data, assigns/confirm roles and employee data as required, and activates the registration.
-5. Authentication uses a backend-issued bearer session after a device signs an authentication challenge.
-6. Protected requests validate the server-side session and the current Identity/Device/Wallet lifecycle state.
+Not yet sufficient for a production claim:
 
-`PENDING` is a lifecycle status, not a separate `VERIFIED` status. Administrative verification is represented by the verification fields and is a prerequisite to activation. The shared status enums remain the source of truth.
-
-The `walletAddress` submitted with a device public key must cryptographically correspond to that public key under the eventual wallet/signature scheme. The concrete derivation/binding mechanism is an integration responsibility of the wallet/blockchain adapter; no blockchain-specific derivation is invented by the backend contract.
-
-## Dependency installation
-
-Direct JavaScript dependencies are pinned in the package manifests, and the repository now contains a committed `package-lock.json`. For a clean clone, use `npm ci` so the installed dependency tree is exactly the committed lockfile. Use `npm install` only when intentionally changing dependencies or regenerating the lockfile.
+- RFC 9381-compatible production VRF backend.
+- Authoritative validator admission/removal.
+- Bias-resistant randomness beacon evaluation.
+- Large-scale security/performance evaluation.
+- Live multi-node finality and failure/recovery tests under dynamic committees.
 
 ## Clean-clone rule
 
-The repository must contain source/config/specification only. Never commit `node_modules`, local build output, caches, secrets, or generated editor files.
+Never commit `node_modules`, local build output, caches, secrets, runtime directories or generated editor files.

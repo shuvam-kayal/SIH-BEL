@@ -1,141 +1,80 @@
 # Architecture
 
-High-level shape of the system. Detail on any one piece belongs in its
-own frozen doc (RBAC_MATRIX.md, API_SPEC.yaml, CONTRACT_SPEC.md,
-CONSENSUS_SPEC.md, DATA_MODEL.md) — this file is the map connecting them.
+High-level shape of the system. Detail on any one piece belongs in its own frozen document (RBAC_MATRIX.md, API_SPEC.yaml, CONTRACT_SPEC.md, CONSENSUS_SPEC.md, DATA_MODEL.md).
 
 ## Layers
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
-│ Frontend (React)                                         │
-│  - Talks ONLY to the backend API, never to smart          │
-│    contracts or the chain directly.                       │
-│  - Built against mocks/mock-api during development        │
-│    (see docs/API_SPEC.yaml for the frozen surface).        │
+│ Frontend (React)                                        │
+│  - Talks ONLY to the backend API.                       │
+│  - Uses mocks/mock-api during development.              │
 └───────────────────────┬─────────────────────────────────┘
-                         │ REST (docs/API_SPEC.yaml)
+                        │ REST (docs/API_SPEC.yaml)
 ┌───────────────────────▼─────────────────────────────────┐
-│ Backend (Node)                                            │
-│  - auth/, users/, assets/, jobs/, audit/, blockchain/      │
-│  - Owns business logic + RBAC enforcement                  │
-│    (docs/RBAC_MATRIX.md).                                  │
-│  - Talks to the chain ONLY through the BlockchainService    │
-│    interface (backend/src/adapters) — mock during dev,      │
-│    real node after Phase 12 integration.                   │
+│ Backend (Node)                                          │
+│  - Owns business logic + RBAC enforcement.              │
+│  - Talks to the chain through BlockchainService.        │
 └───────────────────────┬─────────────────────────────────┘
-                         │ BlockchainService interface
+                        │ BlockchainService
 ┌───────────────────────▼─────────────────────────────────┐
-│ Smart Contracts (Solidity)                                 │
-│  - IdentityRegistry, RoleRegistry, AssetRegistry,           │
-│    JobManager, AuditRegistry (docs/CONTRACT_SPEC.md).       │
-│  - Second, independent enforcement of RBAC_MATRIX.md —      │
-│    the backend and the contracts must never disagree on     │
-│    who can do what.                                         │
+│ Smart Contracts (Solidity)                              │
+│  - Identity, role, asset, job and audit interfaces.     │
 └───────────────────────┬─────────────────────────────────┘
-                         │
+                        │
 ┌───────────────────────▼─────────────────────────────────┐
-│ Blockchain / Consensus (Permissioned)                      │
-│  - Authorized validator set, leader + committee selection,  │
-│    BFT quorum finality (docs/CONSENSUS_SPEC.md — still       │
-│    draft, owned by Person 4).                                │
+│ Blockchain / Consensus                                  │
+│  - Customized Hyperledger Besu/QBFT.                    │
+│  - VRF-selected committee per block.                    │
+│  - Randomized leader per QBFT round.                    │
+│  - Byzantine quorum finality.                            │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ## Operational persistence and integrity
 
-The backend is the only application-layer component that accesses BEL's
-internal PostgreSQL instance. PostgreSQL is the mutable operational state
-store for identities, devices, credentials, wallets, sessions, and grants;
-it is never exposed directly to the frontend and is not treated as immutable.
+The backend is the application-layer owner of PostgreSQL. PostgreSQL stores mutable operational state for identities, devices, credentials, wallets, sessions and grants. It is not the immutable historical source.
 
-Prisma schema and migration SQL are repository artifacts and must be committed;
-`*.sql` must not be ignored. Other workstreams depend on shared types, API
-contracts, and service interfaces rather than reading Person 1's Prisma tables
-directly.
+Security-critical lifecycle mutations can produce deterministic SHA-256 commitments through `IntegrityAdapter` for permissioned-blockchain anchoring. The device private key remains local to the managed device.
 
-The backend services depend on repository interfaces. The normal container
-selects Prisma repositories when `DATABASE_URL` is configured, while unit
-tests explicitly inject in-memory repositories. Security-critical mutations
-also pass a minimum canonical state through `IntegrityAdapter`, which emits
-a deterministic SHA-256 commitment for an external permissioned-blockchain
-anchor. The adapter is intentionally injectable while the blockchain team
-provides the durable chain implementation.
+## Blockchain integration seam
 
-## Current Person 1 data and trust paths
+The backend `BlockchainService` remains the integration boundary. With the EVM implementation enabled, the adapter can delegate consensus reads to a Besu consensus source:
 
 ```text
+Besu consensus
+    ├── validator population
+    └── BEL committee at height
+             ↓
+EvmBlockchainAdapter / BlockchainService
+             ↓
+Backend REST API
+             ↓
 Frontend
-    ↓ REST
-Person 1 Auth/API
-    ↓
-Identity / Device / Wallet services
-    ↓
-Repository interfaces
-    ↓
-Prisma
-    ↓
-PostgreSQL
 ```
 
-The managed-device wallet path is separate:
+The implemented BEL committee RPC is `bel_getCommittee`. It exposes the committee selected by the consensus layer. Validator metadata is a separate concern: the canonical validator identifier is the Besu/QBFT validator address, and any validator public key must come from an authoritative consensus/node-key registry. An application wallet public key must never be substituted for the Besu consensus key.
 
-```text
-Managed-device wallet component
-    ↓ private key remains local
-Public key + address + signature/proof
-    ↓
-Person 1 backend
-```
+## Consensus implementation boundary
 
-Critical lifecycle mutations follow:
+The consensus implementation is not a Solidity application feature. It lives in the Besu/QBFT consensus layer.
 
-```text
-Critical lifecycle mutation
-    ↓
-SHA-256 integrity commitment
-    ↓
-IntegrityAdapter
-    ↓
-Permissioned blockchain integration
-```
+The frozen protocol is:
 
-PostgreSQL is mutable operational state. The blockchain is the tamper-evident historical/integrity layer. The device private key never leaves the managed device. The current `DeviceAttestationAdapter` is an abstraction with mock/rejecting implementations; it is not proof that production hardware attestation or secure-enclave storage exists.
+- Permissioned validator population with normal `N >= 70`.
+- Per-block VRF committee selection using `p_N = min(1, max(70/N, 0.0132))`.
+- Deterministic 70-validator fallback when fewer than 70 valid tickets exist.
+- Committee fixed across rounds.
+- Previous finalized block hash plus frozen context as the public selection seed; no claim that this is an unbiased randomness beacon.
+- Per-round randomized `BEL-LEADER` selection.
+- QBFT quorum `floor(2K/3)+1`, with `f=floor((K-1)/3)` and `Q>=2f+1`.
+- Existing QBFT round-change, prepare/commit validation and finality semantics remain authoritative.
 
-## Why this shape
+The current evidence supports compilation/tests and the committee RPC. The 4-node WSL smoke test established P2P/RPC connectivity but not live finality. Production RFC 9381 VRF integration, validator lifecycle, randomness robustness and large-scale/live failure testing remain open gates.
 
-- **Frontend never touches contracts directly.** The frontend invokes the
-  backend API and the managed-device wallet interface; the device wallet
-  component handles private-key operations locally. The frontend's chain
-  integration surface remains the REST contract, not a chain client version.
-- **Backend depends on an interface, not an implementation.** The
-  `BlockchainService` interface (`backend/src/adapters`) is the seam
-  that lets Persons 1–3 build and test against a mock chain
-  (`mocks/mock-blockchain`). With `BEL_BLOCKCHAIN=evm`, the factory creates
-  one EVM JSON-RPC provider, shares it with `EvmBlockchainAdapter` and
-  `BesuConsensusSource`, and delegates validator/committee reads to Besu's
-  `bel_getValidators` and `bel_getCommittee` methods. Swapping between mock
-  and EVM implementations requires no domain-service changes.
-- **RBAC is enforced twice, deliberately.** Once in the backend
-  (fast rejection, good UX) and once in the smart contracts (the actual
-  trust boundary — a compromised or buggy backend must not be able to
-  bypass on-chain authorization). Both read from the same frozen
-  `docs/RBAC_MATRIX.md` so they can't silently diverge.
-- **Sensitive data stays off-chain.** Per `SYSTEM_SPEC.md`'s security
-  assumptions, the chain only stores hashes/references. Where the
-  underlying documents/files live is out of scope for this file —
-  raise it in `docs/DECISIONS.md` as an ADR once decided.
+## Cross-cutting concerns
 
-## Cross-cutting concerns not yet owned
-
-These don't map cleanly to one person and should get an explicit owner
-early rather than falling through the cracks:
-
-- **Off-chain document storage** (where hashed documents actually live,
-  who can read them, retention).
-- **Observability** (logging, tracing across backend + chain + frontend
-  for debugging a failed transaction end-to-end).
-- **Key management on the managed workstation** (how a Wallet's private
-  key is generated/stored/rotated on-device — touches Person 1's auth
-  work and Person 4/5's chain work). The backend protocol is defined, but
-  hardware-backed secure storage remains future device-side work.
+- Off-chain document storage and retention.
+- Observability across backend and blockchain.
+- Hardware-backed managed-device key storage and production device attestation.
+- Authoritative validator identity/public-key registry for consensus metadata.

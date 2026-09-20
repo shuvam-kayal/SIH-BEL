@@ -1,86 +1,106 @@
+# Consensus Specification
 
-**Status: Person 4-owned research module. The shared boundary is frozen for base-v1; exact algorithm/client parameters remain deliberately open until the feasibility spike. This does not block Persons 1, 2, 3, 5, or 6.**
+**Status: Frozen protocol baseline; production hardening and evaluation gates remain explicitly listed at the end.**
 
-## Frozen boundary
+## 1. Scope
 
-Every implementation must expose the same conceptual inputs and outputs:
+This specification defines the permissioned BEL consensus architecture implemented at the Besu/QBFT boundary. It does not move consensus logic into Solidity or application services.
 
-- Input: active validator set, block height, proposal, round/timeout metadata.
-- Output: selected leader, deterministic committee for the height/round, validator votes, quorum result, and finality status.
-- Every honest node must derive the same committee for the same finalized selection seed.
-- No application-level Solidity function may claim to change the underlying consensus protocol.
+Inputs include the authorized validator population, block height, previous finalized block context, proposal and QBFT round state. Outputs include the block committee, round leader, prepare/commit votes, quorum status and finality.
 
-The items below are research decisions for Person 4 rather than missing shared interfaces.
-# Consensus Specification (DRAFT)
+## 2. Validator population
 
-**Status: incomplete draft.** The values and mechanisms below are
-placeholders to unblock parallel work (e.g. `blockchain/simulator/`).
-Per Phase 7/8 of the project plan, **Person 4 must finalize every
-section below — and complete the blockchain-client feasibility spike —
-before writing real (non-simulated) consensus/node code.** The
-simulator is fine to keep evolving in the meantime; it is explicitly a
-throwaway model, not the implementation.
+- `N` is the number of eligible validators in the authorized permissioned validator set.
+- Normal deployment requires `N >= 70`.
+- Validator admission/removal is an authorized-set operation and is distinct from committee membership.
 
-## Validator pool
-- `N` = number of eligible validators, drawn from the authorized
-  validator set (permissioned — no open validator join).
-- OPEN(Person 4): initial target N for the pilot network, and the
-  process for adding/removing a validator from the authorized set.
+## 3. Committee selection
 
-## Leader selection
-- OPEN(Person 4): exact selection function. Candidates to evaluate:
-  round-robin over the authorized set, weighted-random by stake/tenure,
-  or VRF-based selection. Must be independently computable by every
-  validator without a coordinator.
+A fresh committee is selected for every block.
 
-## Randomness
-- OPEN(Person 4): source of the unpredictable seed used for leader and
-  committee selection (e.g. hash of previous block + validator
-  signatures / VRF output / distributed randomness beacon). Must not be
-  predictable or grindable by a leader ahead of their own turn.
+```text
+p_N = min(1, max(70/N, 0.0132))
+K_raw ~ Binomial(N, p_N)
+```
 
-## Committee
-- `K` = committee size, planned as a percentage of `N` (feasibility
-  spike is benchmarking 1% / 1.5% / 2% — see `blockchain/simulator/`).
-- Committee's job: independently validate the leader's proposed block
-  before quorum voting.
+Each eligible validator evaluates the selection procedure independently.
 
-## Committee selection
-- OPEN(Person 4): the function that, given the round's random seed,
-  deterministically selects K validators from N such that every honest
-  validator computes the identical committee without communication.
+If `K_raw >= 70`, the valid VRF-selected tickets determine the committee.
 
-## Quorum
-- OPEN(Person 4): exact vote threshold required to finalize a block
-  (e.g. `> 2/3 of K`, adjustable per BFT-fault-tolerance target).
+If fewer than 70 valid VRF tickets are available, the protocol selects the 70 smallest valid tickets in canonical `(vrfOutput, validatorId)` order. Normal deployment assumes enough eligible validators to satisfy the `N >= 70` requirement.
 
-## Failure handling
+The resulting committee size is `K`. The committee is fixed across all QBFT rounds for the block.
+
+## 4. Selection seed and randomness limitation
+
+The selection seed is derived from the previous finalized block hash together with frozen protocol context.
+
+This provides deterministic reconstruction by validators, but the previous-block hash is public and must **not** be described as a bias-resistant randomness beacon. The security argument therefore includes an explicit production gate for stronger randomness/VRF integration.
+
+The production cryptographic requirement is an RFC 9381-compatible ECVRF backend. The deterministic provider used by tests is test-only.
+
+## 5. Leader selection
+
+Leader selection is randomized per QBFT round using the frozen `BEL-LEADER` rule. A separate leader VRF is not required by the frozen protocol.
+
+The committee does not change merely because the round changes.
+
+## 6. QBFT voting, quorum and finality
+
+The committee participates in the normal QBFT proposal/prepare/commit lifecycle.
+
+For committee size `K`:
+
+```text
+Q = floor(2K/3) + 1
+f = floor((K-1)/3)
+Q >= 2f + 1
+```
+
+`Q = 2f+1` is not asserted as a universal equality; the quorum formula above is authoritative.
+
+A block becomes final only after valid commit evidence reaches the QBFT quorum. No application layer or RPC is permitted to weaken this threshold.
+
+## 7. Failure and Byzantine handling
+
 | Scenario | Behavior |
 |---|---|
-| Leader offline | OPEN: timeout + next-leader fallback rule |
-| Committee member offline | OPEN: whether absence counts as a no-vote and whether quorum threshold adjusts |
-| Malicious leader (equivocation) | OPEN: detection + slashing/removal from authorized set |
-| Conflicting proposal | OPEN: tie-break rule (e.g. lowest hash, earliest timestamp) |
-| Insufficient votes | OPEN: retry with new leader vs. round abort |
-| Network partition | OPEN: safety-over-liveness behavior — chain halts rather than forks |
+| Leader offline/fails | QBFT timeout and round change; committee remains unchanged |
+| Committee member offline | No vote is counted; quorum does not adjust downward |
+| Malicious/equivocating leader | Conflicting/invalid evidence is rejected by QBFT validation; normal safety rules apply |
+| Conflicting prepare/commit | Invalid/conflicting evidence is rejected |
+| Insufficient votes | Block does not finalize; protocol proceeds through QBFT round change |
+| Network partition | Safety is preserved; a partition without quorum cannot finalize a conflicting block |
 
-## Finality
-- OPEN(Person 4): the precise condition under which a block is
-  considered final and irreversible (e.g. "immediately upon quorum,
-  permissioned BFT has no reorg window" — confirm this is actually true
-  for the chosen client before writing it down as fact).
+A valid prepared value is preserved across round change according to QBFT rules.
 
-## Feasibility spike (Phase 8 — must happen before the above is frozen)
-The blockchain client is **not yet locked**. Before finalizing this
-document, Person 4 must confirm the chosen permissioned-chain framework
-actually exposes hooks to override:
-- leader selection
-- validator/committee selection
-- voting / finality rules
+## 8. Implementation boundary
 
-The selection criterion is not "which chain is popular" — it's "which
-one gives practical access to the consensus layer we need to modify."
-If a candidate framework only allows adding smart-contract logic on top
-of its existing consensus (e.g. plain Solidity on unmodified PoA), it
-does **not** satisfy this requirement, because that would not actually
-change consensus — only application logic sitting on top of it.
+The implementation is a customized Hyperledger Besu/QBFT source tree.
+
+The current integration includes:
+
+- BEL committee provider wired into the Besu consensus context.
+- `bel_getCommittee` RPC exposing the selected committee.
+- QBFT validation and finality paths retained as the safety boundary.
+- Dedicated Byzantine evidence validation tests.
+- Successful Besu compilation/test/installDist validation.
+
+The application backend consumes consensus data through its blockchain service seam; it must not reimplement committee selection.
+
+## 9. Current validation status
+
+A 4-node WSL deployment established node startup, RPC availability and P2P peer connectivity. That smoke run did not demonstrate live dynamic committee finality because block height remained at genesis. It is therefore infrastructure evidence, not finality evidence.
+
+## 10. Production/research gates
+
+1. Integrate and validate a production RFC 9381-compatible ECVRF implementation.
+2. Define authoritative validator admission/removal and its synchronization with Besu.
+3. Evaluate selection-beacon bias/grinding resistance.
+4. Benchmark full-validator QBFT against committee-QBFT at larger `N`.
+5. Run live leader-failure, offline-validator, equivocation and round-change/finality scenarios.
+6. Freeze the authoritative validator address/public-key registry used by backend validator metadata. Application wallet public keys are not consensus validator keys.
+
+## 11. Safety invariant
+
+No integration change may reduce the QBFT quorum, bypass prepare/commit validation, or treat committee membership as equivalent to validator admission.

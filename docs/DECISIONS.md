@@ -1,156 +1,112 @@
 # Architecture Decision Records (ADRs)
 
-One entry per major decision, so the team never hits "I thought we
-were using X." New ADRs append to the bottom; existing ones are not
-edited after the fact — if a decision changes, add a new ADR that
-supersedes it and say so.
+One entry per major decision. Existing historical ADRs remain as recorded; new consensus decisions are appended here.
 
 ---
 
 ### ADR-001: Permissioned blockchain
-**Decision:** The chain uses an authorized validator set, not open/public
-participation.
-**Why:** No public signup exists in this system (SYSTEM_SPEC.md);
-participants are known, managed identities, so permissionless consensus
-buys nothing and adds cost/complexity.
+**Decision:** The chain uses an authorized validator set, not open/public participation.
+**Why:** BEL participants are known and managed identities.
 
 ### ADR-002: Single managed BEL workstation
 **Decision:** Users access the system only from BEL-managed workstations.
-**Why:** Device/network trust is a foundational security assumption —
-it lets later decisions (e.g. ADR-003) hold without needing a mobile /
-BYOD key-management story from day one.
+**Why:** Device/network trust is a foundational security assumption.
 
 ### ADR-003: Wallet belongs to device, identity persists
 **Decision:** Roles and history attach to `Identity`, not to `Wallet`.
-A `Wallet` can be revoked and replaced without losing role or history.
-**Why:** Devices get lost, keys get rotated, but a person's employment
-and role shouldn't need to be re-established every time. See
-DATA_MODEL.md for the Identity/Wallet split.
+**Why:** Devices and keys can change without changing the employee anchor.
 
 ### ADR-004: NFT represents asset identity
-**Decision:** Every tracked physical/logical Asset has a corresponding
-on-chain NFT (`nftId` in DATA_MODEL.md).
-**Why:** Gives each asset a unique, transferable, tamper-evident
-identity without needing a separate custom token standard.
+**Decision:** Every tracked Asset has a corresponding on-chain NFT.
+**Why:** This gives the asset a unique, tamper-evident on-chain identity.
 
 ### ADR-005: Sensitive data remains off-chain
-**Decision:** The blockchain stores only hashes/references, never
-classified or sensitive document content.
-**Why:** Chain data is effectively permanent and broadly readable by
-participants; off-chain storage keeps access control possible and
-avoids putting sensitive content somewhere it can never be deleted.
-**Open follow-up:** where off-chain documents actually live and who
-controls access to them is not yet decided — see THREAT_MODEL.md (T7).
+**Decision:** The blockchain stores hashes/references, not sensitive document content.
+**Why:** Chain data is persistent and broadly readable by participants.
 
 ### ADR-006: Randomized verification committee
-**Decision:** Blocks are validated by a randomly-selected committee
-(a subset of the full validator set), not by every validator every
-round.
-**Why:** Full-validator-set voting doesn't scale with N; a random
-committee gives probabilistic security while keeping message/vote
-overhead bounded. Exact committee size and selection mechanism are
-still being benchmarked — see CONSENSUS_SPEC.md and
-blockchain/simulator/.
+**Decision:** Blocks are validated by a randomly selected committee, not by every validator every round.
+**Why:** A committee bounds communication while retaining probabilistic Byzantine security.
+**Resolved details:** Committee selection is VRF-based, recomputed every block, with `p_N = min(1, max(70/N, 0.0132))) and a deterministic 70-validator minimum fallback.
 
 ### ADR-007: Adapter pattern for parallel development
-**Decision:** Backend and frontend depend on interfaces
-(`BlockchainService`, the mock API surface) rather than concrete
-implementations, backed by swappable packages in `mocks/`.
-**Why:** This is what actually lets all six people work in parallel —
-Person 6 doesn't wait on Person 1/2/3's backend, and Persons 1–3 don't
-wait on Person 4's real chain. The interface is frozen in
-CONTRACT_SPEC.md / API_SPEC.yaml; only the implementation behind it
-changes at integration time (Phase 12).
+**Decision:** Backend and frontend depend on interfaces such as `BlockchainService`, with mock implementations for parallel development.
+**Why:** Workstreams can proceed without coupling to unfinished implementations.
 
-### ADR-008: RBAC enforced independently in both backend and contracts
-**Decision:** Permission checks live in backend middleware AND in
-smart-contract access-control modifiers — not only one or the other.
-**Why:** The backend is a convenience/UX layer; the contracts are the
-actual trust boundary. A backend bug or compromise must not be able to
-force an unauthorized on-chain state change. See THREAT_MODEL.md (T3, T4).
+### ADR-008: RBAC enforced independently in backend and contracts
+**Decision:** Permission checks live in backend middleware and smart contracts.
+**Why:** Defense in depth prevents a backend compromise from bypassing on-chain authorization.
 
 ---
 
 ## Repository and toolchain decisions
 
-These were made while making the skeleton buildable. They are tooling
-choices, not architecture — change them if they get in the way, but
-change them deliberately.
+### ADR-009: npm workspaces for the monorepo
+Shared TypeScript packages use npm workspaces so the repository has one dependency tree and shared type resolution.
 
-### ADR-008: npm workspaces for the monorepo
-The six workstreams share `shared/` as TypeScript source. Workspaces let
-one `npm install` at the root set up every package and let `@bel/*`
-imports resolve without publishing anything. Alternative considered:
-separate installs per package (rejected — duplicate dependency trees and
-no shared type resolution).
+### ADR-010: The RBAC matrix is code, not just a document
+The human-readable RBAC matrix and shared enforcement table are kept aligned across backend, frontend and contracts.
 
-### ADR-009: The RBAC matrix is code, not just a document
-`docs/RBAC_MATRIX.md` is the human-readable source of truth, but the
-backend middleware and the frontend navigation both import the same
-table from `shared/rbac/index.ts`. Two enforcement points reading one
-table cannot silently drift. The smart contracts remain a third,
-independent enforcement point by design — defence in depth — and
-`contracts/test/AccessControl.t.sol` exists to prove they agree.
+### ADR-011: Unimplemented services return HTTP 501
+Unfinished service methods map to `501 NOT_IMPLEMENTED` so integration tests can distinguish missing work from server faults.
 
-### ADR-010: Unimplemented services return HTTP 501
-Service methods whose owner hasn't written them throw
-`NotImplementedError`, which the error handler maps to 501
-NOT_IMPLEMENTED. An unfinished module is then visible in the API
-response instead of looking like a server fault. Integration testers can
-tell "not built yet" from "broken".
+### ADR-012: Foundry for the Solidity toolchain
+Foundry is used for Solidity build/test/deployment work.
 
-### ADR-011: Foundry for the Solidity toolchain
-`forge build` and `forge test` work on a clean clone with no dependency
-install, because the current sources are interfaces plus a
-dependency-free test skeleton. `forge-std` is installed on demand via
-`scripts/setup-contracts.sh` when tests need cheatcodes.
+### ADR-013: Development authentication uses bearer sessions
+Bearer sessions provide the development compatibility path; production device proof remains the target.
 
-### ADR-012: Development authentication uses bearer sessions
-Protected requests are authenticated only with a server-issued bearer
-session created by `/auth/login`. Development credentials are hashed and
-verified through the same device/identity/wallet checks as future managed device credentials. This compatibility path is development-only and is disabled when `BEL_ENV=production`; production uses device proof. Client-supplied `x-bel-*` identity headers are ignored.
+### ADR-014: LICENSE is unresolved
+The repository's current license declarations remain an explicit unresolved decision.
 
-### ADR-013: LICENSE is unresolved
-The root LICENSE asserts internal-use-only while the Solidity files
-carry MIT SPDX headers. This contradiction is deliberately left visible
-rather than silently resolved. Decide before first release.
+### ADR-015: Employee self-initialization
+Employees submit basic details and device-generated public wallet information; administrators verify and authorize the pending registration.
 
-### ADR-014: Employee self-initialization
-**Decision:** Employees submit basic details and device-generated public wallet information; administrators verify and authorize the pending registration.
-**Why:** Employees should not depend on an administrator to re-enter basic details, while BEL retains authorization control.
-**Consequences:** Initialization creates PENDING identity/device/wallet records and cannot self-assign a role or become active.
+### ADR-016: Identity persists independently of wallet
+Identity is the persistent employee anchor; devices and wallets are replaceable credentials.
 
-### ADR-015: Identity persists independently of wallet
-**Decision:** Identity is the persistent employee anchor; devices and wallets are replaceable credentials.
-**Why:** Device loss, rotation, or compromise must not erase employment or role history.
-**Consequences:** Historical wallet/device records remain auditable and replacement preserves identity.
+### ADR-017: Private key remains on the managed device
+The device wallet component generates and retains the private key; backend services receive public material and proof only.
 
-### ADR-016: Private key remains on the managed device
-**Decision:** The device wallet component generates and retains the private key; the backend handles only public material and proof.
-**Why:** The backend and blockchain are not employee key vaults.
-**Consequences:** Hardware-backed secure storage is future device-side work and is not claimed by the prototype.
+### ADR-018: Challenge-response authentication
+Production login uses a short-lived backend challenge signed by the managed-device wallet component.
 
-### ADR-017: Challenge-response authentication
-**Decision:** Production login uses a short-lived backend challenge signed automatically by the managed-device wallet component.
-**Why:** Public-key proof avoids transmitting private credentials and binds login to the registered device/wallet.
-**Consequences:** The user only clicks Sign In; the device handles challenge, signature, and proof fields. Bearer sessions remain the application session mechanism.
+### ADR-019: Device attestation abstraction
+Eligibility is decided through `DeviceAttestationAdapter`; client-supplied device/network flags are not trust anchors.
 
-### ADR-018: Device attestation abstraction
-**Decision:** Eligibility is decided through `DeviceAttestationAdapter`, not client-supplied managed/network flags.
-**Why:** MAC, IP, hostname, and VPN fields are spoofable evidence rather than trust anchors.
-**Consequences:** The prototype uses mock/rejecting adapters; trusted BEL device-management/VPN integration remains future work.
+### ADR-020: Pending registration is verified before activation
+Initialization creates a `PENDING` registration; administrative verification precedes activation. There is no separate `VERIFIED` identity status.
 
-### ADR-019: Pending registration is verified before activation
-**Decision:** Initialization creates a `PENDING` Identity/Device/Wallet registration. An administrator verifies the submitted employee data, assigns or confirms the employee/department information and role, and then activates the registration. There is no separate `VERIFIED` identity status.
-**Why:** A submitted registration must not equal an authenticated employee, while the lifecycle enum remains small and unambiguous.
-**Consequences:** Verification is represented by the registration's verification metadata (for example `verifiedAt` / `verifiedBy`) and the required verified fields. A registration remains `PENDING` until activation. Pending records cannot log in or access protected business operations.
+### ADR-021: Wallet replacement preserves identity
+Wallet replacement revokes the old wallet and registers a new pending wallet against the same identity.
 
-### ADR-020: Wallet replacement preserves identity
-**Decision:** Wallet replacement revokes the old wallet and registers a new pending wallet against the same identity.
-**Why:** Keys and devices can change without changing the employee anchor.
-**Consequences:** Historical transactions retain the old actor wallet while new transactions use the replacement wallet.
+### ADR-022: PostgreSQL plus blockchain integrity anchor
+**Decision:** PostgreSQL stores mutable operational state while SHA-256 commitments can be anchored through `IntegrityAdapter`.
+**Why:** Operational queries need a database while lifecycle history needs tamper-evident evidence.
 
-### ADR-021: PostgreSQL plus blockchain integrity anchor
-**Decision:** PostgreSQL stores mutable operational state; SHA-256 commitments are sent through `IntegrityAdapter` for permissioned-blockchain anchoring.
-**Why:** Operational queries need a durable database while lifecycle history needs tamper-evident evidence.
-**Consequences:** Other workstreams consume repository/API contracts and do not couple directly to Prisma tables.
+### ADR-023: QBFT with VRF-based dynamic committees
+**Decision:** The permissioned chain uses customized Hyperledger Besu/QBFT with a fresh VRF-selected committee for every block.
+**Why:** QBFT supplies Byzantine finality while committee selection bounds participation and message overhead.
+**Constraint:** Committee selection must not weaken QBFT's existing safety or finality rules.
+
+### ADR-024: Public selection seed from previous finalized block
+**Decision:** Committee selection derives its public deterministic seed from the previous finalized block hash plus frozen context.
+**Why:** All validators can reconstruct the same selection without an external coordinator.
+**Limitation:** The previous block hash is public and is not claimed to be an unbiased or bias-resistant randomness beacon.
+
+### ADR-025: Besu is the consensus implementation boundary
+**Decision:** Consensus behavior is implemented in the Besu/QBFT consensus layer, not in Solidity or backend application code.
+**Why:** Leader selection, committee membership, validation, voting and finality are protocol-layer concerns.
+
+### ADR-026: QBFT quorum and round-change semantics
+**Decision:** For committee size `K`, quorum is `Q = floor(2K/3)+1`, with `f=floor((K-1)/3)` and `Q>=2f+1`. Leader failure triggers QBFT round change without committee reselection.
+**Why:** This preserves the existing Byzantine safety boundary while allowing progress after leader failure.
+**Constraint:** Offline validators do not count; quorum is never reduced to preserve liveness.
+
+### ADR-027: Test-only deterministic VRF provider
+**Decision:** The deterministic VRF provider is allowed only for tests and local deterministic validation.
+**Why:** A deterministic test provider makes consensus tests reproducible without representing production cryptographic security. Production requires an RFC 9381-compatible VRF backend.
+
+### ADR-028: Validator identity and consensus key separation
+**Decision:** Besu validator identity/public-key metadata is a consensus-layer concern and must not be populated from application wallet keys.
+**Why:** Device/application wallets and node/consensus keys are separate trust domains. Backend validator metadata must use an authoritative consensus/node-key registry.
