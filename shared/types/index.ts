@@ -162,7 +162,7 @@ export type ValidatorHistoryRecord = {
 };
 export type NotificationChannel = "IN_APP" | "EMAIL";
 export type NotificationDelivery = {
-  notificationId: string; eventType: "VALIDATOR_ADD" | "VALIDATOR_REMOVE" | "VALIDATOR_RESTORE";
+  notificationId: string; eventType: "VALIDATOR_ADD" | "VALIDATOR_REMOVE" | "VALIDATOR_RESTORE" | "VALIDATOR_REMOVE_CANCEL";
   validatorId: string; operation: string; recipientIdentityId: string; channel: NotificationChannel;
   createdAt: string; status: "PENDING" | "DELIVERED" | "FAILED";
 };

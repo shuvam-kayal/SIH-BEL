@@ -33,7 +33,7 @@ export class ValidatorServiceImpl implements ValidatorService {
     const registration: ValidatorRegistration = { registrationId: existing?.registrationId ?? `VREG:${randomUUID()}`, validatorId: input.validatorId.trim(), identityId: actor.identityId, walletAddress: user?.walletAddress ?? SYSTEM_WALLET, nodeId: input.validatorId.trim(), nodeAddress: input.nodeAddress.trim(), publicKey: input.publicKey.trim(), signingPublicKey: input.signingPublicKey.trim(), status: input.activationHeight > head ? "PENDING" : "ACTIVE", requestedAt: existing?.requestedAt ?? new Date().toISOString(), activationHeight: input.activationHeight, removalHeight: null, removalReason: null, txHash: null, blockNumber: null };
     const result = await this.submit("VALIDATOR_ADD", actor, registration, {});
     registration.txHash = result.transactionHash ?? result.txId; registration.blockNumber = result.blockNumber ?? null;
-    await this.repositories.validators.save(registration); await this.recordHistory(registration, actor, "VALIDATOR_ADD", null, "ACTIVE", null, result); await this.notifications.validatorChanged("VALIDATOR_ADD", registration, actor);
+    await this.repositories.validators.save(registration); await this.recordHistory(registration, actor, "VALIDATOR_ADD", null, registration.status, null, result); await this.notifications.validatorChanged("VALIDATOR_ADD", registration, actor);
     return { ...registration };
   }
 
@@ -65,13 +65,13 @@ export class ValidatorServiceImpl implements ValidatorService {
     const registration = await this.get(id); if (registration.status !== "REMOVAL_SCHEDULED") throw new ConflictError("Only a scheduled removal can be cancelled");
     const result = await this.submit("VALIDATOR_REMOVE_CANCEL", actor, registration, { reason: input.reason.trim() });
     registration.status = "ACTIVE"; registration.removalHeight = null; registration.removalReason = null; registration.txHash = result.transactionHash ?? result.txId; registration.blockNumber = result.blockNumber ?? null;
-    await this.repositories.validators.save(registration); await this.recordHistory(registration, actor, "VALIDATOR_REMOVE_CANCEL", "REMOVAL_SCHEDULED", "ACTIVE", input.reason.trim(), result);
+    await this.repositories.validators.save(registration); await this.recordHistory(registration, actor, "VALIDATOR_REMOVE_CANCEL", "REMOVAL_SCHEDULED", "ACTIVE", input.reason.trim(), result); await this.notifications.validatorChanged("VALIDATOR_REMOVE_CANCEL", registration, actor);
     return { ...registration };
   }
 
   async list() {
     const head = (await this.chain.getStatus()).height;
-    return (await this.repositories.validators.list()).map((value) => ({ ...value, status: value.status === "PENDING" && value.activationHeight <= head ? "ACTIVE" as const : value.status === "REMOVAL_SCHEDULED" && value.removalHeight !== null && value.removalHeight <= head ? "REMOVED" as const : value.status }));
+    return (await this.repositories.validators.list()).map((value) => this.effectiveRegistration(value, head));
   }
   async getHistory() { return this.repositories.validatorHistory.list(); }
 
@@ -92,7 +92,15 @@ export class ValidatorServiceImpl implements ValidatorService {
     await this.repositories.validatorHistory.append({ historyId: `VH:${randomUUID()}`, validatorId: registration.validatorId, operation, actorIdentityId: actor.identityId, actorWallet: (await this.repositories.users.findByIdentityId(actor.identityId))?.walletAddress ?? SYSTEM_WALLET, timestamp: new Date().toISOString(), blockNumber: result.blockNumber ?? null, transactionHash: result.transactionHash ?? result.txId, previousState, newState, reason, status: "SUCCESS", inverseTransactionHash: null });
   }
 
-  private async get(id: string) { const value = await this.repositories.validators.findById(id) ?? await this.repositories.validators.findByValidatorId(id); if (!value) throw new NotFoundError(`Validator ${id} was not found`); return value; }
+  private async get(id: string) { const value = await this.repositories.validators.findById(id) ?? await this.repositories.validators.findByValidatorId(id); if (!value) throw new NotFoundError(`Validator ${id} was not found`); return this.effectiveRegistration(value, (await this.chain.getStatus()).height); }
+  private effectiveRegistration(value: ValidatorRegistration, head: number): ValidatorRegistration {
+    const status = value.status === "PENDING" && value.activationHeight <= head
+      ? "ACTIVE"
+      : value.status === "REMOVAL_SCHEDULED" && value.removalHeight !== null && value.removalHeight <= head
+        ? "REMOVED"
+        : value.status;
+    return status === value.status ? { ...value } : { ...value, status };
+  }
   private envelopeSignature(): string {
     if (process.env.BEL_ENV === "production") throw new ForbiddenError("Production validator transactions require the configured device-signed transaction provider");
     return "development";

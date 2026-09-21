@@ -141,8 +141,9 @@ The Besu source and BEL integration compile on the configured JDK 21 toolchain.
 The provided Windows distribution cannot currently start a live node because
 Besu's `gnark-0.9.4` artifact contains Linux and macOS native libraries but no
 Windows `gnark_eip_196.dll`; startup therefore fails while loading the native
-EIP-196 library. The 4-node infrastructure smoke test was successfully run under WSL.
-This remains a platform/runtime packaging limitation, not a BEL consensus result,
+EIP-196 library. A historical WSL run is documented, but it is not reproducible
+in the current checkout because the external Besu runtime is absent. This remains
+a platform/runtime packaging limitation, not a BEL consensus result,
 and the smoke test does not prove BEL finality or permit a live multi-node Besu
 finality claim.
 

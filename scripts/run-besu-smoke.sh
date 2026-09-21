@@ -11,8 +11,10 @@ BASE_RPC="${RPC_PORT:-8645}"
 P2P_HOST="${P2P_HOST:-${NODE_IP:-127.0.0.1}}"
 RPC_HOST="${RPC_HOST:-127.0.0.1}"
 BOOTNODE_HOST="${BOOTNODE_HOST:-${P2P_HOST}}"
+MIN_PEERS="${BEL_SMOKE_MIN_PEERS:-1}"
 if (( VALIDATOR_COUNT < 70 )); then echo "BEL smoke fixture requires the unchanged 70-validator protocol configuration." >&2; exit 1; fi
 if (( ACTIVE_COUNT != 4 )); then echo "BEL smoke fixture starts exactly four initial logical nodes." >&2; exit 1; fi
+if ! [[ "${MIN_PEERS}" =~ ^[0-9]+$ ]] || (( MIN_PEERS < 1 )); then echo "BEL_SMOKE_MIN_PEERS must be a positive integer." >&2; exit 1; fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BESU="${ROOT}/besu/build/install/besu/bin/besu-untuned"
 RUN_ROOT="${ROOT}/.bel-demo/smoke-$(date +%Y%m%d-%H%M%S)"
@@ -85,9 +87,20 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
   done
 done
 
+for ((i=0; i<ACTIVE_COUNT; i++)); do
+  port=$((BASE_RPC + i))
+  response="$(curl -fsS --max-time 2 -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' "http://${RPC_HOST}:${port}")" || { echo "Peer connectivity RPC failed for ${RPC_HOST}:${port}" >&2; exit 1; }
+  peer_hex="$(sed -nE 's/.*"result"[[:space:]]*:[[:space:]]*"(0x[0-9a-fA-F]+)".*/\1/p' <<<"${response}")"
+  if [[ -z "${peer_hex}" ]]; then echo "Peer connectivity check returned no net_peerCount result for ${RPC_HOST}:${port}: ${response}" >&2; exit 1; fi
+  peer_digits="${peer_hex#0x}"
+  peer_count=$((16#${peer_digits}))
+  if (( peer_count < MIN_PEERS )); then echo "Peer connectivity check failed for ${RPC_HOST}:${port}: ${peer_count} peers, expected at least ${MIN_PEERS}." >&2; exit 1; fi
+  echo "Peer connectivity verified for ${RPC_HOST}:${port}: ${peer_count} peers"
+done
+
 echo "Besu smoke network started: ${RUN_ROOT}"
 echo "Protocol fixture: ${VALIDATOR_COUNT} generated validator keys; active smoke nodes: ${ACTIVE_COUNT}"
 echo "RPC endpoints: http://${RPC_HOST}:${BASE_RPC} through http://${RPC_HOST}:$((BASE_RPC + ACTIVE_COUNT - 1))"
 echo "P2P host: ${P2P_HOST}; bootnode: ${BOOTNODE}"
-echo "This launcher validates node startup/peering only; custom BEL QBFT lifecycle requires the external Besu runtime."
+echo "This launcher validates RPC startup and actual peer connectivity only; custom BEL QBFT lifecycle requires the external Besu runtime."
 wait

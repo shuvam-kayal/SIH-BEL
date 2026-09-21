@@ -49,26 +49,17 @@ contract DeployScript is Script {
         _write(network, d, bootstrapAdmin, startBlock);
     }
 
-    /// Exposed separately so tests can exercise the exact deploy sequence.
-    function deploy(address bootstrapAdmin, string memory bootstrapDid)
-        public
-        returns (Deployment memory d)
-    {
-        address[] memory bootstrap = new address[](1);
-        bootstrap[0] = bootstrapAdmin;
-        return deployWithBootstrap(bootstrapAdmin, bootstrapDid, bootstrap);
-    }
-
     function deployWithBootstrap(address bootstrapAdmin, string memory bootstrapDid, address[] memory bootstrap)
         public
         returns (Deployment memory d)
     {
+        if (bootstrap.length < 70) revert("BEL requires at least 70 bootstrap validators");
         d.identity = new IdentityRegistry(bootstrapAdmin, bootstrapDid);
         d.roles = new RoleRegistry(address(d.identity), bootstrapAdmin);
         d.assets = new AssetRegistry();
         d.jobs = new JobManager(address(d.assets));
 
-        d.validators = new ValidatorRegistry(bootstrap.length >= 70 ? 70 : 1, bootstrap);
+        d.validators = new ValidatorRegistry(70, bootstrap);
 
         address[] memory recorders = new address[](5);
         recorders[0] = address(d.identity);

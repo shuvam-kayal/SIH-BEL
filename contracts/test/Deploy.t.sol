@@ -9,7 +9,10 @@ contract DeployTest is Test {
     function test_DeployProducesWiredUsableSystem() public {
         address admin = makeAddr("admin");
         DeployScript script = new DeployScript();
-        DeployScript.Deployment memory d = script.deploy(admin, "DID:BEL:ADMIN");
+        address[] memory bootstrap = new address[](70);
+        bootstrap[0] = admin;
+        for (uint256 i = 1; i < bootstrap.length; i++) bootstrap[i] = makeAddr(string.concat("validator-", vm.toString(i)));
+        DeployScript.Deployment memory d = script.deployWithBootstrap(admin, "DID:BEL:ADMIN", bootstrap);
 
         assertTrue(d.identity.wired() && d.roles.wired() && d.assets.wired() && d.jobs.wired());
         assertEq(address(d.assets.auditRegistry()), address(d.audit));

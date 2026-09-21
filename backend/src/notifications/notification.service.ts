@@ -6,11 +6,12 @@ import { ConsoleEmailNotificationProvider, type EmailNotificationProvider } from
 export class NotificationService {
   constructor(private readonly repositories: IdentityRepositories, private readonly email: EmailNotificationProvider = new ConsoleEmailNotificationProvider()) {}
 
-  async validatorChanged(eventType: "VALIDATOR_ADD" | "VALIDATOR_REMOVE" | "VALIDATOR_RESTORE", validator: ValidatorRegistration, actor: Identity): Promise<void> {
+  async validatorChanged(eventType: "VALIDATOR_ADD" | "VALIDATOR_REMOVE" | "VALIDATOR_RESTORE" | "VALIDATOR_REMOVE_CANCEL", validator: ValidatorRegistration, actor: Identity): Promise<void> {
     const active = await this.repositories.identities.listByStatus("ACTIVE");
     const users = await Promise.all(active.map((identity) => this.repositories.users.findByIdentityId(identity.identityId)));
-    const subject = eventType === "VALIDATOR_ADD" ? "BEL Validator Added" : eventType === "VALIDATOR_REMOVE" ? "BEL Validator Removed" : "BEL Validator Restored";
-    const body = `A validator was ${eventType === "VALIDATOR_ADD" ? "added" : eventType === "VALIDATOR_REMOVE" ? "removed" : "restored"} to the BEL network. Validator: ${validator.validatorId}. Performed by: ${actor.identityId}. Transaction: ${validator.txHash ?? "pending"}. Block: ${validator.blockNumber ?? "unknown"}.`;
+    const subject = eventType === "VALIDATOR_ADD" ? "BEL Validator Added" : eventType === "VALIDATOR_REMOVE" ? "BEL Validator Removed" : eventType === "VALIDATOR_RESTORE" ? "BEL Validator Restored" : "BEL Validator Removal Cancelled";
+    const action = eventType === "VALIDATOR_ADD" ? "added" : eventType === "VALIDATOR_REMOVE" ? "removed" : eventType === "VALIDATOR_RESTORE" ? "restored" : "had its scheduled removal cancelled";
+    const body = `A validator was ${action} in the BEL network. Validator: ${validator.validatorId}. Performed by: ${actor.identityId}. Transaction: ${validator.txHash ?? "pending"}. Block: ${validator.blockNumber ?? "unknown"}.`;
     for (const recipientIdentityId of [...new Set(users.filter(Boolean).map((user) => user!.identityId))]) {
       await this.repositories.notifications.append({ notificationId: `N:${randomUUID()}`, eventType, validatorId: validator.validatorId, operation: eventType, recipientIdentityId, channel: "IN_APP", createdAt: new Date().toISOString(), status: "DELIVERED" });
       try {
