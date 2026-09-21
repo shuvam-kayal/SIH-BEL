@@ -47,3 +47,6 @@ expected receipt/event before persistence. `BelValidatorProvider` or a custom
 Besu validator-population bridge is not present in this repository; the EVM
 adapter's consensus source remains an explicit external seam. Do not claim
 application registry state proves live QBFT membership without that runtime.
+The in-memory/mock path uses a development envelope marker only; production
+fails closed until the configured device-signed raw transaction provider is
+connected. The marker is never treated as a cryptographic signature.

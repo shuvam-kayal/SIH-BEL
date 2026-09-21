@@ -146,7 +146,7 @@ export type Validator = {
   joinedAt: string;
 };
 
-export type ValidatorRegistrationStatus = "ACTIVE" | "INACTIVE" | "REMOVED";
+export type ValidatorRegistrationStatus = "PENDING" | "ACTIVE" | "REMOVAL_SCHEDULED" | "REMOVED";
 export type ValidatorRegistration = {
   registrationId: string; validatorId: string; identityId: string; walletAddress: string;
   nodeId: string; nodeAddress: string; publicKey: string; signingPublicKey: string;
@@ -155,7 +155,7 @@ export type ValidatorRegistration = {
   blockNumber: number | null;
 };
 export type ValidatorHistoryRecord = {
-  historyId: string; validatorId: string; operation: "VALIDATOR_ADD" | "VALIDATOR_REMOVE" | "VALIDATOR_RESTORE";
+  historyId: string; validatorId: string; operation: "VALIDATOR_ADD" | "VALIDATOR_REMOVE" | "VALIDATOR_RESTORE" | "VALIDATOR_REMOVE_CANCEL";
   actorIdentityId: string; actorWallet: string; timestamp: string; blockNumber: number | null;
   transactionHash: string | null; previousState: string | null; newState: string;
   reason: string | null; status: "SUCCESS" | "FAILED"; inverseTransactionHash: string | null;

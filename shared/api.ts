@@ -42,6 +42,7 @@ export type CommitteeResponse = { height: number; validatorIds: string[] };
 export type ValidatorAddInput = { validatorId: string; nodeAddress: string; publicKey: string; signingPublicKey: string; activationHeight: number };
 export type ValidatorRemovalInput = { removalHeight: number; reason: string };
 export type ValidatorRestoreInput = { reason: string };
+export type ValidatorRemoveCancelInput = { reason: string };
 
 export interface ApiClient {
   login(input?: string | LoginProofRequest): Promise<Session>;
@@ -82,6 +83,7 @@ export interface ApiClient {
   addValidator(input: ValidatorAddInput): Promise<ValidatorRegistration>;
   removeValidator(id: string, input: ValidatorRemovalInput): Promise<ValidatorRegistration>;
   restoreValidator(id: string, input: ValidatorRestoreInput): Promise<ValidatorRegistration>;
+  cancelScheduledRemoval(id: string, input: ValidatorRemoveCancelInput): Promise<ValidatorRegistration>;
   getCommittee(height: number): Promise<CommitteeResponse>;
 
 }

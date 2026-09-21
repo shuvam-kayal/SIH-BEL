@@ -21,5 +21,6 @@ interface IValidatorRegistry {
     function addValidator(address validator, string calldata publicKey, string calldata signingPublicKey, uint64 activationHeight) external;
     function removeValidator(address validator, uint64 removalHeight, string calldata reason) external;
     function restoreValidator(address validator, string calldata reason) external;
+    function cancelScheduledRemoval(address validator, string calldata reason) external;
 }
 

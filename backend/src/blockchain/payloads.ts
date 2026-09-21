@@ -25,6 +25,7 @@
 // | VALIDATOR_ADD                          | ValidatorRegistry.addValidator | validatorId, publicKey, signingPublicKey, activationHeight |
 // | VALIDATOR_REMOVE                       | ValidatorRegistry.removeValidator | validatorId, removalHeight, reason |
 // | VALIDATOR_RESTORE                      | ValidatorRegistry.restoreValidator | validatorId, reason |
+// | VALIDATOR_REMOVE_CANCEL                | ValidatorRegistry.cancelScheduledRemoval | validatorId, reason |
 // | JOB_REJECT                             | JobManager.rejectJob                | jobId, reason                                                    |
 // | GRANT_CREATE / GRANT_REVOKE             | AssetRegistry.setTransferGrant     | assetId, actorIdentityId, authorizationGrantId, expiresAt       |
 //
@@ -147,6 +148,10 @@ export async function buildCallPlan(tx: Transaction, lookups: ChainLookups): Pro
     case "VALIDATOR_RESTORE": {
       const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
       return { contract: "ValidatorRegistry", method: "restoreValidator", args: [validator, str(type, p, ["reason"])] };
+    }
+    case "VALIDATOR_REMOVE_CANCEL": {
+      const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
+      return { contract: "ValidatorRegistry", method: "cancelScheduledRemoval", args: [validator, str(type, p, ["reason"])] };
     }
     case "IDENTITY_CREATE":
     case "IDENTITY_REGISTER":

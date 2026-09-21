@@ -16,6 +16,8 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
     error InvalidHeight();
     error PopulationBelowMinimum(uint256 height, uint256 population);
     error InvalidKeyMaterial();
+    error RemovalAlreadyScheduled(address validator);
+    error RemovalNotEffective(address validator);
 
     uint256 public immutable minimumPopulation;
     mapping(address => ValidatorRecord) private _records;
@@ -26,6 +28,7 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
     event ValidatorAdded(address indexed validator, uint64 activationHeight, string publicKey, string signingPublicKey);
     event ValidatorRemoved(address indexed validator, uint64 removalHeight, string reason);
     event ValidatorRestored(address indexed validator, uint64 previousRemovalHeight, string reason);
+    event ValidatorRemovalCancelled(address indexed validator, uint64 scheduledRemovalHeight, string reason);
 
     constructor(uint256 minimumPopulation_, address[] memory bootstrapValidators) {
         if (minimumPopulation_ == 0 || bootstrapValidators.length < minimumPopulation_) revert InvalidHeight();
@@ -68,14 +71,16 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
         if (!current.registered) revert NotRegistered(validator);
         if (removalHeight <= block.number || removalHeight <= current.activationHeight) revert InvalidHeight();
         if (_isBootstrap[validator]) revert InvalidValidator();
-        if (validatorCountAt(removalHeight) < minimumPopulation) revert PopulationBelowMinimum(removalHeight, validatorCountAt(removalHeight));
+        if (current.removalHeight != 0) revert RemovalAlreadyScheduled(validator);
+        uint256 projectedPopulation = validatorCountAt(removalHeight) - 1;
+        if (projectedPopulation < minimumPopulation) revert PopulationBelowMinimum(removalHeight, projectedPopulation);
         current.removalHeight = removalHeight;
         emit ValidatorRemoved(validator, removalHeight, reason);
         _audit("VALIDATOR", _id(validator), "VALIDATOR_REMOVE");
     }
 
-    /// @notice Inverse recovery operation. It clears only the current
-    /// effective boundary; the prior ValidatorRemoved event remains on-chain.
+    /// @notice Inverse recovery operation for a removal that is already
+    /// effective. The prior ValidatorRemoved event remains on-chain.
     function restoreValidator(address validator, string calldata reason)
         external onlyRoles(BelRoles.ADMIN)
     {
@@ -83,10 +88,25 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
         if (!current.registered) revert NotRegistered(validator);
         if (_isBootstrap[validator]) revert InvalidValidator();
         if (current.removalHeight == 0) revert AlreadyRegistered(validator);
+        if (current.removalHeight > block.number) revert RemovalNotEffective(validator);
         uint64 previousRemovalHeight = current.removalHeight;
         current.removalHeight = 0;
         emit ValidatorRestored(validator, previousRemovalHeight, reason);
         _audit("VALIDATOR", _id(validator), "VALIDATOR_RESTORE");
+    }
+
+    /// @notice Cancels a future removal without pretending that a REMOVE and
+    /// RESTORE occurred. The cancellation is itself permanently observable.
+    function cancelScheduledRemoval(address validator, string calldata reason)
+        external onlyRoles(BelRoles.ADMIN)
+    {
+        ValidatorRecord storage current = _records[validator];
+        if (!current.registered) revert NotRegistered(validator);
+        if (current.removalHeight == 0 || current.removalHeight <= block.number) revert RemovalNotEffective(validator);
+        uint64 scheduledRemovalHeight = current.removalHeight;
+        current.removalHeight = 0;
+        emit ValidatorRemovalCancelled(validator, scheduledRemovalHeight, reason);
+        _audit("VALIDATOR", _id(validator), "VALIDATOR_REMOVE_CANCEL");
     }
 
     function getValidators() external view returns (address[] memory) {
@@ -113,6 +133,7 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
         uint256 count = validatorCountAt(height);
         address[] memory result = new address[](count);
         uint256 j;
+        for (uint256 i = 0; i < _bootstrapValidators.length; i++) result[j++] = _bootstrapValidators[i];
         for (uint256 i = 0; i < _validators.length; i++) {
             address validator = _validators[i];
             if (_isActive(_records[validator], height)) result[j++] = validator;

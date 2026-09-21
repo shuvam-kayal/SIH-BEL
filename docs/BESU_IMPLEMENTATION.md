@@ -196,3 +196,10 @@ available, but `BelValidatorProvider`, proposer selection, evidence, and the
 custom QBFT controller cannot be verified here. Contract/EVM tests therefore
 prove application transaction mapping only; they do not prove live dynamic
 Besu validator membership or consensus finality.
+
+The checked-in `scripts/run-besu-smoke.sh` is a four-node execution fixture:
+it generates the unchanged 70-key protocol fixture and starts four logical
+nodes. It accepts `NODE_IP`, `P2P_HOST`, `P2P_PORT`, `RPC_HOST`, `RPC_PORT`,
+and `BOOTNODE_HOST` for VPN/private-network use. It is not a
+four-validator consensus profile and does not claim the 4→5→4 lifecycle
+without the external Besu artifact.

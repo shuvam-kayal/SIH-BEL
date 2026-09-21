@@ -85,5 +85,8 @@ export function chainRouter(c: Container): Router {
   router.post("/admin/validators/:id/restore", requireSession, requirePermission("MANAGE_VALIDATORS"), requireFreshAuthentication(c.auth, "VALIDATOR_RESTORE", (req) => req.params.id), async (req, res, next) => {
     try { res.json(await c.validators.restoreValidator(req.user!.identityId, req.params.id, req.body)); } catch (err) { next(err); }
   });
+  router.post("/admin/validators/:id/remove/cancel", requireSession, requirePermission("MANAGE_VALIDATORS"), requireFreshAuthentication(c.auth, "VALIDATOR_REMOVE_CANCEL", (req) => req.params.id), async (req, res, next) => {
+    try { res.json(await c.validators.cancelScheduledRemoval(req.user!.identityId, req.params.id, req.body)); } catch (err) { next(err); }
+  });
   return router;
 }

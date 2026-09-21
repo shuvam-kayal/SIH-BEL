@@ -4,10 +4,15 @@ command -v setsid >/dev/null 2>&1 || { echo "This launcher requires a Linux envi
 
 # Infrastructure-only smoke test. This intentionally does not exercise BEL
 # committee selection: BEL's protocol minimum remains N >= 70.
-VALIDATOR_COUNT=70
-ACTIVE_COUNT=4
-BASE_P2P=31303
-BASE_RPC=8645
+VALIDATOR_COUNT="${BEL_PROTOCOL_VALIDATOR_COUNT:-70}"
+ACTIVE_COUNT="${BEL_SMOKE_INITIAL_NODES:-4}"
+BASE_P2P="${P2P_PORT:-31303}"
+BASE_RPC="${RPC_PORT:-8645}"
+P2P_HOST="${P2P_HOST:-${NODE_IP:-127.0.0.1}}"
+RPC_HOST="${RPC_HOST:-127.0.0.1}"
+BOOTNODE_HOST="${BOOTNODE_HOST:-${P2P_HOST}}"
+if (( VALIDATOR_COUNT < 70 )); then echo "BEL smoke fixture requires the unchanged 70-validator protocol configuration." >&2; exit 1; fi
+if (( ACTIVE_COUNT != 4 )); then echo "BEL smoke fixture starts exactly four initial logical nodes." >&2; exit 1; fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BESU="${ROOT}/besu/build/install/besu/bin/besu-untuned"
 RUN_ROOT="${ROOT}/.bel-demo/smoke-$(date +%Y%m%d-%H%M%S)"
@@ -46,7 +51,7 @@ EOF
 
 mapfile -t KEYS < <(find "${GENERATED}/keys" -mindepth 2 -maxdepth 2 -name key.priv | sort)
 PUB="$(tr -d '\r\n' < "$(dirname "${KEYS[0]}")/key.pub" | sed 's/^0x//')"
-BOOTNODE="enode://${PUB}@127.0.0.1:${BASE_P2P}"
+BOOTNODE="enode://${PUB}@${BOOTNODE_HOST}:${BASE_P2P}"
 PIDS=()
 
 cleanup() {
@@ -61,9 +66,9 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
     --genesis-file="${GENERATED}/genesis.json" \
     --data-path="${node}" \
     --node-private-key-file="${KEYS[$i]}" \
-    --p2p-host=127.0.0.1 --p2p-port=$((BASE_P2P + i)) \
+    --p2p-host="${P2P_HOST}" --p2p-port=$((BASE_P2P + i)) \
     --nat-method=NONE --bootnodes="${BOOTNODE}" \
-    --rpc-http-enabled --rpc-http-host=127.0.0.1 \
+    --rpc-http-enabled --rpc-http-host="${RPC_HOST}" \
     --rpc-http-port=$((BASE_RPC + i)) \
     --rpc-http-api=ETH,NET,WEB3,ADMIN --host-allowlist='*' \
     --min-gas-price=0 --logging=INFO > "${node}/besu.log" 2>&1 < /dev/null &
@@ -71,7 +76,18 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
   sleep 2
 done
 
+for ((i=0; i<ACTIVE_COUNT; i++)); do
+  port=$((BASE_RPC + i))
+  for attempt in {1..30}; do
+    if curl -fsS --max-time 2 -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' "http://${RPC_HOST}:${port}" >/dev/null 2>&1; then break; fi
+    if (( attempt == 30 )); then echo "RPC health check failed for ${RPC_HOST}:${port}" >&2; exit 1; fi
+    sleep 1
+  done
+done
+
 echo "Besu smoke network started: ${RUN_ROOT}"
-echo "RPC endpoints: http://127.0.0.1:${BASE_RPC} through http://127.0.0.1:$((BASE_RPC + ACTIVE_COUNT - 1))"
-echo "This is infrastructure-only QBFT smoke testing, not BEL consensus validation."
+echo "Protocol fixture: ${VALIDATOR_COUNT} generated validator keys; active smoke nodes: ${ACTIVE_COUNT}"
+echo "RPC endpoints: http://${RPC_HOST}:${BASE_RPC} through http://${RPC_HOST}:$((BASE_RPC + ACTIVE_COUNT - 1))"
+echo "P2P host: ${P2P_HOST}; bootnode: ${BOOTNODE}"
+echo "This launcher validates node startup/peering only; custom BEL QBFT lifecycle requires the external Besu runtime."
 wait

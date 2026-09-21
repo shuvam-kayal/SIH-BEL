@@ -28,7 +28,7 @@ export class MockBlockchainAdapter implements BlockchainService {
     this.txCounter += 1;
     this.submitted.push(tx);
     this.record(tx);
-    const event = tx.type === "VALIDATOR_ADD" ? "ValidatorAdded" : tx.type === "VALIDATOR_REMOVE" ? "ValidatorRemoved" : tx.type === "VALIDATOR_RESTORE" ? "ValidatorRestored" : undefined;
+    const event = tx.type === "VALIDATOR_ADD" ? "ValidatorAdded" : tx.type === "VALIDATOR_REMOVE" ? "ValidatorRemoved" : tx.type === "VALIDATOR_RESTORE" ? "ValidatorRestored" : tx.type === "VALIDATOR_REMOVE_CANCEL" ? "ValidatorRemovalCancelled" : undefined;
     return { txId: tx.txId || `mock-tx-${this.txCounter}`, transactionHash: `0xmock${this.txCounter}`, blockNumber: 42 + this.txCounter, event, status: "SUCCESS" as const };
   }
 

@@ -59,6 +59,7 @@ describe("buildCallPlan: every transaction type maps to its CONTRACT_SPEC functi
     ["VALIDATOR_ADD", { validatorId: W1, publicKey: "pub", signingPublicKey: "sign", activationHeight: 20 }, "ValidatorRegistry", "addValidator", [W1, "pub", "sign", 20]],
     ["VALIDATOR_REMOVE", { validatorId: W1, removalHeight: 30, reason: "retire" }, "ValidatorRegistry", "removeValidator", [W1, 30, "retire"]],
     ["VALIDATOR_RESTORE", { validatorId: W1, reason: "recover" }, "ValidatorRegistry", "restoreValidator", [W1, "recover"]],
+    ["VALIDATOR_REMOVE_CANCEL", { validatorId: W1, reason: "cancel" }, "ValidatorRegistry", "cancelScheduledRemoval", [W1, "cancel"]],
   ];
 
   it("covers every frozen TransactionType", () => {
