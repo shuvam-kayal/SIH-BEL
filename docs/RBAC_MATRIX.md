@@ -19,6 +19,7 @@ only if explicitly authorized for that specific asset/job), or `own`
 | Transfer asset | ✅ | ✅ | auth | ❌ | ❌ | ❌ | ❌ |
 | View audit history | ✅ | ✅ | ✅ | own | ✅ | ❌ | ✅ |
 | View validator/committee status | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Manage validators (add/remove/restore) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ## Conditional authorization semantics
 
@@ -36,6 +37,9 @@ with the maintenance-verification step alongside Manager/Engineer/Auditor.
 **This mapping is frozen for base-v1. Any change requires an ADR and synchronized changes to shared/rbac plus contract tests.**
 
 ## Lifecycle enforcement notes
+
+Application validator governance is an ADMIN-only action. The consensus
+committee remains a QBFT/Besu runtime concept and is not an application role.
 
 - A `PENDING` identity cannot perform normal protected operations or establish an active session.
 - A role is authoritative only after administrator verification/assignment; employee-provided onboarding data never grants a role or privilege.

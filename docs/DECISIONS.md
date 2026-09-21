@@ -264,3 +264,10 @@ testing.
 **Decision:** The managed authenticator controls local user verification and authorizes use of the device-held private key. BEL authentication remains the backend-issued challenge, device signature, public-key verification, and bearer-session protocol.
 **Why:** Device PINs, Windows Hello, biometrics, security keys, and other approved modalities are platform-specific and must not become a BEL application PIN or cross the API boundary.
 **Consequences:** The frontend transports challenge proofs but never collects or receives local verification data or private-key material. High-impact operations use the existing short-lived, single-use, session/operation/resource-bound fresh-auth proof.
+## Validator governance rework
+
+BEL ADMIN is the sole application authority for validator lifecycle changes.
+No validator governance or approval committee is modeled. Bootstrap validators
+remain permanent infrastructure validators under the existing contract
+invariant. Recovery clears the current removal boundary through a new RESTORE
+transaction and never rewrites history.

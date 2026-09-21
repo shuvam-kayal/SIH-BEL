@@ -102,7 +102,7 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
       rpcUrl,
       deployment: {
         network: "vitest", chainId: 31337,
-        contracts: { IdentityRegistry: addrs[0], RoleRegistry: addrs[1], AssetRegistry: addrs[2], JobManager: addrs[3], AuditRegistry: auditAddr },
+        contracts: { IdentityRegistry: addrs[0], RoleRegistry: addrs[1], AssetRegistry: addrs[2], JobManager: addrs[3], AuditRegistry: auditAddr, ValidatorRegistry: auditAddr },
       },
       abis: loadAbis(),
       confirmations: 1,

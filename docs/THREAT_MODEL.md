@@ -26,6 +26,15 @@ This document expands `SYSTEM_SPEC.md` security assumptions into concrete threat
 
 ## Threats and mitigations
 
+Validator governance threats include rogue administrators, unauthorized add,
+remove, or restore operations, cross-operation fresh-auth replay,
+database/blockchain divergence, duplicate operations, notification spoofing,
+and notification delivery failure. Mitigations are ADMIN-only
+`MANAGE_VALIDATORS`, short-lived single-use session/resource-bound fresh auth,
+blockchain-first receipt/event confirmation, append-only on-chain and
+application history, inverse RESTORE transactions, reconciliation, and
+authenticated notification delivery. Blockchain history is never deleted.
+
 | # | Threat | Current mitigation / remaining gap | Owner |
 |---|---|---|---|
 | T1 | Private key exfiltrated from a managed workstation | The backend accepts/stores public key material and signatures only; the private key remains on the device. Hardware-backed storage is future device-side work. | Person 1 + Person 6 + infra |

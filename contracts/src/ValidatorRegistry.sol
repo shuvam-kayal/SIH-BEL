@@ -5,10 +5,10 @@ import { BelAccess } from "./BelAccess.sol";
 import { BelRoles } from "./BelRoles.sol";
 import { IValidatorRegistry } from "./IValidatorRegistry.sol";
 
-/// @notice Canonical governance state for validators admitted after genesis.
-/// Besu reads getValidators() in validator-contract mode at the block being
-/// evaluated. Genesis validators remain in the QBFT bootstrap set; this
-/// registry contributes approved validators and enforces height boundaries.
+/// @notice Canonical application-managed validator state after genesis.
+/// Bootstrap validators are permanent infrastructure validators. They remain
+/// in the QBFT bootstrap set and cannot be removed by application governance.
+/// Every ADD, REMOVE, and RESTORE is an event; no prior operation is deleted.
 contract ValidatorRegistry is BelAccess, IValidatorRegistry {
     error InvalidValidator();
     error AlreadyRegistered(address validator);
@@ -23,8 +23,9 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
     address[] private _bootstrapValidators;
     mapping(address => bool) private _isBootstrap;
 
-    event ValidatorRegistered(address indexed validator, uint64 activationHeight, string publicKey, string signingPublicKey);
-    event ValidatorRemovalScheduled(address indexed validator, uint64 removalHeight, string reason);
+    event ValidatorAdded(address indexed validator, uint64 activationHeight, string publicKey, string signingPublicKey);
+    event ValidatorRemoved(address indexed validator, uint64 removalHeight, string reason);
+    event ValidatorRestored(address indexed validator, uint64 previousRemovalHeight, string reason);
 
     constructor(uint256 minimumPopulation_, address[] memory bootstrapValidators) {
         if (minimumPopulation_ == 0 || bootstrapValidators.length < minimumPopulation_) revert InvalidHeight();
@@ -37,7 +38,7 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
         }
     }
 
-    function registerValidator(
+    function addValidator(
         address validator,
         string calldata publicKey,
         string calldata signingPublicKey,
@@ -56,11 +57,11 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
         current.removalHeight = 0;
         current.registeredAt = uint64(block.number);
         _validators.push(validator);
-        emit ValidatorRegistered(validator, activationHeight, publicKey, signingPublicKey);
-        _audit("VALIDATOR", _id(validator), "VALIDATOR_REGISTER");
+        emit ValidatorAdded(validator, activationHeight, publicKey, signingPublicKey);
+        _audit("VALIDATOR", _id(validator), "VALIDATOR_ADD");
     }
 
-    function scheduleRemoval(address validator, uint64 removalHeight, string calldata reason)
+    function removeValidator(address validator, uint64 removalHeight, string calldata reason)
         external onlyRoles(BelRoles.ADMIN)
     {
         ValidatorRecord storage current = _records[validator];
@@ -69,8 +70,23 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
         if (_isBootstrap[validator]) revert InvalidValidator();
         if (validatorCountAt(removalHeight) < minimumPopulation) revert PopulationBelowMinimum(removalHeight, validatorCountAt(removalHeight));
         current.removalHeight = removalHeight;
-        emit ValidatorRemovalScheduled(validator, removalHeight, reason);
+        emit ValidatorRemoved(validator, removalHeight, reason);
         _audit("VALIDATOR", _id(validator), "VALIDATOR_REMOVE");
+    }
+
+    /// @notice Inverse recovery operation. It clears only the current
+    /// effective boundary; the prior ValidatorRemoved event remains on-chain.
+    function restoreValidator(address validator, string calldata reason)
+        external onlyRoles(BelRoles.ADMIN)
+    {
+        ValidatorRecord storage current = _records[validator];
+        if (!current.registered) revert NotRegistered(validator);
+        if (_isBootstrap[validator]) revert InvalidValidator();
+        if (current.removalHeight == 0) revert AlreadyRegistered(validator);
+        uint64 previousRemovalHeight = current.removalHeight;
+        current.removalHeight = 0;
+        emit ValidatorRestored(validator, previousRemovalHeight, reason);
+        _audit("VALIDATOR", _id(validator), "VALIDATOR_RESTORE");
     }
 
     function getValidators() external view returns (address[] memory) {

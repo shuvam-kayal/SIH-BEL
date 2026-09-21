@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { AuthorizationGrant, Device, Identity, User, Wallet, ValidatorRegistration } from "../../../shared/types";
+import type { AuthorizationGrant, Device, Identity, User, Wallet, ValidatorRegistration, ValidatorHistoryRecord, NotificationDelivery } from "../../../shared/types";
 
 export type SessionRecord = { token: string; identityId: string; deviceId: string; walletAddress: string; expiresAt: number };
 export const hashCredential = (credential: string): string => createHash("sha256").update(credential).digest("hex");
@@ -17,6 +17,8 @@ export class IdentityStore {
   readonly sessions = new Map<string, SessionRecord>();
   readonly grants = new Map<string, AuthorizationGrant>();
   readonly validators = new Map<string, ValidatorRegistration>();
+  readonly validatorHistory = new Map<string, ValidatorHistoryRecord>();
+  readonly notifications = new Map<string, NotificationDelivery>();
 
   nextIdentityId(): string {
     return `DID:BEL:${randomUUID()}`;
@@ -46,6 +48,8 @@ export class IdentityStore {
     this.sessions.clear();
     this.grants.clear();
     this.validators.clear();
+    this.validatorHistory.clear();
+    this.notifications.clear();
   }
 }
 

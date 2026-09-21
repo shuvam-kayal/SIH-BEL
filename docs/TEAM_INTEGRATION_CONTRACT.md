@@ -41,3 +41,9 @@ This contract describes the current Person 1 prototype boundary. It does not cla
 The backend has an explicit fail-closed attestation seam and cryptographic proof verification. The mock/rejecting adapters are test/development behavior only. A real BEL device-management/MDM and network/VPN integration, plus secure hardware-backed key storage, remain external deployment work.
 
 The user interacts with **Sign In**, **Approve**, or **Confirm**. The device authenticator handles local user verification and private-key use. The frontend transports the resulting cryptographic proof to the backend; it does not implement or receive the user's device PIN, biometric data, private key, seed, or mnemonic.
+Validator integration boundary: backend validator mutations submit
+`VALIDATOR_ADD`, `VALIDATOR_REMOVE`, or `VALIDATOR_RESTORE` and require the
+expected receipt/event before persistence. `BelValidatorProvider` or a custom
+Besu validator-population bridge is not present in this repository; the EVM
+adapter's consensus source remains an explicit external seam. Do not claim
+application registry state proves live QBFT membership without that runtime.

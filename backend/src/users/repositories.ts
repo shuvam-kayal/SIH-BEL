@@ -1,4 +1,4 @@
-import type { AuthorizationGrant, Device, Identity, ProvisioningChallenge, User, Wallet, ValidatorRegistration } from "../../../shared/types";
+import type { AuthorizationGrant, Device, Identity, ProvisioningChallenge, User, Wallet, ValidatorRegistration, ValidatorHistoryRecord, NotificationDelivery } from "../../../shared/types";
 import type { SessionRecord } from "./identity.store";
 
 /** Persistence ports. Domain services should depend on these ports when the
@@ -12,6 +12,8 @@ export interface SessionRepository { find(token: string): Promise<SessionRecord 
 export interface AuthorizationGrantRepository { findById(id: string): Promise<AuthorizationGrant | null>; listByIdentityId(identityId: string): Promise<AuthorizationGrant[]>; save(grant: AuthorizationGrant): Promise<void>; }
 
 export interface ValidatorRepository { findById(id: string): Promise<ValidatorRegistration | null>; findByValidatorId(id: string): Promise<ValidatorRegistration | null>; list(): Promise<ValidatorRegistration[]>; save(registration: ValidatorRegistration): Promise<void>; }
+export interface ValidatorHistoryRepository { list(): Promise<ValidatorHistoryRecord[]>; append(record: ValidatorHistoryRecord): Promise<void>; }
+export interface NotificationRepository { list(): Promise<NotificationDelivery[]>; append(record: NotificationDelivery): Promise<void>; }
 export interface ProvisioningChallengeRepository {
   findById(id: string): Promise<ProvisioningChallenge | null>;
   save(challenge: ProvisioningChallenge): Promise<void>;
@@ -29,5 +31,7 @@ export type IdentityRepositories = {
   grants: AuthorizationGrantRepository;
   challenges: ProvisioningChallengeRepository;
   validators: ValidatorRepository;
+  validatorHistory: ValidatorHistoryRepository;
+  notifications: NotificationRepository;
 };
 

@@ -141,12 +141,38 @@ model ValidatorRegistration {
   signingPublicKey String
   status String
   requestedAt DateTime
-  approvedAt DateTime?
-  approvedBy String?
-  activationHeight Int?
+  activationHeight Int
   removalHeight Int?
-  removedAt DateTime?
   removalReason String?
+  txHash String?
+  blockNumber Int?
+}
+model ValidatorHistory {
+  historyId String @id
+  validatorId String
+  operation String
+  actorIdentityId String
+  actorWallet String
+  timestamp DateTime
+  blockNumber Int?
+  transactionHash String?
+  previousState String?
+  newState String
+  reason String?
+  status String
+  inverseTransactionHash String?
+  @@index([validatorId, timestamp])
+}
+model NotificationDelivery {
+  notificationId String @id
+  eventType String
+  validatorId String
+  operation String
+  recipientIdentityId String
+  channel String
+  createdAt DateTime
+  status String
+  @@index([validatorId, createdAt])
 }
 model AssetRecord {
   assetId String @id

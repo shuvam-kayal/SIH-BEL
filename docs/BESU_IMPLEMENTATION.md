@@ -188,3 +188,11 @@ validator set, leader, and quorum inputs through the existing interfaces.
 The end-to-end demonstration profile defaults to 70 logical validators. This keeps
 the frozen normal rule `N >= 70` and permits the minimum-70 committee fallback.
 It must not be reduced to four validators without changing the protocol profile.
+## Repository boundary
+
+The custom Besu Java implementation referenced below is not present in this
+repository. The launcher and `validatorcontractaddress` configuration are
+available, but `BelValidatorProvider`, proposer selection, evidence, and the
+custom QBFT controller cannot be verified here. Contract/EVM tests therefore
+prove application transaction mapping only; they do not prove live dynamic
+Besu validator membership or consensus finality.

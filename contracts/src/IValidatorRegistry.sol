@@ -18,5 +18,8 @@ interface IValidatorRegistry {
     function signingPublicKeyOf(address validator) external view returns (string memory);
     function activationHeightOf(address validator) external view returns (uint64);
     function removalHeightOf(address validator) external view returns (uint64);
+    function addValidator(address validator, string calldata publicKey, string calldata signingPublicKey, uint64 activationHeight) external;
+    function removeValidator(address validator, uint64 removalHeight, string calldata reason) external;
+    function restoreValidator(address validator, string calldata reason) external;
 }
 

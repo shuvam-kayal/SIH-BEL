@@ -92,3 +92,6 @@ Direct JavaScript dependencies are pinned in the package manifests, and the repo
 ## Clean-clone rule
 
 The repository must contain source/config/specification only. Never commit `node_modules`, local build output, caches, secrets, or generated editor files.
+Validator governance is ADMIN-only and separate from QBFT consensus committee
+selection. Lifecycle history is immutable and recovery is represented by an
+inverse on-chain RESTORE event.

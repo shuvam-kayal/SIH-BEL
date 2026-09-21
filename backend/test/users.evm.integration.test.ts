@@ -87,7 +87,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     for (const contract of [identity, roles, assets, jobs]) await mined((await contract.getFunction("wire")(addresses[0], addresses[1], auditAddress)).hash);
     return {
       rpcUrl: `http://127.0.0.1:${port}`,
-      deployment: { network: "p1-vitest", chainId: 31337, contracts: { IdentityRegistry: addresses[0], RoleRegistry: addresses[1], AssetRegistry: addresses[2], JobManager: addresses[3], AuditRegistry: auditAddress } },
+      deployment: { network: "p1-vitest", chainId: 31337, contracts: { IdentityRegistry: addresses[0], RoleRegistry: addresses[1], AssetRegistry: addresses[2], JobManager: addresses[3], AuditRegistry: auditAddress, ValidatorRegistry: auditAddress } },
       abis: loadAbis(), confirmations: 1, txTimeoutMs: 20_000, pollingIntervalMs: 25,
       devSignerKeys: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(key),
     };

@@ -90,3 +90,9 @@ An administrator can revoke a wallet for loss, compromise, or replacement. Revoc
 - Roles belong to persistent identity, not wallet
 - Sensitive documents are OFF-chain
 - Blockchain stores hashes/references, not classified content
+## Validator governance
+
+Validator add, scheduled removal, and restore are direct ADMIN operations.
+Application governance has no validator approval committee. QBFT/Besu consensus
+committee selection remains a protocol/runtime concern. Validator lifecycle
+history is append-only; RESTORE is a new inverse blockchain transaction.

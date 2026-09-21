@@ -47,3 +47,10 @@ export class ValidationError extends HttpError {
     this.name = "ValidationError";
   }
 }
+
+export class ConflictError extends HttpError {
+  constructor(message = "The requested state transition conflicts with current state") {
+    super(409, message, "CONFLICT");
+    this.name = "ConflictError";
+  }
+}

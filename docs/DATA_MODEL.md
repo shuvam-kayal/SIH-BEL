@@ -224,3 +224,7 @@ Job       1---N  AuditEvent
 Asset     1---N  AuditEvent
 Validator N---N  Block         (via committee)
 ```
+Validator application state is a projection of successful on-chain ADD,
+REMOVE, and RESTORE transactions. `ValidatorHistory` is append-only and keeps
+actor, wallet, transaction hash, block, previous/new state, and result. The
+chain event is authoritative; PostgreSQL fields are indexed operational state.

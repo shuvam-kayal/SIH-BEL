@@ -2,10 +2,12 @@
 // the same RBAC matrix the backend enforces. Person 6 should extend
 // these per page rather than replace them.
 
-import { describe, expect, it } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../src/App";
+
+afterEach(() => cleanup());
 
 describe("App shell", () => {
   it("shows the managed-device gate before sign-in", () => {

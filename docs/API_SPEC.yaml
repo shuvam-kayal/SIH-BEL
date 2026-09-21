@@ -891,6 +891,43 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Validator'
+  /admin/validators:
+    get:
+      summary: List validators for the ADMIN validator-management page
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Current validator registrations }
+        '403': { description: Requires MANAGE_VALIDATORS (ADMIN only) }
+    post:
+      summary: Add a validator after receipt/event confirmation
+      security: [{ bearerAuth: [] }]
+      description: Requires MANAGE_VALIDATORS and a single-use fresh-auth proof bound to VALIDATOR_ADD and validatorId.
+      responses:
+        '201': { description: Validator registration and transaction metadata }
+        '401': { description: Missing or invalid fresh authentication }
+        '403': { description: ADMIN only }
+        '409': { description: Duplicate/current-state conflict }
+  /admin/validators/history:
+    get:
+      summary: Read append-only validator lifecycle history
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Chronological ADD, REMOVE, and RESTORE records }
+  /admin/validators/{id}/remove:
+    post:
+      summary: Schedule validator removal
+      security: [{ bearerAuth: [] }]
+      description: Requires fresh auth bound to VALIDATOR_REMOVE and the validator id. The chain transaction precedes database state.
+      responses:
+        '200': { description: Removed validator state and transaction metadata }
+        '409': { description: Duplicate or invalid lifecycle transition }
+  /admin/validators/{id}/restore:
+    post:
+      summary: Restore a removed validator with an inverse transaction
+      security: [{ bearerAuth: [] }]
+      description: Requires fresh auth bound to VALIDATOR_RESTORE and the validator id. Prior REMOVE history is never deleted.
+      responses:
+        '200': { description: Active validator state and restore transaction metadata }
   /blockchain/committee/{height}:
     get:
       parameters:

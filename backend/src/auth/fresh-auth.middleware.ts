@@ -14,7 +14,7 @@ export function freshAuthRequired(operation: string): boolean {
   const configured = process.env.BEL_FRESH_AUTH_REQUIRED_ACTIONS;
   if (configured !== undefined) return configured.split(",").map((value) => value.trim()).filter(Boolean).includes(operation);
   return process.env.BEL_ENV === "production" && [
-    "WALLET_ACTIVATE", "WALLET_REVOKE", "ROLE_ASSIGN", "GRANT_CREATE", "GRANT_REVOKE", "ASSET_TRANSFER", "JOB_VERIFY",
+    "WALLET_ACTIVATE", "WALLET_REVOKE", "ROLE_ASSIGN", "GRANT_CREATE", "GRANT_REVOKE", "ASSET_TRANSFER", "JOB_VERIFY", "VALIDATOR_ADD", "VALIDATOR_REMOVE", "VALIDATOR_RESTORE",
   ].includes(operation);
 }
 

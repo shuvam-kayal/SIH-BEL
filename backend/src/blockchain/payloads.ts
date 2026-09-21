@@ -22,8 +22,9 @@
 // | JOB_ASSIGN                             | JobManager.assignJob                | jobId, technicianId (DID or address; alias technicianWallet)     |
 // | JOB_START / JOB_APPROVE                | JobManager.startJob/approveJob      | jobId                                                            |
 // | JOB_COMPLETE                           | JobManager.completeJob              | jobId, evidenceHash (32-byte hex, with or without 0x)            |
-// | VALIDATOR_REGISTER / VALIDATOR_ACTIVATE | ValidatorRegistry.registerValidator | validatorId, publicKey, signingPublicKey, activationHeight |
-// | VALIDATOR_REMOVE                      | ValidatorRegistry.scheduleRemoval | validatorId, removalHeight, reason |
+// | VALIDATOR_ADD                          | ValidatorRegistry.addValidator | validatorId, publicKey, signingPublicKey, activationHeight |
+// | VALIDATOR_REMOVE                       | ValidatorRegistry.removeValidator | validatorId, removalHeight, reason |
+// | VALIDATOR_RESTORE                      | ValidatorRegistry.restoreValidator | validatorId, reason |
 // | JOB_REJECT                             | JobManager.rejectJob                | jobId, reason                                                    |
 // | GRANT_CREATE / GRANT_REVOKE             | AssetRegistry.setTransferGrant     | assetId, actorIdentityId, authorizationGrantId, expiresAt       |
 //
@@ -129,21 +130,25 @@ export async function buildCallPlan(tx: Transaction, lookups: ChainLookups): Pro
   const wallet = ["walletAddress", "address", "wallet"];
 
   switch (type) {
-    case "VALIDATOR_REGISTER":
-    case "VALIDATOR_ACTIVATE": {
+    case "VALIDATOR_ADD": {
       const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
       const publicKey = str(type, p, ["publicKey"]);
       const signingPublicKey = str(type, p, ["signingPublicKey"]);
       const activationHeight = p.activationHeight;
       if (!(typeof activationHeight === "number" && Number.isSafeInteger(activationHeight) && activationHeight > 0)) invalid(type, "payload.activationHeight must be a positive integer");
-      return { contract: "ValidatorRegistry", method: "registerValidator", args: [validator, publicKey, signingPublicKey, activationHeight] };
+      return { contract: "ValidatorRegistry", method: "addValidator", args: [validator, publicKey, signingPublicKey, activationHeight] };
     }
     case "VALIDATOR_REMOVE": {
       const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
       const removalHeight = p.removalHeight;
       if (!(typeof removalHeight === "number" && Number.isSafeInteger(removalHeight) && removalHeight > 0)) invalid(type, "payload.removalHeight must be a positive integer");
-      return { contract: "ValidatorRegistry", method: "scheduleRemoval", args: [validator, removalHeight, str(type, p, ["reason"])] };
-    }    case "IDENTITY_CREATE":
+      return { contract: "ValidatorRegistry", method: "removeValidator", args: [validator, removalHeight, str(type, p, ["reason"])] };
+    }
+    case "VALIDATOR_RESTORE": {
+      const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
+      return { contract: "ValidatorRegistry", method: "restoreValidator", args: [validator, str(type, p, ["reason"])] };
+    }
+    case "IDENTITY_CREATE":
     case "IDENTITY_REGISTER":
     case "WALLET_REGISTER":
       return {
