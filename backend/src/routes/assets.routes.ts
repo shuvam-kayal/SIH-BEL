@@ -4,6 +4,7 @@ import { Router } from "express";
 import type { Container } from "../container";
 import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
+import { requireFreshAuthentication } from "../auth/fresh-auth.middleware";
 import { NotFoundError, ValidationError } from "../errors";
 import type { AuthorizationGrant } from "../../../shared/types";
 
@@ -54,6 +55,7 @@ export function assetsRouter(c: Container): Router {
   router.post(
     "/assets/:id/transfer",
     requireSession,
+    requireFreshAuthentication(c.auth, "ASSET_TRANSFER", (req) => req.params.id),
     requirePermission("TRANSFER_ASSET", async (req) => {
       const asset = await c.assets.getById(req.params.id);
       const grants = asset

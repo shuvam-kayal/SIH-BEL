@@ -188,6 +188,8 @@ export class UsersServiceImpl implements UsersService {
     const device = (await this.repositories.devices.listByIdentityId(identity.identityId)).find((item) => item.status === "PENDING");
     const wallet = (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "PENDING");
     if (!device || !wallet) throw new ConflictError("Pending device and wallet are required");
+    if (!wallet.publicKey || !device.publicKey || wallet.publicKey !== device.publicKey) throw new ForbiddenError("Wallet public key is not bound to the registered device");
+    this.validateEvmWalletBinding(wallet.address, wallet.publicKey);
     // The chain owns the activation transition. Keep all PostgreSQL records
     // pending until the complete on-chain sequence has been confirmed.
     await this.ensureIdentityCreated(actor, identity, wallet.address);

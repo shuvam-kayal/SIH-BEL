@@ -23,9 +23,11 @@ This contract describes the current Person 1 prototype boundary. It does not cla
 - The user-facing flow is: device eligibility → Initialize Account → employee details → local key generation → public proof submission → Pending Verification → admin activation.
 - The browser must never receive, paste, or store the private key. The device-side wallet/security interface owns key generation and signing.
 - `managedDevice`, `onBelNetwork`, hostname, MAC, IP, and VPN fields are evidence only. The backend's `DeviceAttestationAdapter` result controls eligibility.
-- Login is a transparent device protocol: the user clicks Sign In; the device requests a challenge, signs locally, and submits proof. The user does not manually enter challenge IDs, signatures, or public keys.
+- Login is a transparent device protocol: the user clicks **Sign In**; the frontend/device wallet requests `/auth/login-challenge`, the managed authenticator performs local user verification, the device signs locally, and the frontend transports the resulting `LoginProofRequest` to `/auth/login`. The backend returns `Session { user, token }`, and the frontend uses `Authorization: Bearer <token>`. The user does not manually enter challenge IDs, signatures, or public keys.
+- Local device verification is controlled by the authenticator/platform and may use a device PIN, Windows Hello, fingerprint, face, hardware authenticator, or another approved modality. It is not a BEL application PIN. The backend receives only the public-key proof; it never receives the local PIN, biometric data, private key, seed, or mnemonic.
+- For high-impact operations, a bearer session may not be enough. The device obtains `/auth/fresh-challenge`, performs local verification, signs the short-lived one-time proof bound to the session, operation, and resource, and the frontend sends that proof through the existing protected-operation request. The frontend does not implement key storage or local verification.
 - The active dashboard is available only after identity, device, and wallet are ACTIVE.
-- `walletAddress` must correspond to the submitted device-generated `publicKey`. This binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; no blockchain-specific derivation is assumed by this contract.
+- For EVM, `walletAddress` must equal the address derived from the canonical secp256k1 `publicKey` (`X || Y`, without the SEC1 prefix). The backend rejects malformed or mismatched pairs before activation and relevant authentication flows; this is cryptographically validated by the wallet/blockchain integration adapter before activation. Other wallet/signature schemes require their own binding rules.
 
 ## Persons 2 and 3 — assets and jobs
 
@@ -36,4 +38,6 @@ This contract describes the current Person 1 prototype boundary. It does not cla
 
 ## Current prototype boundary
 
-The backend has a mock/rejecting attestation seam and cryptographic proof verification. A real BEL device-management/VPN integration and secure hardware-backed key storage are future deployment work.
+The backend has an explicit fail-closed attestation seam and cryptographic proof verification. The mock/rejecting adapters are test/development behavior only. A real BEL device-management/MDM and network/VPN integration, plus secure hardware-backed key storage, remain external deployment work.
+
+The user interacts with **Sign In**, **Approve**, or **Confirm**. The device authenticator handles local user verification and private-key use. The frontend transports the resulting cryptographic proof to the backend; it does not implement or receive the user's device PIN, biometric data, private key, seed, or mnemonic.

@@ -100,7 +100,7 @@ IntegrityAdapter
 Permissioned blockchain integration
 ```
 
-PostgreSQL is mutable operational state. The blockchain is the tamper-evident historical/integrity layer. The device private key never leaves the managed device. The current `DeviceAttestationAdapter` is an abstraction with mock/rejecting implementations; it is not proof that production hardware attestation or secure-enclave storage exists.
+PostgreSQL is mutable operational state. The blockchain is the tamper-evident historical/integrity layer. The device private key never leaves the managed device. The current `ManagedDeviceAttestationProvider`/`DeviceAttestationAdapter` seam has mock and rejecting implementations; it is not proof that production hardware attestation or secure-enclave storage exists. The EVM deployment enforces the canonical wallet/public-key binding during provisioning, activation, login, and session validation. Fresh authentication is a separate, configurable proof layer for high-impact operations.
 
 ## Why this shape
 
