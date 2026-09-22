@@ -1,0 +1,4 @@
+[submodule "besu"]
+	path = besu
+	url = https://github.com/Arpit-69-glitch/besu.git
+	branch = feat/poa
