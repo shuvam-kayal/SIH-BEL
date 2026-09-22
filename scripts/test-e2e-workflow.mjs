@@ -107,10 +107,15 @@ const wallets = [HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0"
 const admin = wallets[0];
 const publicKey = `0x${admin.signingKey.publicKey.slice(4)}`;
 const e2eKeys = wallets.map((wallet) => wallet.privateKey);
+const validatorEnv = Object.fromEntries(
+  Array.from({ length: 70 }, (_, index) => [`BEL_BOOTSTRAP_VALIDATOR_${index}`, env[`BEL_BOOTSTRAP_VALIDATOR_${index}`]])
+    .filter(([, value]) => value),
+);
 runForge(["script", "script/Deploy.s.sol:DeployScript", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
   BEL_NETWORK: "local",
   BEL_BOOTSTRAP_ADMIN_WALLET: admin.address,
   BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",
+  ...validatorEnv,
 });
 for (const wallet of wallets.slice(1)) {
   const funding = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_setBalance", params: [wallet.address, "0x56BC75E2D63100000"] }) });

@@ -24,9 +24,11 @@ const findAnvil = (): string | null => {
   return candidates.find((candidate) => spawnSync(candidate, ["--version"], { stdio: "ignore" }).status === 0) ?? null;
 };
 const anvilBin = findAnvil();
+const configuredRpcUrl = process.env.BEL_EVM_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim();
+const useExternalNode = Boolean(configuredRpcUrl);
 const haveArtifacts = existsSync(resolve(OUT, "JobManager.sol/JobManager.json"));
 const hasPostgres = Boolean(process.env.DATABASE_URL);
-const skipReason = !anvilBin ? "anvil not installed" : !haveArtifacts ? "contracts/out missing (run forge build)" : !hasPostgres ? "DATABASE_URL is not configured" : null;
+const skipReason = !useExternalNode && !anvilBin ? "no configured EVM RPC endpoint and local anvil is not installed" : !haveArtifacts ? "contracts/out missing (run forge build)" : !hasPostgres ? "DATABASE_URL is not configured" : null;
 if (skipReason) console.warn(`[users.evm.integration] SKIPPED: ${skipReason}`);
 
 const key = (index: number) => HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${index}`).privateKey;
@@ -45,16 +47,16 @@ const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, ac
 } as const);
 
 describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and PostgreSQL", () => {
-  let anvil: ChildProcess;
+  let anvil: ChildProcess | undefined;
   let provider: JsonRpcProvider;
   let adapter: EvmBlockchainAdapter;
   let container: Container;
   let config: EvmChainConfig;
   const previousBlockchain = process.env.BEL_BLOCKCHAIN;
   const previousEnvironment = process.env.BEL_ENV;
-  const adminDid = "DID:BEL:ADMIN";
   const badActorDid = "DID:BEL:P1-BAD-ACTOR";
   const runId = Date.now().toString(36);
+  const adminDid = `DID:BEL:P1-ADMIN-${runId}`;
   const adminEmployee = `P1-EVM-ADMIN-${runId}`;
   const badActorEmployee = `P1-EVM-BAD-${runId}`;
   const targetEmployee = `P1-EVM-TARGET-${runId}`;
@@ -68,7 +70,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     if (!(await waitForReceipt(provider, hash, 1, 20_000, 25))) throw new Error(`transaction ${hash} was not confirmed`);
   }
 
-  async function deployContracts(port: number): Promise<EvmChainConfig> {
+  async function deployContracts(rpcUrl: string): Promise<EvmChainConfig> {
     const deployer = new NonceManager(new EvmWallet(key(0), provider));
     const artifact = (name: string) => JSON.parse(readFileSync(resolve(OUT, `${name}.sol/${name}.json`), "utf8"));
     const deploy = async (name: string, ...args: unknown[]) => {
@@ -86,7 +88,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     const auditAddress = await audit.getAddress();
     for (const contract of [identity, roles, assets, jobs]) await mined((await contract.getFunction("wire")(addresses[0], addresses[1], auditAddress)).hash);
     return {
-      rpcUrl: `http://127.0.0.1:${port}`,
+      rpcUrl,
       deployment: { network: "p1-vitest", chainId: 31337, contracts: { IdentityRegistry: addresses[0], RoleRegistry: addresses[1], AssetRegistry: addresses[2], JobManager: addresses[3], AuditRegistry: auditAddress, ValidatorRegistry: auditAddress } },
       abis: loadAbis(), confirmations: 1, txTimeoutMs: 20_000, pollingIntervalMs: 25,
       devSignerKeys: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(key),
@@ -98,7 +100,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     const challenge = await container.users.requestProvisioningChallenge({ deviceId, deviceMetadata: { managedDevice: true, onBelNetwork: true } });
     const digest = hashMessage(challenge.challenge);
     const signature = new SigningKey(key(index)).sign(digest);
-    const compactSignature = `0x${signature.yParity}${signature.r.slice(2)}${signature.s.slice(2)}`;
+    const compactSignature = `0x${signature.yParity.toString(16).padStart(2, "0")}${signature.r.slice(2)}${signature.s.slice(2)}`;
     const pending = await container.users.initializeAccount({
       fullName: "P1 EVM Target", employeeId, department: "ENGINEERING", deviceId,
       publicKey: publicKey(key(index)), walletAddress: targetWallet.address, challengeId: challenge.challengeId, signature: compactSignature,
@@ -114,13 +116,14 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
 
   beforeAll(async () => {
     const port = 19545 + Math.floor(Math.random() * 1000);
-    anvil = spawn(anvilBin!, ["--port", String(port), "--silent"], { stdio: "ignore" });
-    provider = new JsonRpcProvider(`http://127.0.0.1:${port}`, 31337, { staticNetwork: true, pollingInterval: 50 });
+    const rpcUrl = configuredRpcUrl ?? `http://127.0.0.1:${port}`;
+    if (!useExternalNode) anvil = spawn(anvilBin!, ["--port", String(port), "--silent"], { stdio: "ignore" });
+    provider = new JsonRpcProvider(rpcUrl, 31337, { staticNetwork: true, pollingInterval: 50 });
     for (let attempt = 0; ; attempt++) {
       try { await provider.send("eth_chainId", []); break; }
       catch { if (attempt > 50) throw new Error("anvil did not start"); await new Promise((resolveDelay) => setTimeout(resolveDelay, 100)); }
     }
-    config = await deployContracts(port);
+    config = await deployContracts(rpcUrl);
     adapter = new EvmBlockchainAdapter(config, { provider });
     process.env.BEL_BLOCKCHAIN = "evm";
     process.env.BEL_ENV = "development";
@@ -150,7 +153,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
       await container.prisma.credential.deleteMany({ where: { deviceId: { in: deviceIds } } });
       await container.prisma.wallet.deleteMany({ where: { identityId: { in: identityIds } } });
       await container.prisma.device.deleteMany({ where: { deviceId: { in: deviceIds } } });
-      await container.prisma.user.deleteMany({ where: { employeeId: { in: employeeIds } } });
+      await container.prisma.user.deleteMany({ where: { OR: [{ employeeId: { in: employeeIds } }, { identityId: { in: identityIds } }] } });
       await container.prisma.identity.deleteMany({ where: { identityId: { in: identityIds } } });
       await container.prisma.$disconnect();
     }
