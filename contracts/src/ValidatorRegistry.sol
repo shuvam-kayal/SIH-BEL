@@ -67,10 +67,10 @@ contract ValidatorRegistry is BelAccess, IValidatorRegistry {
     function removeValidator(address validator, uint64 removalHeight, string calldata reason)
         external onlyRoles(BelRoles.ADMIN)
     {
+        if (_isBootstrap[validator]) revert InvalidValidator();
         ValidatorRecord storage current = _records[validator];
         if (!current.registered) revert NotRegistered(validator);
         if (removalHeight <= block.number || removalHeight <= current.activationHeight) revert InvalidHeight();
-        if (_isBootstrap[validator]) revert InvalidValidator();
         if (current.removalHeight != 0) revert RemovalAlreadyScheduled(validator);
         uint256 projectedPopulation = validatorCountAt(removalHeight) - 1;
         if (projectedPopulation < minimumPopulation) revert PopulationBelowMinimum(removalHeight, projectedPopulation);

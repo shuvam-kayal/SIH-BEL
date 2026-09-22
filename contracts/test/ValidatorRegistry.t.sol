@@ -14,18 +14,18 @@ contract ValidatorRegistryTest is Test {
         vm.prank(admin);
         d.validators.addValidator(candidate, "pub", "signing", uint64(block.number + 3));
         vm.roll(block.number + 2);
-        assertEq(d.validators.getValidators().length, 1);
+        assertEq(d.validators.getValidators().length, 70);
         vm.roll(block.number + 1);
-        assertEq(d.validators.getValidators().length, 2);
+        assertEq(d.validators.getValidators().length, 71);
         vm.prank(admin);
         d.validators.removeValidator(candidate, uint64(block.number + 3), "retire");
         vm.roll(block.number + 2);
-        assertEq(d.validators.getValidators().length, 2);
+        assertEq(d.validators.getValidators().length, 71);
         vm.roll(block.number + 1);
-        assertEq(d.validators.getValidators().length, 1);
+        assertEq(d.validators.getValidators().length, 70);
         vm.prank(admin);
         d.validators.restoreValidator(candidate, "recovery");
-        assertEq(d.validators.getValidators().length, 2);
+        assertEq(d.validators.getValidators().length, 71);
     }
 
     function testBootstrapValidatorsCannotBeRemoved() public {
@@ -61,7 +61,7 @@ contract ValidatorRegistryTest is Test {
         vm.prank(admin);
         d.validators.removeValidator(candidate, uint64(block.number + 5), "retire");
         vm.prank(admin);
-        vm.expectRevert(ValidatorRegistry.RemovalNotEffective.selector);
+        vm.expectRevert(abi.encodeWithSelector(ValidatorRegistry.RemovalNotEffective.selector, candidate));
         d.validators.restoreValidator(candidate, "too soon");
     }
 
