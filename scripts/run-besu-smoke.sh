@@ -11,10 +11,13 @@ BASE_RPC="${RPC_PORT:-8645}"
 P2P_HOST="${P2P_HOST:-${NODE_IP:-127.0.0.1}}"
 RPC_HOST="${RPC_HOST:-127.0.0.1}"
 BOOTNODE_HOST="${BOOTNODE_HOST:-${P2P_HOST}}"
+BOOTNODE_PORT="${BOOTNODE_PORT:-${BASE_P2P}}"
 MIN_PEERS="${BEL_SMOKE_MIN_PEERS:-1}"
+BLOCK_WAIT_SECONDS="${BEL_SMOKE_BLOCK_WAIT_SECONDS:-12}"
 if (( VALIDATOR_COUNT < 70 )); then echo "BEL smoke fixture requires the unchanged 70-validator protocol configuration." >&2; exit 1; fi
 if (( ACTIVE_COUNT != 4 )); then echo "BEL smoke fixture starts exactly four initial logical nodes." >&2; exit 1; fi
 if ! [[ "${MIN_PEERS}" =~ ^[0-9]+$ ]] || (( MIN_PEERS < 1 )); then echo "BEL_SMOKE_MIN_PEERS must be a positive integer." >&2; exit 1; fi
+if ! [[ "${BLOCK_WAIT_SECONDS}" =~ ^[0-9]+$ ]] || (( BLOCK_WAIT_SECONDS < 2 )); then echo "BEL_SMOKE_BLOCK_WAIT_SECONDS must be at least 2 seconds." >&2; exit 1; fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BESU="${ROOT}/besu/build/install/besu/bin/besu-untuned"
 RUN_ROOT="${ROOT}/.bel-demo/smoke-$(date +%Y%m%d-%H%M%S)"
@@ -53,7 +56,7 @@ EOF
 
 mapfile -t KEYS < <(find "${GENERATED}/keys" -mindepth 2 -maxdepth 2 -name key.priv | sort)
 PUB="$(tr -d '\r\n' < "$(dirname "${KEYS[0]}")/key.pub" | sed 's/^0x//')"
-BOOTNODE="enode://${PUB}@${BOOTNODE_HOST}:${BASE_P2P}"
+BOOTNODE="enode://${PUB}@${BOOTNODE_HOST}:${BOOTNODE_PORT}"
 PIDS=()
 
 cleanup() {
@@ -86,6 +89,33 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
     sleep 1
   done
 done
+
+initial_block=""
+for ((i=0; i<ACTIVE_COUNT; i++)); do
+  port=$((BASE_RPC + i))
+  response="$(curl -fsS --max-time 2 -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "http://${RPC_HOST}:${port}")" || { echo "Block-production RPC failed for ${RPC_HOST}:${port}" >&2; exit 1; }
+  block_hex="$(sed -nE 's/.*"result"[[:space:]]*:[[:space:]]*"(0x[0-9a-fA-F]+)".*/\1/p' <<<"${response}")"
+  if [[ -z "${block_hex}" ]]; then echo "Block-production check returned no eth_blockNumber result for ${RPC_HOST}:${port}: ${response}" >&2; exit 1; fi
+  block_digits="${block_hex#0x}"
+  block_number=$((16#${block_digits}))
+  if [[ -z "${initial_block}" || block_number -lt initial_block ]]; then initial_block="${block_number}"; fi
+done
+sleep "${BLOCK_WAIT_SECONDS}"
+minimum_block=""
+maximum_block=0
+for ((i=0; i<ACTIVE_COUNT; i++)); do
+  port=$((BASE_RPC + i))
+  response="$(curl -fsS --max-time 2 -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "http://${RPC_HOST}:${port}")" || { echo "Block synchronization RPC failed for ${RPC_HOST}:${port}" >&2; exit 1; }
+  block_hex="$(sed -nE 's/.*"result"[[:space:]]*:[[:space:]]*"(0x[0-9a-fA-F]+)".*/\1/p' <<<"${response}")"
+  if [[ -z "${block_hex}" ]]; then echo "Block synchronization check returned no eth_blockNumber result for ${RPC_HOST}:${port}: ${response}" >&2; exit 1; fi
+  block_digits="${block_hex#0x}"
+  block_number=$((16#${block_digits}))
+  if [[ -z "${minimum_block}" || block_number -lt minimum_block ]]; then minimum_block="${block_number}"; fi
+  if (( block_number > maximum_block )); then maximum_block="${block_number}"; fi
+done
+if (( minimum_block <= initial_block )); then echo "Block production check failed: height remained at ${initial_block}." >&2; exit 1; fi
+if (( maximum_block - minimum_block > 1 )); then echo "Block synchronization check failed: node heights ranged from ${minimum_block} to ${maximum_block}." >&2; exit 1; fi
+echo "Block production and synchronization verified: ${minimum_block}-${maximum_block}"
 
 for ((i=0; i<ACTIVE_COUNT; i++)); do
   port=$((BASE_RPC + i))

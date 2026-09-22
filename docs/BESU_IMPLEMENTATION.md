@@ -200,7 +200,8 @@ Besu validator membership or consensus finality.
 
 The checked-in `scripts/run-besu-smoke.sh` is a four-node execution fixture:
 it generates the unchanged 70-key protocol fixture and starts four logical
-nodes. It accepts `NODE_IP`, `P2P_HOST`, `P2P_PORT`, `RPC_HOST`, `RPC_PORT`,
-and `BOOTNODE_HOST` for VPN/private-network use. It is not a
-four-validator consensus profile and does not claim the 4→5→4 lifecycle
-without the external Besu artifact.
+nodes. It verifies RPC reachability, peer count, block production, and height
+convergence. It accepts `NODE_IP`, `P2P_HOST`, `P2P_PORT`, `RPC_HOST`,
+`RPC_PORT`, `BOOTNODE_HOST`, and `BOOTNODE_PORT` for VPN/private-network use.
+It is not a four-validator consensus profile and does not claim the 4→5→4
+lifecycle without the external Besu artifact.
