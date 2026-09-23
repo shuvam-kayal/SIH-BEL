@@ -2,10 +2,20 @@
 set -euo pipefail
 command -v setsid >/dev/null 2>&1 || { echo "This launcher requires a Linux environment with setsid (use WSL or native Linux)." >&2; exit 1; }
 
-# Infrastructure-only smoke test. This intentionally does not exercise BEL
-# committee selection: BEL's protocol minimum remains N >= 70.
-VALIDATOR_COUNT="${BEL_PROTOCOL_VALIDATOR_COUNT:-70}"
-ACTIVE_COUNT="${BEL_SMOKE_INITIAL_NODES:-4}"
+# Explicit runtime profile. The prototype profile changes only the generated
+# QBFT genesis fixture; it does not change BEL's application validator
+# governance or ValidatorRegistry.minimumPopulation(), which remain 70.
+PROFILE="${BEL_EXECUTION_PROFILE:-prototype}"
+if [[ "${PROFILE}" == "prototype" ]]; then
+  VALIDATOR_COUNT="${BEL_PROTOTYPE_QBFT_VALIDATOR_COUNT:-4}"
+  ACTIVE_COUNT="${BEL_SMOKE_INITIAL_NODES:-4}"
+elif [[ "${PROFILE}" == "production" ]]; then
+  VALIDATOR_COUNT="${BEL_PROTOCOL_VALIDATOR_COUNT:-70}"
+  ACTIVE_COUNT="${BEL_SMOKE_INITIAL_NODES:-70}"
+else
+  echo "BEL_EXECUTION_PROFILE must be production or prototype." >&2
+  exit 1
+fi
 BASE_P2P="${P2P_PORT:-31303}"
 BASE_RPC="${RPC_PORT:-8645}"
 P2P_HOST="${P2P_HOST:-${NODE_IP:-127.0.0.1}}"
@@ -14,8 +24,9 @@ BOOTNODE_HOST="${BOOTNODE_HOST:-${P2P_HOST}}"
 BOOTNODE_PORT="${BOOTNODE_PORT:-${BASE_P2P}}"
 MIN_PEERS="${BEL_SMOKE_MIN_PEERS:-1}"
 BLOCK_WAIT_SECONDS="${BEL_SMOKE_BLOCK_WAIT_SECONDS:-12}"
-if (( VALIDATOR_COUNT < 70 )); then echo "BEL smoke fixture requires the unchanged 70-validator protocol configuration." >&2; exit 1; fi
-if (( ACTIVE_COUNT != 4 )); then echo "BEL smoke fixture starts exactly four initial logical nodes." >&2; exit 1; fi
+if [[ "${PROFILE}" == "production" && ${VALIDATOR_COUNT} -lt 70 ]]; then echo "Production profile requires the unchanged 70-validator protocol configuration." >&2; exit 1; fi
+if [[ "${PROFILE}" == "prototype" && ${VALIDATOR_COUNT} -ne 4 ]]; then echo "Prototype profile requires exactly four QBFT validators." >&2; exit 1; fi
+if (( ACTIVE_COUNT != VALIDATOR_COUNT )); then echo "Active Besu validators must equal the profile genesis validator count (${VALIDATOR_COUNT})." >&2; exit 1; fi
 if ! [[ "${MIN_PEERS}" =~ ^[0-9]+$ ]] || (( MIN_PEERS < 1 )); then echo "BEL_SMOKE_MIN_PEERS must be a positive integer." >&2; exit 1; fi
 if ! [[ "${BLOCK_WAIT_SECONDS}" =~ ^[0-9]+$ ]] || (( BLOCK_WAIT_SECONDS < 2 )); then echo "BEL_SMOKE_BLOCK_WAIT_SECONDS must be at least 2 seconds." >&2; exit 1; fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -67,7 +78,7 @@ trap cleanup EXIT INT TERM
 for ((i=0; i<ACTIVE_COUNT; i++)); do
   node="${NODES}/node-$(printf '%03d' $((i + 1)))"
   mkdir -p "${node}"
-  JAVA_OPTS='-Xms64m -Xmx128m -XX:MaxMetaspaceSize=64m' setsid nohup "${BESU}" \
+  JAVA_OPTS="-Xms64m -Xmx128m -XX:MaxMetaspaceSize=64m -Dbel.execution.profile=${PROFILE}" setsid nohup "${BESU}" \
     --genesis-file="${GENERATED}/genesis.json" \
     --data-path="${node}" \
     --node-private-key-file="${KEYS[$i]}" \
@@ -129,8 +140,9 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
 done
 
 echo "Besu smoke network started: ${RUN_ROOT}"
-echo "Protocol fixture: ${VALIDATOR_COUNT} generated validator keys; active smoke nodes: ${ACTIVE_COUNT}"
+echo "Execution profile: ${PROFILE}"
+echo "QBFT fixture: ${VALIDATOR_COUNT} generated validator keys; active nodes: ${ACTIVE_COUNT}"
 echo "RPC endpoints: http://${RPC_HOST}:${BASE_RPC} through http://${RPC_HOST}:$((BASE_RPC + ACTIVE_COUNT - 1))"
 echo "P2P host: ${P2P_HOST}; bootnode: ${BOOTNODE}"
-echo "This launcher validates RPC startup and actual peer connectivity only; custom BEL QBFT lifecycle requires the external Besu runtime."
-wait
+echo "Prototype/production QBFT block production and synchronization verified."
+exit 0
