@@ -17,7 +17,9 @@ type IpfsAddResponse = { Hash?: unknown; Size?: unknown; Name?: unknown };
 
 /** Private Kubo HTTP API adapter. No caller receives the API URL or node error. */
 export class IpfsEvidenceStorage implements EvidenceStorage {
-  constructor(private readonly apiUrl: string = process.env.IPFS_API_URL ?? "http://ipfs:5001") {}
+  // Compose overrides this with the internal service name. Host-run tests and
+  // local development use the published localhost API instead.
+  constructor(private readonly apiUrl: string = process.env.IPFS_API_URL ?? "http://localhost:5001") {}
 
   async upload(bytes: Buffer, contentType: string): Promise<StoredEvidence> {
     const form = new FormData();

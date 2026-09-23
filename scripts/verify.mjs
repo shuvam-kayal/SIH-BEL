@@ -331,6 +331,8 @@ await runChecked(
     [
       vitestPath,
       "run",
+      "--pool",
+      "forks",
       "--exclude",
       "test/workflow.e2e.test.ts",
     ],

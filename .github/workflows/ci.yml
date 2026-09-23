@@ -82,6 +82,10 @@ jobs:
         run: |
           docker run -d --name bel-anvil -p 8545:8545 --entrypoint anvil ghcr.io/foundry-rs/foundry:latest --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000
           for i in {1..30}; do cast rpc --rpc-url http://127.0.0.1:8545 eth_chainId && break; sleep 1; done
+      - name: Start IPFS Docker service
+        run: |
+          docker run -d --name bel-ipfs -p 5001:5001 ipfs/kubo:v0.30.0
+          for i in {1..30}; do curl --fail --silent --show-error -X POST http://127.0.0.1:5001/api/v0/id >/dev/null && break; sleep 1; done
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install pinned Solidity dependencies
         run: bash scripts/setup-contracts.sh
@@ -91,8 +95,12 @@ jobs:
       - name: Prepare Foundry runtime directories
         run: mkdir -p contracts/deployments contracts/broadcast
       - run: npm run test:evm
+      - name: Run Person 1 EVM/PostgreSQL integration
+        run: npx vitest run backend/test/users.evm.integration.test.ts --testTimeout=120000
       - name: Run complete cross-person E2E workflow
         run: npm run test:e2e:workflow
+        env:
+          IPFS_API_URL: http://127.0.0.1:5001
 
   contracts:
     name: Build and test contracts
