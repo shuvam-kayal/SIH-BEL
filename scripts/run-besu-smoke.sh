@@ -78,16 +78,18 @@ trap cleanup EXIT INT TERM
 for ((i=0; i<ACTIVE_COUNT; i++)); do
   node="${NODES}/node-$(printf '%03d' $((i + 1)))"
   mkdir -p "${node}"
+  MINER_COINBASE="$(basename "$(dirname "${KEYS[$i]}")")"
   JAVA_OPTS="-Xms64m -Xmx128m -XX:MaxMetaspaceSize=64m -Dbel.execution.profile=${PROFILE}" setsid nohup "${BESU}" \
     --genesis-file="${GENERATED}/genesis.json" \
     --data-path="${node}" \
     --node-private-key-file="${KEYS[$i]}" \
     --p2p-host="${P2P_HOST}" --p2p-port=$((BASE_P2P + i)) \
-    --nat-method=NONE --bootnodes="${BOOTNODE}" \
+    --nat-method=NONE --bootnodes="${BOOTNODE}" --sync-mode=FULL --sync-min-peers=0 \
     --rpc-http-enabled --rpc-http-host="${RPC_HOST}" \
     --rpc-http-port=$((BASE_RPC + i)) \
     --rpc-http-api=ETH,NET,WEB3,ADMIN --host-allowlist='*' \
-    --min-gas-price=0 --logging=INFO > "${node}/besu.log" 2>&1 < /dev/null &
+    --min-gas-price=0 --miner-enabled --miner-coinbase="${MINER_COINBASE}" \
+    --logging=INFO > "${node}/besu.log" 2>&1 < /dev/null &
   PIDS+=("$!")
   sleep 2
 done
