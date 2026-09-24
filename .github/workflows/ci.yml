@@ -80,12 +80,28 @@ jobs:
           version: stable
       - name: Start Anvil Docker service
         run: |
+          set -euo pipefail
           docker run -d --name bel-anvil -p 8545:8545 --entrypoint anvil ghcr.io/foundry-rs/foundry:latest --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000
-          for i in {1..30}; do cast rpc --rpc-url http://127.0.0.1:8545 eth_chainId && break; sleep 1; done
+          for i in {1..30}; do
+            if cast rpc --rpc-url http://127.0.0.1:8545 eth_chainId; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Anvil did not become ready within 30 seconds" >&2
+          exit 1
       - name: Start IPFS Docker service
         run: |
+          set -euo pipefail
           docker run -d --name bel-ipfs -p 5001:5001 ipfs/kubo:v0.30.0
-          for i in {1..30}; do curl --fail --silent --show-error -X POST http://127.0.0.1:5001/api/v0/id >/dev/null && break; sleep 1; done
+          for i in {1..30}; do
+            if curl --fail --silent --show-error -X POST http://127.0.0.1:5001/api/v0/id >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "IPFS did not become ready within 30 seconds" >&2
+          exit 1
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install pinned Solidity dependencies
         run: bash scripts/setup-contracts.sh
