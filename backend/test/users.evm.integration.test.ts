@@ -98,7 +98,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     const challenge = await container.users.requestProvisioningChallenge({ deviceId, deviceMetadata: { managedDevice: true, onBelNetwork: true } });
     const digest = hashMessage(challenge.challenge);
     const signature = new SigningKey(key(index)).sign(digest);
-    const compactSignature = `0x${signature.yParity}${signature.r.slice(2)}${signature.s.slice(2)}`;
+    const compactSignature = `0x${signature.yParity.toString(16).padStart(2, "0")}${signature.r.slice(2)}${signature.s.slice(2)}`;
     const pending = await container.users.initializeAccount({
       fullName: "P1 EVM Target", employeeId, department: "ENGINEERING", deviceId,
       publicKey: publicKey(key(index)), walletAddress: targetWallet.address, challengeId: challenge.challengeId, signature: compactSignature,
