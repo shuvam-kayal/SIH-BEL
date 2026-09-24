@@ -108,6 +108,8 @@ jobs:
       - run: forge build
         working-directory: contracts
       - run: npm run prisma:generate
+      - name: Apply PostgreSQL migrations
+        run: npm run db:migrate
       - name: Prepare Foundry runtime directories
         run: mkdir -p contracts/deployments contracts/broadcast
       - run: npm run test:evm
