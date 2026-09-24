@@ -21,7 +21,7 @@ components:
       properties:
         code:
           type: string
-          enum: [VALIDATION_FAILED, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, NOT_IMPLEMENTED, INTERNAL_ERROR]
+          enum: [VALIDATION_FAILED, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, NOT_IMPLEMENTED, PAYLOAD_TOO_LARGE, UNSUPPORTED_MEDIA_TYPE, SERVICE_UNAVAILABLE, INTEGRITY_FAILURE, INTERNAL_ERROR]
         message:
           type: string
     Role:
@@ -212,6 +212,21 @@ components:
           type: string
           format: date-time
           nullable: true
+    Evidence:
+      type: object
+      required: [id, evidenceId, jobId, cid, sha256, filename, contentType, sizeBytes, uploadedBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        evidenceId: { type: string }
+        jobId: { type: string }
+        cid: { type: string, description: Private IPFS content identifier; not an authorization credential }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        filename: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, minimum: 1 }
+        uploadedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     AuditEvent:
       type: object
       required:
@@ -813,11 +828,15 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-              - evidenceHash
               properties:
                 evidenceHash:
                   type: string
+                evidenceId:
+                  type: string
+                  description: Optional evidence record; when supplied its stored SHA-256 is used and checked.
+              oneOf:
+              - required: [evidenceHash]
+              - required: [evidenceId]
       responses:
         '200':
           description: Job
@@ -858,6 +877,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+  /jobs/{jobId}/evidence:
+    post:
+      summary: Upload maintenance evidence through the private IPFS backend boundary
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Evidence metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Evidence' }
+        '413': { description: File exceeds configured limit }
+        '415': { description: Unsupported content type }
+    get:
+      summary: List job evidence metadata; file bytes are not returned
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string }
+      responses:
+        '200':
+          description: Evidence metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Evidence' }
+  /jobs/{jobId}/evidence/{evidenceId}:
+    get:
+      summary: Authorize, hash-verify, and download one evidence document
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string }
+      - name: evidenceId
+        in: path
+        required: true
+        schema: { type: string }
+      responses:
+        '200':
+          description: Verified evidence bytes
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
   /audit/assets/{id}:
     get:
       parameters:

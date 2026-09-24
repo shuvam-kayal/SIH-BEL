@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { Contract, HDNodeWallet, JsonRpcProvider, Wallet, hashMessage, toBeHex } from "ethers";
+import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { createApp } from "../src/app";
 import { createContainer, type Container } from "../src/container";
@@ -100,6 +101,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     await prisma.wallet.deleteMany({ where: { identityId: { not: adminUser.identityId } } });
     await prisma.device.deleteMany({ where: { identityId: { not: adminUser.identityId } } });
     await prisma.user.deleteMany({ where: { identityId: { not: adminUser.identityId } } });
+    await prisma.evidenceRecord.deleteMany();
     await prisma.jobRecord.deleteMany();
     await prisma.assetRecord.deleteMany();
     await prisma.identity.deleteMany({ where: { identityId: { not: adminUser.identityId } } });
@@ -158,13 +160,37 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect((await request(app).post(`/jobs/${actualJobId}/start`).set("Authorization", `Bearer ${technician.token}`)).body.status).toBe("IN_PROGRESS");
     expect((await chain.getJob(actualJobId))?.status).toBe("IN_PROGRESS");
 
-    const evidenceHash = "ab".repeat(32);
+    const evidenceBytes = Buffer.from("%PDF-1.4\nBEL maintenance report\n%%EOF\n");
+    const evidenceHash = createHash("sha256").update(evidenceBytes).digest("hex");
+    const evidenceUpload = await request(app)
+      .post(`/jobs/${actualJobId}/evidence`)
+      .set("Authorization", `Bearer ${technician.token}`)
+      .attach("file", evidenceBytes, { filename: "maintenance-report.pdf", contentType: "application/pdf" });
+    expect(evidenceUpload.status, JSON.stringify(evidenceUpload.body)).toBe(201);
+    expect(evidenceUpload.body).toMatchObject({ jobId: actualJobId, sha256: evidenceHash, contentType: "application/pdf", sizeBytes: evidenceBytes.length });
+    expect(evidenceUpload.body.cid).toBeTruthy();
+    expect(await prisma.evidenceRecord.findUnique({ where: { evidenceId: evidenceUpload.body.evidenceId } })).toMatchObject({ jobId: actualJobId, cid: evidenceUpload.body.cid, sha256: evidenceHash, sizeBytes: evidenceBytes.length });
+
     expect((await request(app).post(`/jobs/${actualJobId}/complete`).set("Authorization", `Bearer ${technician2.token}`).send({ evidenceHash })).status).toBe(403);
     expect((await request(app).post(`/jobs/${actualJobId}/complete`).set("Authorization", `Bearer ${technician.token}`).send({ evidenceHash: "malformed" })).status).toBe(400);
-    const completed = await request(app).post(`/jobs/${actualJobId}/complete`).set("Authorization", `Bearer ${technician.token}`).send({ evidenceHash });
+    const completed = await request(app).post(`/jobs/${actualJobId}/complete`).set("Authorization", `Bearer ${technician.token}`).send({ evidenceId: evidenceUpload.body.evidenceId });
     expect(completed.body).toMatchObject({ status: "COMPLETED", completedAt: expect.any(String) });
     expect(await chain.getJob(actualJobId)).toMatchObject({ status: "COMPLETED" });
     expect((await jobManager.getJob(actualJobId)).evidenceHash).toBe(`0x${evidenceHash}`);
+
+    const listedEvidence = await request(app).get(`/jobs/${actualJobId}/evidence`).set("Authorization", `Bearer ${technician.token}`);
+    expect(listedEvidence.status).toBe(200);
+    expect(listedEvidence.body).toEqual(expect.arrayContaining([expect.objectContaining({ evidenceId: evidenceUpload.body.evidenceId, cid: evidenceUpload.body.cid, sha256: evidenceHash })]));
+    const evidenceDownload = await request(app).get(`/jobs/${actualJobId}/evidence/${evidenceUpload.body.evidenceId}`).set("Authorization", `Bearer ${technician.token}`);
+    expect(evidenceDownload.status).toBe(200);
+    expect(Buffer.from(evidenceDownload.body).equals(evidenceBytes)).toBe(true);
+    expect(createHash("sha256").update(evidenceDownload.body).digest("hex")).toBe(evidenceHash);
+
+    const corruptObject = await container.evidenceStorage.upload(Buffer.from("corrupt evidence"), "text/plain");
+    await prisma.evidenceRecord.update({ where: { evidenceId: evidenceUpload.body.evidenceId }, data: { cid: corruptObject.cid } });
+    const corruptedDownload = await request(app).get(`/jobs/${actualJobId}/evidence/${evidenceUpload.body.evidenceId}`).set("Authorization", `Bearer ${technician.token}`);
+    expect(corruptedDownload.status).toBe(409);
+    await prisma.evidenceRecord.update({ where: { evidenceId: evidenceUpload.body.evidenceId }, data: { cid: evidenceUpload.body.cid } });
 
     expect((await request(app).post(`/jobs/${actualJobId}/approve`).set("Authorization", `Bearer ${technician.token}`)).status).toBe(403);
     const approved = await request(app).post(`/jobs/${actualJobId}/approve`).set("Authorization", `Bearer ${verifier.token}`);

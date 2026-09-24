@@ -18,6 +18,8 @@ function loadEnv(path) {
 const env = { ...loadEnv(`${root}/.env`), ...loadEnv(`${root}/backend/.env`), ...process.env };
 const fail = (message) => { console.error(`E2E BLOCKED: ${message}`); process.exit(1); };
 if (!env.DATABASE_URL) fail("DATABASE_URL is not configured");
+const ipfs = env.IPFS_API_URL || "http://127.0.0.1:5001";
+env.IPFS_API_URL = ipfs;
 const database = new URL(env.DATABASE_URL);
 await new Promise((resolve, reject) => {
   const socket = createConnection({ host: database.hostname, port: Number(database.port || 5432), timeout: 1500 });
@@ -32,6 +34,22 @@ try {
   if (body.result !== "0x7a69") throw new Error(body.error?.message || `chain id is ${body.result}`);
 } catch (error) {
   fail(`Anvil RPC is unreachable or is not chain 31337 at ${rpc} (${error.message})`);
+}
+try {
+  const response = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_reset", params: [] }) });
+  const body = await response.json();
+  if (body.error) throw new Error(body.error.message);
+  const feeResponse = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "anvil_setNextBlockBaseFeePerGas", params: ["0x3b9aca00"] }) });
+  const feeBody = await feeResponse.json();
+  if (feeBody.error) throw new Error(feeBody.error.message);
+} catch (error) {
+  fail(`Unable to reset the local Anvil chain at ${rpc} (${error.message})`);
+}
+try {
+  const response = await fetch(`${ipfs.replace(/\/$/, "")}/api/v0/id`, { method: "POST" });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+} catch (error) {
+  fail(`IPFS API is unreachable at ${ipfs}; start the Kubo service before running E2E (${error.message})`);
 }
 
 function run(command, args, extraEnv = {}) {
@@ -107,7 +125,8 @@ const wallets = [HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0"
 const admin = wallets[0];
 const publicKey = `0x${admin.signingKey.publicKey.slice(4)}`;
 const e2eKeys = wallets.map((wallet) => wallet.privateKey);
-runForge(["script", "script/Deploy.s.sol:DeployScript", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
+runForge(["clean"]);
+runForge(["script", "script/Deploy.s.sol:DeployScript", "--rpc-url", rpc, "--broadcast", "--legacy", "--gas-price", "1000000000", "--private-key", admin.privateKey], {
   BEL_NETWORK: "local",
   BEL_BOOTSTRAP_ADMIN_WALLET: admin.address,
   BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",

@@ -166,6 +166,26 @@ originating blockchain transaction.
 | actorIdentityId | string | FK -> Identity.identityId |
 | timestamp | string (ISO 8601) | |
 
+## Evidence
+
+An off-chain maintenance document associated with a Job. The binary is stored
+in private IPFS; PostgreSQL stores metadata only.
+
+| Field | Type | Notes |
+|---|---|---|
+| evidenceId | string | Primary key |
+| jobId | string | FK -> Job.jobId; indexed |
+| cid | string | Private IPFS content identifier; indexed, not an authorization credential |
+| sha256 | string | Lowercase 64-character digest of the exact uploaded bytes; indexed |
+| originalFilename | string | Sanitized display filename |
+| contentType | string | Validated allowed MIME type |
+| sizeBytes | number | Exact uploaded byte count |
+| uploadedBy | string | FK -> Identity.identityId |
+| createdAt / updatedAt | string | ISO 8601 timestamps |
+
+Job completion passes this SHA-256 to `JobManager.completeJob`; the document
+itself is never stored in PostgreSQL or on-chain.
+
 ## Validator
 
 A node authorized to participate in consensus.
