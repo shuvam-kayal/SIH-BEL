@@ -52,6 +52,7 @@ model Identity {
   jobsCreated JobRecord[] @relation("JobCreator")
   jobsAssigned JobRecord[] @relation("JobAssignee")
   jobsVerified JobRecord[] @relation("JobVerifier")
+  uploadedEvidence EvidenceRecord[] @relation("EvidenceUploader")
 }
 
 model User {
@@ -201,6 +202,28 @@ model JobRecord {
   creator Identity @relation("JobCreator", fields: [createdBy], references: [identityId])
   assignee Identity? @relation("JobAssignee", fields: [assignedTo], references: [identityId])
   verifier Identity? @relation("JobVerifier", fields: [verifierId], references: [identityId])
+  evidence EvidenceRecord[]
 
   @@index([assetId])
+}
+
+model EvidenceRecord {
+  evidenceId       String    @id
+  jobId            String
+  cid              String
+  sha256           String    @db.VarChar(64)
+  originalFilename String
+  contentType      String
+  sizeBytes        Int
+  uploadedBy       String
+  createdAt        DateTime
+  updatedAt        DateTime
+  job              JobRecord @relation(fields: [jobId], references: [jobId])
+  uploader         Identity  @relation("EvidenceUploader", fields: [uploadedBy], references: [identityId])
+
+  @@index([cid])
+  @@index([jobId])
+  @@index([sha256])
+  @@index([uploadedBy])
+  @@unique([jobId, sha256])
 }

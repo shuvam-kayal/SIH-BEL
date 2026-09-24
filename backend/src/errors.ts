@@ -54,3 +54,31 @@ export class ConflictError extends HttpError {
     this.name = "ConflictError";
   }
 }
+
+export class PayloadTooLargeError extends HttpError {
+  constructor(message = "Uploaded file exceeds the configured size limit") {
+    super(413, message, "PAYLOAD_TOO_LARGE");
+    this.name = "PayloadTooLargeError";
+  }
+}
+
+export class UnsupportedMediaTypeError extends HttpError {
+  constructor(message = "Unsupported evidence content type") {
+    super(415, message, "UNSUPPORTED_MEDIA_TYPE");
+    this.name = "UnsupportedMediaTypeError";
+  }
+}
+
+export class ServiceUnavailableError extends HttpError {
+  constructor(message = "Evidence storage is temporarily unavailable") {
+    super(503, message, "SERVICE_UNAVAILABLE");
+    this.name = "ServiceUnavailableError";
+  }
+}
+
+export class IntegrityError extends HttpError {
+  constructor(message = "Evidence integrity verification failed") {
+    super(409, message, "INTEGRITY_FAILURE");
+    this.name = "IntegrityError";
+  }
+}

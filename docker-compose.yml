@@ -10,6 +10,22 @@ services:
     volumes:
       - bel-postgres:/var/lib/postgresql/data
 
+  ipfs:
+    image: ipfs/kubo:v0.30.0
+    volumes:
+      - bel-ipfs:/data/ipfs
+    # Loopback-only publication supports host-run verification without
+    # exposing the private Kubo API to the network.
+    ports:
+      - "127.0.0.1:5001:5001"
+    expose:
+      - "5001"
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   frontend:
     build:
       context: .
@@ -46,6 +62,9 @@ services:
       - BEL_CHAIN_ABI_DIR=contracts/abis
       - BEL_CHAIN_CONFIRMATIONS=1
       - BEL_CHAIN_DEV_SIGNER_KEYS=${BEL_CHAIN_DEV_SIGNER_KEYS:-}
+      - IPFS_API_URL=http://ipfs:5001
+      - EVIDENCE_MAX_FILE_SIZE_MB=${EVIDENCE_MAX_FILE_SIZE_MB:-25}
+      - EVIDENCE_ALLOWED_MIME_TYPES=${EVIDENCE_ALLOWED_MIME_TYPES:-application/pdf,image/jpeg,image/png,text/plain}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -54,6 +73,8 @@ services:
     depends_on:
       postgres:
         condition: service_started
+      ipfs:
+        condition: service_healthy
       evm-deploy:
         condition: service_completed_successfully
 
@@ -110,3 +131,4 @@ services:
 
 volumes:
   bel-postgres:
+  bel-ipfs:

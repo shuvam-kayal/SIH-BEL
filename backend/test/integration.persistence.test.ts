@@ -26,6 +26,7 @@ suite("PostgreSQL persistence integration", () => {
     await cleanup.prisma?.$connect();
     await cleanup.prisma?.session.deleteMany();
     await cleanup.prisma?.authorizationGrant.deleteMany();
+    await cleanup.prisma?.evidenceRecord.deleteMany();
     await cleanup.prisma?.jobRecord.deleteMany();
     await cleanup.prisma?.assetRecord.deleteMany();
     await cleanup.prisma?.credential.deleteMany();

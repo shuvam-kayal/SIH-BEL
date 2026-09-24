@@ -18,6 +18,9 @@ import { MemoryIntegrityAdapter, type IntegrityAdapter } from "./integrity/integ
 import { ValidatorServiceImpl, type ValidatorService } from "./validators/validator.service";
 import { MockDeviceAttestationAdapter, NotConfiguredManagedDeviceAttestationProvider, type DeviceAttestationAdapter } from "./devices/device-attestation";
 import { MemoryAssetRepository, MemoryJobRepository, PrismaAssetRepository, PrismaJobRepository, type AssetRepository, type JobRepository } from "./domain/repositories";
+import { EvidenceServiceImpl } from "./evidence/evidence.service";
+import { IpfsEvidenceStorage, type EvidenceStorage } from "./evidence/evidence.storage";
+import { MemoryEvidenceRepository, PrismaEvidenceRepository, type EvidenceRepository } from "./evidence/evidence.repository";
 
 export type Container = {
   chain: BlockchainService;
@@ -34,9 +37,12 @@ export type Container = {
   prisma?: PrismaClient;
   assetRepository: AssetRepository;
   jobRepository: JobRepository;
+  evidence: EvidenceServiceImpl;
+  evidenceRepository: EvidenceRepository;
+  evidenceStorage: EvidenceStorage;
 };
 
-export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; attestation?: DeviceAttestationAdapter; prisma?: PrismaClient; assets?: AssetRepository; jobs?: JobRepository };
+export type ContainerOptions = { repositories?: IdentityRepositories; integrity?: IntegrityAdapter; attestation?: DeviceAttestationAdapter; prisma?: PrismaClient; assets?: AssetRepository; jobs?: JobRepository; evidenceRepository?: EvidenceRepository; evidenceStorage?: EvidenceStorage };
 
 export function createContainer(chain: BlockchainService = createBlockchainServiceFromEnv(), options: ContainerOptions = {}): Container {
   // Development may use the recording adapter, but production must provide
@@ -47,7 +53,8 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
     throw new Error("Production requires DATABASE_URL and an explicit durable integrity adapter; it also requires BEL_DEVICE_ATTESTATION_PROVIDER=managed and an authoritative device-attestation adapter");
   }
   const integration = process.env.BEL_RUN_INTEGRATION === "true";
-  const prisma = options.prisma ?? ((production || integration || Boolean(options.integrity)) && process.env.DATABASE_URL ? new PrismaClient() : undefined);
+  const useConfiguredPrisma = !options.repositories && (production || integration || Boolean(options.integrity));
+  const prisma = options.prisma ?? (useConfiguredPrisma && process.env.DATABASE_URL ? new PrismaClient() : undefined);
   const repositories = options.repositories ?? (prisma ? createPrismaRepositories(prisma) : createMemoryRepositories());
   const integrity = options.integrity ?? new MemoryIntegrityAdapter();
   const useMockAttestation = !production && process.env.BEL_DEVICE_ATTESTATION === "mock";
@@ -59,9 +66,14 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
   // production always uses the configured database.
   // Explicit environment policy: integration+DATABASE_URL and production use
   // PostgreSQL; lightweight unit containers retain isolated memory stores.
-  const domainPrisma = options.prisma ?? ((integration || production) ? prisma : undefined);
+  // Explicit repository injection is the unit-test boundary. Even when the
+  // verification runner enables BEL_RUN_INTEGRATION for the whole backend
+  // process, those tests must retain isolated in-memory domain state.
+  const domainPrisma = options.prisma ?? ((!options.repositories && (integration || production)) ? prisma : undefined);
   const assetRepository = options.assets ?? (domainPrisma ? new PrismaAssetRepository(domainPrisma) : new MemoryAssetRepository());
   const jobRepository = options.jobs ?? (domainPrisma ? new PrismaJobRepository(domainPrisma) : new MemoryJobRepository());
+  const evidenceRepository = options.evidenceRepository ?? (domainPrisma ? new PrismaEvidenceRepository(domainPrisma) : new MemoryEvidenceRepository());
+  const evidenceStorage = options.evidenceStorage ?? new IpfsEvidenceStorage();
   const users = new UsersServiceImpl(chain, repositories, integrity, attestation);
   const identityExists = domainPrisma
     ? async (identityId: string) => Boolean(await repositories.identities.findById(identityId))
@@ -79,6 +91,9 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
     users,
     assets,
     jobs: new JobsServiceImpl(chain, jobRepository, assetRepository, identityExists),
+    evidence: new EvidenceServiceImpl(evidenceRepository, evidenceStorage, jobRepository),
+    evidenceRepository,
+    evidenceStorage,
     audit: new AuditServiceImpl(chain),
     blockchain: new BlockchainController(chain),
     validators: new ValidatorServiceImpl(chain, repositories),
