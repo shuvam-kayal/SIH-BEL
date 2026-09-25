@@ -94,6 +94,22 @@ cd ..
 ./scripts/stop-besu-bel-demo.sh .bel-demo/smoke-<timestamp>
 ```
 
+For the lightweight four-validator application prototype (using the already
+installed Besu distribution), run from WSL/Linux:
+
+```bash
+./scripts/start-besu-prototype.sh
+./scripts/deploy-besu-prototype.sh .bel-demo/smoke-<timestamp>
+npm run db:migrate
+npm run test:e2e:besu --workspace=bel-backend
+./scripts/stop-besu-bel-demo.sh .bel-demo/smoke-<timestamp>
+```
+
+The prototype deployment is written to `contracts/deployments/besu-prototype.json`.
+It uses the isolated `prototype` profile and a four-validator application
+registry minimum; the normal deployment path and production validator rule
+remain 70 validators.
+
 For the 70-validator generator on Windows:
 
 ```powershell

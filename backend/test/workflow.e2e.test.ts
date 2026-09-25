@@ -14,6 +14,7 @@ const key = (index: number) => configuredKeys?.[index]
   ? new Wallet(configuredKeys[index])
   : HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${index}`);
 const rpcUrl = process.env.BEL_E2E_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim() || "http://127.0.0.1:8545";
+const expectedChainId = Number(process.env.BEL_E2E_CHAIN_ID ?? process.env.BEL_CHAIN_ID ?? 31337);
 const adminEmployeeId = process.env.BEL_E2E_ADMIN_EMPLOYEE_ID?.trim() || "ADMIN-001";
 const adminDeviceId = process.env.BEL_E2E_ADMIN_DEVICE_ID?.trim() || "BEL-DEV-ADMIN-001";
 
@@ -85,8 +86,8 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required; start Docker PostgreSQL first");
     const keys = [0, 1, 2, 3, 4, 5].map((i) => key(i).privateKey);
-    const provider = new JsonRpcProvider(rpcUrl, 31337, { staticNetwork: true, pollingInterval: 50 });
-    expect(await provider.send("eth_chainId", [])).toBe("0x7a69");
+    const provider = new JsonRpcProvider(rpcUrl, expectedChainId, { staticNetwork: true, pollingInterval: 50 });
+    expect(BigInt(await provider.send("eth_chainId", []))).toBe(BigInt(expectedChainId));
     const config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEV_SIGNER_KEYS: keys.join(",") });
     chain = new EvmBlockchainAdapter(config, { provider });
     assetRegistry = new Contract(config.deployment.contracts.AssetRegistry, config.abis.AssetRegistry, provider);

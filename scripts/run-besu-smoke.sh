@@ -6,6 +6,7 @@ command -v setsid >/dev/null 2>&1 || { echo "This launcher requires a Linux envi
 # QBFT genesis fixture; it does not change BEL's application validator
 # governance or ValidatorRegistry.minimumPopulation(), which remain 70.
 PROFILE="${BEL_EXECUTION_PROFILE:-prototype}"
+KEEP_RUNNING="${BEL_SMOKE_KEEP_RUNNING:-false}"
 if [[ "${PROFILE}" == "prototype" ]]; then
   VALIDATOR_COUNT="${BEL_PROTOTYPE_QBFT_VALIDATOR_COUNT:-4}"
   ACTIVE_COUNT="${BEL_SMOKE_INITIAL_NODES:-4}"
@@ -93,6 +94,7 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
   PIDS+=("$!")
   sleep 2
 done
+printf '%s\n' "${PIDS[@]}" > "${RUN_ROOT}/pids"
 
 for ((i=0; i<ACTIVE_COUNT; i++)); do
   port=$((BASE_RPC + i))
@@ -147,4 +149,20 @@ echo "QBFT fixture: ${VALIDATOR_COUNT} generated validator keys; active nodes: $
 echo "RPC endpoints: http://${RPC_HOST}:${BASE_RPC} through http://${RPC_HOST}:$((BASE_RPC + ACTIVE_COUNT - 1))"
 echo "P2P host: ${P2P_HOST}; bootnode: ${BOOTNODE}"
 echo "Prototype/production QBFT block production and synchronization verified."
+cat > "${RUN_ROOT}/run.json" <<EOF
+{
+  "runRoot": "${RUN_ROOT}",
+  "genesis": "${GENERATED}/genesis.json",
+  "generatedKeys": "${GENERATED}/keys",
+  "validatorCount": ${VALIDATOR_COUNT},
+  "baseP2pPort": ${BASE_P2P},
+  "baseRpcPort": ${BASE_RPC},
+  "profile": "${PROFILE}",
+  "pids": [$(IFS=,; echo "${PIDS[*]}")]
+}
+EOF
+if [[ "${KEEP_RUNNING}" == "true" ]]; then
+  trap - EXIT INT TERM
+  echo "Besu prototype left running; stop it with scripts/stop-besu-bel-demo.sh ${RUN_ROOT}"
+fi
 exit 0

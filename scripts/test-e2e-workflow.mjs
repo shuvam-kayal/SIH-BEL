@@ -28,14 +28,15 @@ await new Promise((resolve, reject) => {
   socket.once("error", reject);
 }).catch((error) => fail(`PostgreSQL is unreachable at ${database.hostname}:${database.port || 5432} (${error.message})`));
 const rpc = env.BEL_E2E_RPC_URL || env.BEL_CHAIN_RPC_URL || "http://127.0.0.1:8545";
+const expectedChainId = BigInt(env.BEL_E2E_CHAIN_ID || env.BEL_CHAIN_ID || "31337");
 try {
   const response = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }) });
   const body = await response.json();
-  if (body.result !== "0x7a69") throw new Error(body.error?.message || `chain id is ${body.result}`);
+  if (BigInt(body.result) !== expectedChainId) throw new Error(body.error?.message || `chain id is ${body.result}, expected ${expectedChainId}`);
 } catch (error) {
-  fail(`Anvil RPC is unreachable or is not chain 31337 at ${rpc} (${error.message})`);
+  fail(`EVM RPC is unreachable or has the wrong chain ID at ${rpc} (${error.message})`);
 }
-try {
+if ((env.BEL_E2E_RESET || "true").toLowerCase() === "true") try {
   const response = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_reset", params: [] }) });
   const body = await response.json();
   if (body.error) throw new Error(body.error.message);
@@ -43,7 +44,7 @@ try {
   const feeBody = await feeResponse.json();
   if (feeBody.error) throw new Error(feeBody.error.message);
 } catch (error) {
-  fail(`Unable to reset the local Anvil chain at ${rpc} (${error.message})`);
+  fail(`Unable to reset the configured local EVM chain at ${rpc} (${error.message})`);
 }
 try {
   const response = await fetch(`${ipfs.replace(/\/$/, "")}/api/v0/id`, { method: "POST" });
@@ -125,21 +126,25 @@ const wallets = [HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0"
 const admin = wallets[0];
 const publicKey = `0x${admin.signingKey.publicKey.slice(4)}`;
 const e2eKeys = wallets.map((wallet) => wallet.privateKey);
-runForge(["clean"]);
+const reuseDeployment = (env.BEL_E2E_DEPLOYED || "false").toLowerCase() === "true";
 const validatorEnv = Object.fromEntries(
-  Array.from({ length: 70 }, (_, index) => [`BEL_BOOTSTRAP_VALIDATOR_${index}`, env[`BEL_BOOTSTRAP_VALIDATOR_${index}`]])
+  Array.from({ length: Number(env.BEL_BOOTSTRAP_VALIDATOR_COUNT || 70) }, (_, index) => [`BEL_BOOTSTRAP_VALIDATOR_${index}`, env[`BEL_BOOTSTRAP_VALIDATOR_${index}`]])
     .filter(([, value]) => value),
 );
-runForge(["script", "script/Deploy.s.sol:DeployScript", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
-  BEL_NETWORK: "local",
-  BEL_BOOTSTRAP_ADMIN_WALLET: admin.address,
-  BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",
-  ...validatorEnv,
-});
-for (const wallet of wallets.slice(1)) {
-  const funding = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_setBalance", params: [wallet.address, "0x56BC75E2D63100000"] }) });
-  const fundingBody = await funding.json();
-  if (fundingBody.error) fail(`Unable to fund E2E account ${wallet.address}: ${fundingBody.error.message}`);
+if (!reuseDeployment) {
+  runForge(["script", "script/Deploy.s.sol:DeployScript", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
+    BEL_NETWORK: env.BEL_NETWORK || "local",
+    BEL_EXECUTION_PROFILE: env.BEL_EXECUTION_PROFILE || "production",
+    BEL_BOOTSTRAP_VALIDATOR_COUNT: env.BEL_BOOTSTRAP_VALIDATOR_COUNT || "70",
+    BEL_BOOTSTRAP_ADMIN_WALLET: admin.address,
+    BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",
+    ...validatorEnv,
+  });
+  for (const wallet of wallets.slice(1)) {
+    const funding = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_setBalance", params: [wallet.address, "0x56BC75E2D63100000"] }) });
+    const fundingBody = await funding.json();
+    if (fundingBody.error && (env.BEL_ALLOW_UNFUNDED_EVM || "false").toLowerCase() !== "true") fail(`Unable to fund E2E account ${wallet.address}: ${fundingBody.error.message}`);
+  }
 }
 // Node 24 can fail os.userInfo() in constrained Windows CI containers. tsx
 // only needs the username to name its temporary directory, so provide the
@@ -164,7 +169,7 @@ run(process.execPath, ["--import", "data:text/javascript,process.geteuid=()=>0",
 const result = spawnSync(process.execPath, [nodeModule("vitest/vitest.mjs"), "run", resolve(root, "backend/test/workflow.e2e.test.ts")], {
   cwd: process.cwd(),
   stdio: "inherit",
-  env: { ...env, BEL_BLOCKCHAIN: "evm", BEL_E2E_PRIVATE_KEYS: e2eKeys.join(","), BEL_E2E_RPC_URL: rpc, BEL_CHAIN_RPC_URL: rpc, BEL_RUN_E2E: "true", BEL_RUN_INTEGRATION: "true" },
+  env: { ...env, BEL_BLOCKCHAIN: "evm", BEL_E2E_PRIVATE_KEYS: e2eKeys.join(","), BEL_E2E_RPC_URL: rpc, BEL_CHAIN_RPC_URL: rpc, BEL_E2E_CHAIN_ID: env.BEL_E2E_CHAIN_ID || env.BEL_CHAIN_ID || "31337", BEL_RUN_E2E: "true", BEL_RUN_INTEGRATION: "true" },
 });
 if (result.error) {
   console.error(`Unable to start the E2E runner: ${result.error.message}`);

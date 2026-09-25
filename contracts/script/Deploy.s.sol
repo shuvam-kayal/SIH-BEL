@@ -34,16 +34,23 @@ contract DeployScript is Script {
         address bootstrapAdmin = vm.envAddress("BEL_BOOTSTRAP_ADMIN_WALLET");
         string memory bootstrapDid = vm.envString("BEL_BOOTSTRAP_ADMIN_DID");
         string memory network = vm.envOr("BEL_NETWORK", string("local"));
+        string memory profile = vm.envOr("BEL_EXECUTION_PROFILE", string("production"));
         uint256 startBlock = block.number;
         uint256 bootstrapCount = vm.envOr("BEL_BOOTSTRAP_VALIDATOR_COUNT", uint256(70));
-        if (bootstrapCount < 70) revert("BEL requires at least 70 bootstrap validators");
+        uint256 minimumPopulation = 70;
+        if (keccak256(bytes(profile)) == keccak256(bytes("prototype"))) {
+            if (bootstrapCount != 4) revert("BEL prototype requires exactly four bootstrap validators");
+            minimumPopulation = 4;
+        } else if (bootstrapCount < 70) {
+            revert("BEL production requires at least 70 bootstrap validators");
+        }
         address[] memory bootstrapValidators = new address[](bootstrapCount);
         for (uint256 i = 0; i < bootstrapCount; i++) {
             bootstrapValidators[i] = vm.envAddress(string.concat("BEL_BOOTSTRAP_VALIDATOR_", vm.toString(i)));
         }
 
         vm.startBroadcast();
-        d = deployWithBootstrap(bootstrapAdmin, bootstrapDid, bootstrapValidators);
+        d = _deployWithBootstrap(bootstrapAdmin, bootstrapDid, bootstrapValidators, minimumPopulation);
         vm.stopBroadcast();
 
         _write(network, d, bootstrapAdmin, startBlock);
@@ -53,13 +60,23 @@ contract DeployScript is Script {
         public
         returns (Deployment memory d)
     {
-        if (bootstrap.length < 70) revert("BEL requires at least 70 bootstrap validators");
+        return _deployWithBootstrap(bootstrapAdmin, bootstrapDid, bootstrap, 70);
+    }
+
+    /// @dev Prototype-only entry point used by run() when BEL_EXECUTION_PROFILE=prototype.
+    /// The normal public helper and production run path retain the frozen 70-validator rule.
+    function _deployWithBootstrap(address bootstrapAdmin, string memory bootstrapDid, address[] memory bootstrap, uint256 minimumPopulation)
+        private
+        returns (Deployment memory d)
+    {
+        if (minimumPopulation < 70 && minimumPopulation != 4) revert("invalid BEL minimum population");
+        if (bootstrap.length < minimumPopulation) revert("insufficient bootstrap validators");
         d.identity = new IdentityRegistry(bootstrapAdmin, bootstrapDid);
         d.roles = new RoleRegistry(address(d.identity), bootstrapAdmin);
         d.assets = new AssetRegistry();
         d.jobs = new JobManager(address(d.assets));
 
-        d.validators = new ValidatorRegistry(70, bootstrap);
+        d.validators = new ValidatorRegistry(minimumPopulation, bootstrap);
 
         address[] memory recorders = new address[](5);
         recorders[0] = address(d.identity);
