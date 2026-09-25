@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-const result = spawnSync(process.execPath, [new URL("./test-e2e-workflow.mjs", import.meta.url)], {
+const result = spawnSync(process.execPath, [new URL("./test-e2e-workflow.mjs", import.meta.url).pathname], {
   stdio: "inherit",
   env: {
     ...process.env,

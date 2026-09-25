@@ -25,6 +25,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
   let container: Container;
   let app: ReturnType<typeof createApp>;
   let chain: EvmBlockchainAdapter;
+  let provider: JsonRpcProvider;
   let assetRegistry: Contract;
   let jobManager: Contract;
   let admin: Actor;
@@ -86,7 +87,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required; start Docker PostgreSQL first");
     const keys = [0, 1, 2, 3, 4, 5].map((i) => key(i).privateKey);
-    const provider = new JsonRpcProvider(rpcUrl, expectedChainId, { staticNetwork: true, pollingInterval: 50 });
+    provider = new JsonRpcProvider(rpcUrl, expectedChainId, { staticNetwork: true, pollingInterval: 50 });
     expect(BigInt(await provider.send("eth_chainId", []))).toBe(BigInt(expectedChainId));
     const config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEV_SIGNER_KEYS: keys.join(",") });
     chain = new EvmBlockchainAdapter(config, { provider });
@@ -122,6 +123,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
 
   it("executes the authenticated job workflow against PostgreSQL and JobManager", async () => {
     const assetId = `E2E-ASSET-${Date.now()}`;
+    const mintFromBlock = await provider.getBlockNumber();
     const assetResponse = await request(app)
       .post("/assets")
       .set("Authorization", `Bearer ${engineer.token}`)
@@ -133,7 +135,12 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     const onChainAsset = await chain.getAsset(assetId);
     expect(onChainAsset).toMatchObject({ assetId, ownerId: technician.identityId, custodianId: technician.identityId, status: "ACTIVE" });
     expect(assetResponse.body.nftId).toBe(onChainAsset?.nftId);
-    const mintEvents = await assetRegistry.queryFilter(assetRegistry.filters.AssetMinted());
+    const mintToBlock = await provider.getBlockNumber();
+    const mintEvents = await assetRegistry.queryFilter(
+      assetRegistry.filters.AssetMinted(),
+      mintFromBlock,
+      mintToBlock,
+    );
     expect(mintEvents.some((event) => "args" in event && event.args?.[1] === assetId)).toBe(true);
     expect(await chain.getAuditTrail(assetId)).toEqual(expect.arrayContaining([expect.objectContaining({ entityType: "ASSET", entityId: assetId, action: "ASSET_MINT", actorIdentityId: engineer.identityId })]));
 
@@ -203,12 +210,18 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(withoutGrant.status).toBe(403);
     const grantResponse = await request(app).post(`/admin/users/${engineer.identityId}/grants`).set("Authorization", `Bearer ${admin.token}`).send({ resourceType: "ASSET", resourceId: assetId, action: "TRANSFER_ASSET" });
     expect(grantResponse.status, JSON.stringify(grantResponse.body)).toBe(201);
+    const transferFromBlock = await provider.getBlockNumber();
     const transferred = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: engineer.identityId, newCustodianId: engineer.identityId });
     expect(transferred.status).toBe(200);
     expect(transferred.body).toMatchObject({ assetId, ownerId: engineer.identityId, custodianId: engineer.identityId });
     expect(await prisma.assetRecord.findUnique({ where: { assetId } })).toMatchObject({ ownerId: engineer.identityId, custodianId: engineer.identityId });
     expect(await chain.getAsset(assetId)).toMatchObject({ ownerId: engineer.identityId, custodianId: engineer.identityId });
-    const transferEvents = await assetRegistry.queryFilter(assetRegistry.filters.AssetTransferred());
+    const transferToBlock = await provider.getBlockNumber();
+    const transferEvents = await assetRegistry.queryFilter(
+      assetRegistry.filters.AssetTransferred(),
+      transferFromBlock,
+      transferToBlock,
+    );
     expect(transferEvents.some((event) => {
       const args = "args" in event ? event.args : undefined;
       return args?.[2]?.toString().toLowerCase() === engineer.walletAddress.toLowerCase();

@@ -3,10 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { URL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { HDNodeWallet, Wallet } from "ethers";
 
-const root = process.cwd();
+const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const nodeModule = (path) => resolve(root, "node_modules", path);
 function loadEnv(path) {
   if (!existsSync(path)) return {};
