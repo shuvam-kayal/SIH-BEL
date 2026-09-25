@@ -50,7 +50,7 @@ cat > "${CONFIG}/network-config.json" <<EOF
       }
     },
     "nonce": "0x0",
-    "timestamp": "0x$(date +%s)",
+    "timestamp": "0x$(printf '%x' "$(date +%s)")",
     "gasLimit": "0x1fffffffffffff",
     "difficulty": "0x1",
     "mixHash": "0x63746963616c2062797a616e74696e65206661756c7420746f6c6572616e6365",
@@ -84,7 +84,7 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
     --data-path="${node}" \
     --node-private-key-file="${KEYS[$i]}" \
     --p2p-host="${P2P_HOST}" --p2p-port=$((BASE_P2P + i)) \
-    --nat-method=NONE --bootnodes="${BOOTNODE}" --sync-mode=FULL --sync-min-peers=0 \
+    --nat-method=NONE --bootnodes="${BOOTNODE}" --sync-mode=FAST --sync-min-peers=0 \
     --rpc-http-enabled --rpc-http-host="${RPC_HOST}" \
     --rpc-http-port=$((BASE_RPC + i)) \
     --rpc-http-api=ETH,NET,WEB3,ADMIN --host-allowlist='*' \
