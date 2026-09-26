@@ -33,8 +33,11 @@ if (skipReason) console.warn(`[users.evm.integration] SKIPPED: ${skipReason}`);
 
 const key = (index: number) => HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${index}`).privateKey;
 const wallet = (index: number) => new EvmWallet(key(index));
-const ADMIN = wallet(0);
-const BAD_ACTOR = wallet(8);
+// Keep the integration identities/wallets disjoint from the repository's
+// long-lived bootstrap admin and from each other. This suite cleans up its
+// own rows, but must not collide with the real E2E bootstrap account.
+const ADMIN = wallet(8);
+const BAD_ACTOR = wallet(4);
 const publicKey = (privateKey: string) => `0x${SigningKey.computePublicKey(privateKey, false).slice(4)}`;
 const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, actorIdentity: string, payload: Record<string, unknown>) => ({
   txId: `p1-${type}-${Date.now()}-${Math.random()}`,
@@ -139,7 +142,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     await container.prisma!.$connect();
 
     await container.users.createUser({ employeeId: adminEmployee, identityId: adminDid, fullName: "P1 EVM Admin", role: "ADMIN", department: "PLATFORM" });
-    await container.users.registerDevice(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, "p1-evm-admin-credential", publicKey(key(0)));
+    await container.users.registerDevice(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, "p1-evm-admin-credential", publicKey(key(8)));
     await container.users.registerWallet(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, ADMIN.address);
     await container.users.activateWallet(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, ADMIN.address);
   }, 90_000);
@@ -202,8 +205,8 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     await adapter.submitTransaction(tx("WALLET_ACTIVATE", ADMIN.address, adminDid, { address: BAD_ACTOR.address }));
     await container.repositories.identities.save({ identityId: badActorDid, employeeId: badActorEmployee, fullName: "Bad Actor", role: "ADMIN", department: "TEST", status: "ACTIVE", createdAt: new Date().toISOString(), verifiedAt: null, verifiedBy: null });
     await container.repositories.users.save({ employeeId: badActorEmployee, identityId: badActorDid, walletAddress: BAD_ACTOR.address, role: "ADMIN", department: "TEST", status: "ACTIVE" });
-    await container.repositories.devices.save({ deviceId: badActorDevice, identityId: badActorDid, status: "ACTIVE", registeredAt: new Date().toISOString(), activatedAt: new Date().toISOString(), revokedAt: null, publicKey: publicKey(key(8)), metadata: null });
-    await container.repositories.wallets.save({ address: BAD_ACTOR.address, identityId: badActorDid, deviceId: badActorDevice, status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: publicKey(key(8)) });
+    await container.repositories.devices.save({ deviceId: badActorDevice, identityId: badActorDid, status: "ACTIVE", registeredAt: new Date().toISOString(), activatedAt: new Date().toISOString(), revokedAt: null, publicKey: publicKey(key(4)), metadata: null });
+    await container.repositories.wallets.save({ address: BAD_ACTOR.address, identityId: badActorDid, deviceId: badActorDevice, status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: publicKey(key(4)) });
 
     const pending = await createPendingRegistration(7, `${targetEmployee}-FAIL`, `${targetDevice}-FAIL`);
     await expect(container.users.activateRegistration(badActorDid, pending.identityId)).rejects.toBeInstanceOf(BlockchainError);

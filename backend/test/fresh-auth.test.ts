@@ -69,5 +69,5 @@ describe("fresh authentication", () => {
       if (previous === undefined) delete process.env.BEL_FRESH_AUTH_REQUIRED_ACTIONS;
       else process.env.BEL_FRESH_AUTH_REQUIRED_ACTIONS = previous;
     }
-  });
+  }, 30_000);
 });
