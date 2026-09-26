@@ -180,7 +180,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
   async submitTransaction(tx: Transaction): Promise<MockBlockchainResult> {
     const r = await this.submitTransactionDetailed(tx);
     const validatorEvent = r.events.find((event) => event.contract === "ValidatorRegistry" && event.name.startsWith("Validator"));
-    return { txId: r.txId, status: r.status, transactionHash: r.hash, blockNumber: r.blockNumber, event: validatorEvent?.name };
+    return { txId: r.txId, status: r.status, transactionHash: r.hash, blockNumber: r.blockNumber, event: validatorEvent?.name, revert: r.revert };
   }
 
   /** Unsigned call fields for the device wallet to sign (production path). */

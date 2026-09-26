@@ -88,7 +88,14 @@ export interface ApiClient {
 
 }
 
-export type MockBlockchainResult = { txId: string; status: "SUCCESS" | "REJECTED"; transactionHash?: string; blockNumber?: number; event?: string };
+export type MockBlockchainResult = {
+  txId: string;
+  status: "SUCCESS" | "REJECTED";
+  transactionHash?: string;
+  blockNumber?: number;
+  event?: string;
+  revert?: { name: string; args: string[]; message: string };
+};
 export interface BlockchainService {
   submitTransaction(tx: Transaction): Promise<MockBlockchainResult>;
   getIdentity(identityId: string): Promise<Identity | null>;
