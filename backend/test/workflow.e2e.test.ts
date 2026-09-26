@@ -123,7 +123,6 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
 
   it("executes the authenticated job workflow against PostgreSQL and JobManager", async () => {
     const assetId = `E2E-ASSET-${Date.now()}`;
-    const mintFromBlock = await provider.getBlockNumber();
     const assetResponse = await request(app)
       .post("/assets")
       .set("Authorization", `Bearer ${engineer.token}`)
@@ -135,12 +134,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     const onChainAsset = await chain.getAsset(assetId);
     expect(onChainAsset).toMatchObject({ assetId, ownerId: technician.identityId, custodianId: technician.identityId, status: "ACTIVE" });
     expect(assetResponse.body.nftId).toBe(onChainAsset?.nftId);
-    const mintToBlock = await provider.getBlockNumber();
-    const mintEvents = await assetRegistry.queryFilter(
-      assetRegistry.filters.AssetMinted(),
-      mintFromBlock,
-      mintToBlock,
-    );
+    const mintEvents = await assetRegistry.queryFilter(assetRegistry.filters.AssetMinted());
     expect(mintEvents.some((event) => "args" in event && event.args?.[1] === assetId)).toBe(true);
     expect(await chain.getAuditTrail(assetId)).toEqual(expect.arrayContaining([expect.objectContaining({ entityType: "ASSET", entityId: assetId, action: "ASSET_MINT", actorIdentityId: engineer.identityId })]));
 
