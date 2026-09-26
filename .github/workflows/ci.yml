@@ -55,6 +55,8 @@ jobs:
       BEL_RUN_INTEGRATION: "true"
       BEL_EVM_RPC_URL: http://127.0.0.1:8545
       BEL_CHAIN_RPC_URL: http://127.0.0.1:8545
+      BEL_EXECUTION_PROFILE: prototype
+      BEL_BOOTSTRAP_VALIDATOR_COUNT: "4"
     services:
       postgres:
         image: postgres:16-alpine
