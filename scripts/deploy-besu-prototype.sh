@@ -28,14 +28,10 @@ export BEL_BOOTSTRAP_ADMIN_DID="${BEL_BOOTSTRAP_ADMIN_DID:-DID:BEL:ADMIN}"
 export BEL_RPC_URL="${BEL_RPC_URL:-http://127.0.0.1:8645}"
 
 DEPLOYMENT_FILE="${ROOT}/contracts/deployments/besu-prototype.json"
-# Use the standard local-only Foundry/Anvil fixture without committing its
-# secret-looking private-key literal. BEL_DEPLOYER_PRIVATE_KEY remains the
-# explicit override for any other local chain.
-if [[ -z "${BEL_DEPLOYER_PRIVATE_KEY:-}" ]]; then
-  BEL_DEPLOYER_MNEMONIC="${BEL_DEPLOYER_MNEMONIC:-test test test test test test test test test test test junk}"
-  BEL_DEPLOYER_PRIVATE_KEY="$(node -e 'const { HDNodeWallet } = require("ethers"); console.log(HDNodeWallet.fromPhrase(process.argv[1]).privateKey)' "${BEL_DEPLOYER_MNEMONIC}")"
-fi
-export BEL_DEPLOYER_PRIVATE_KEY
+# This is Foundry/Anvil's standard local-only development key and derives to
+# BEL_BOOTSTRAP_ADMIN_WALLET's default address. Keep the environment override
+# for callers using another local fixture.
+BEL_DEPLOYER_PRIVATE_KEY="${BEL_DEPLOYER_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 
 # Never leave a deployment from an earlier chain run looking valid after a
 # failed broadcast. Deploy.s.sol writes this file only after all transactions
