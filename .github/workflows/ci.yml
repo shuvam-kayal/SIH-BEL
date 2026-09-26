@@ -110,6 +110,16 @@ jobs:
           echo "IPFS did not become ready within 30 seconds" >&2
           exit 1
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Configure deterministic prototype validators
+        run: |
+          node <<'NODE' >> "$GITHUB_ENV"
+          const { HDNodeWallet } = require("ethers");
+          const mnemonic = "test test test test test test test test test test test junk";
+          for (let i = 0; i < 4; i++) {
+            const wallet = HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/" + i);
+            console.log("BEL_BOOTSTRAP_VALIDATOR_" + i + "=" + wallet.address);
+          }
+          NODE
       - name: Install pinned Solidity dependencies
         run: bash scripts/setup-contracts.sh
       - run: forge build
