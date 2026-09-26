@@ -48,6 +48,13 @@ export class ValidationError extends HttpError {
   }
 }
 
+export class ConflictError extends HttpError {
+  constructor(message = "The requested state transition conflicts with current state") {
+    super(409, message, "CONFLICT");
+    this.name = "ConflictError";
+  }
+}
+
 export class PayloadTooLargeError extends HttpError {
   constructor(message = "Uploaded file exceeds the configured size limit") {
     super(413, message, "PAYLOAD_TOO_LARGE");

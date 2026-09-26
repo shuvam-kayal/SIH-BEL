@@ -1,6 +1,6 @@
 // Frozen application API and blockchain adapter contracts.
 // All six workstreams consume these types. Change only through an ADR + spec update.
-import type { Asset, AuditEvent, Block, Identity, Job, PendingIdentity, Transaction, User, Validator, Wallet, Device, ProvisioningChallenge } from "./types";
+import type { Asset, AuditEvent, Block, Identity, Job, PendingIdentity, Transaction, User, Validator, Wallet, Device, ProvisioningChallenge, ValidatorRegistration, ValidatorHistoryRecord } from "./types";
 import type { JobPriority, Role } from "./enums";
 
 export type ApiErrorCode = "VALIDATION_FAILED" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "NOT_IMPLEMENTED" | "INTERNAL_ERROR";
@@ -39,6 +39,10 @@ export type CompleteJobRequest = { evidenceHash: string };
 export type RejectJobRequest = { reason: string };
 export type BlockchainStatus = { height: number; healthy: boolean; finalityLag: number; lastFinalizedHeight: number };
 export type CommitteeResponse = { height: number; validatorIds: string[] };
+export type ValidatorAddInput = { validatorId: string; nodeAddress: string; publicKey: string; signingPublicKey: string; activationHeight: number };
+export type ValidatorRemovalInput = { removalHeight: number; reason: string };
+export type ValidatorRestoreInput = { reason: string };
+export type ValidatorRemoveCancelInput = { reason: string };
 
 export interface ApiClient {
   login(input?: string | LoginProofRequest): Promise<Session>;
@@ -75,10 +79,23 @@ export interface ApiClient {
   getAssetAuditTrail(assetId: string): Promise<AuditEvent[]>;
   getBlockchainStatus(): Promise<BlockchainStatus>;
   getValidators(): Promise<Validator[]>;
+  getValidatorHistory(): Promise<ValidatorHistoryRecord[]>;
+  addValidator(input: ValidatorAddInput): Promise<ValidatorRegistration>;
+  removeValidator(id: string, input: ValidatorRemovalInput): Promise<ValidatorRegistration>;
+  restoreValidator(id: string, input: ValidatorRestoreInput): Promise<ValidatorRegistration>;
+  cancelScheduledRemoval(id: string, input: ValidatorRemoveCancelInput): Promise<ValidatorRegistration>;
   getCommittee(height: number): Promise<CommitteeResponse>;
+
 }
 
-export type MockBlockchainResult = { txId: string; status: "SUCCESS" | "REJECTED" };
+export type MockBlockchainResult = {
+  txId: string;
+  status: "SUCCESS" | "REJECTED";
+  transactionHash?: string;
+  blockNumber?: number;
+  event?: string;
+  revert?: { name: string; args: string[]; message: string };
+};
 export interface BlockchainService {
   submitTransaction(tx: Transaction): Promise<MockBlockchainResult>;
   getIdentity(identityId: string): Promise<Identity | null>;

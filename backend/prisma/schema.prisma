@@ -131,6 +131,50 @@ model AuthorizationGrant {
   grantor Identity @relation("Grantor", fields: [grantedByIdentityId], references: [identityId])
 }
 
+model ValidatorRegistration {
+  registrationId String @id
+  validatorId String @unique
+  identityId String
+  walletAddress String
+  nodeId String
+  nodeAddress String
+  publicKey String
+  signingPublicKey String
+  status String
+  requestedAt DateTime
+  activationHeight Int
+  removalHeight Int?
+  removalReason String?
+  txHash String?
+  blockNumber Int?
+}
+model ValidatorHistory {
+  historyId String @id
+  validatorId String
+  operation String
+  actorIdentityId String
+  actorWallet String
+  timestamp DateTime
+  blockNumber Int?
+  transactionHash String?
+  previousState String?
+  newState String
+  reason String?
+  status String
+  inverseTransactionHash String?
+  @@index([validatorId, timestamp])
+}
+model NotificationDelivery {
+  notificationId String @id
+  eventType String
+  validatorId String
+  operation String
+  recipientIdentityId String
+  channel String
+  createdAt DateTime
+  status String
+  @@index([validatorId, createdAt])
+}
 model AssetRecord {
   assetId String @id
   nftId String

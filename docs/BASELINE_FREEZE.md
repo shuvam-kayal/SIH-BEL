@@ -1,7 +1,21 @@
 # Base-v1 Freeze Rules
 
+## Consensus implementation status
+
+The Besu consensus implementation is the customized QBFT integration in `besu/`.
+The resolved protocol baseline is N >= 70 active validators, per-block VRF
+committee selection with p_N = min(1, max(70/N, 0.0132)), a deterministic
+minimum-70 ticket fallback, per-round deterministic randomized leadership,
+PREPARE/COMMIT quorum Q = floor(2K/3)+1, and round changes that keep the same
+committee. The previous finalized block hash is part of the selection seed,
+but is not treated as a bias-resistant randomness beacon.
+
+`DeterministicTestVrfProvider` is test-only, not RFC 9381 cryptography, and not
+production-grade. The production RFC 9381 backend remains isolated until it
+passes the complete Appendix B.2 interoperability gate.
+
 This repository is the shared starting point for the six independent workstreams.
-All six people clone the same `main` commit/tag and implement only within their owned paths.
+All six people work from the agreed project baseline and implement only within their owned paths. Person 4's active consensus implementation branch is `feat/poa`.
 
 ## Frozen and shared
 
@@ -48,8 +62,9 @@ The following are deliberately unfinished in base-v1 and do not block cloning:
 - Concrete Solidity implementations.
 - Authentication protocol and the server-side device-attestation boundary are implemented behind frozen interfaces. The production device-attestation provider is an explicit integration seam; an authoritative BEL device-management/VPN provider remains an external deployment requirement until its interface is available.
 - Production backend persistence.
-- Real blockchain networking/node implementation.
-- Exact consensus algorithm/client choice for Person 4's research spike.
+- Live production blockchain networking/deployment validation.
+- Production RFC 9381 VRF backend validation.
+- Validator admission/removal and large-scale security/performance evaluation.
 
 The interfaces around those modules are frozen. Replace implementations behind those seams; do not redesign the seams branch-by-branch.
 
@@ -77,3 +92,6 @@ Direct JavaScript dependencies are pinned in the package manifests, and the repo
 ## Clean-clone rule
 
 The repository must contain source/config/specification only. Never commit `node_modules`, local build output, caches, secrets, or generated editor files.
+Validator governance is ADMIN-only and separate from QBFT consensus committee
+selection. Lifecycle history is immutable and recovery is represented by an
+inverse on-chain RESTORE event.

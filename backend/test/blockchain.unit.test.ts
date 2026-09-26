@@ -56,6 +56,10 @@ describe("buildCallPlan: every transaction type maps to its CONTRACT_SPEC functi
     ["JOB_COMPLETE", { jobId: "J-1", evidenceHash: "AB".repeat(32) }, "JobManager", "completeJob", ["J-1", `0x${"ab".repeat(32)}`]],
     ["JOB_APPROVE", { jobId: "J-1" }, "JobManager", "approveJob", ["J-1"]],
     ["JOB_REJECT", { jobId: "J-1", reason: "incomplete" }, "JobManager", "rejectJob", ["J-1", "incomplete"]],
+    ["VALIDATOR_ADD", { validatorId: W1, publicKey: "pub", signingPublicKey: "sign", activationHeight: 20 }, "ValidatorRegistry", "addValidator", [W1, "pub", "sign", 20]],
+    ["VALIDATOR_REMOVE", { validatorId: W1, removalHeight: 30, reason: "retire" }, "ValidatorRegistry", "removeValidator", [W1, 30, "retire"]],
+    ["VALIDATOR_RESTORE", { validatorId: W1, reason: "recover" }, "ValidatorRegistry", "restoreValidator", [W1, "recover"]],
+    ["VALIDATOR_REMOVE_CANCEL", { validatorId: W1, reason: "cancel" }, "ValidatorRegistry", "cancelScheduledRemoval", [W1, "cancel"]],
   ];
 
   it("covers every frozen TransactionType", () => {
@@ -112,7 +116,7 @@ describe("configuration", () => {
   it("loads the committed local deployment and ABIs", () => {
     const cfg = loadChainConfigFromEnv(base);
     expect(cfg.deployment.chainId).toBe(31337);
-    expect(Object.keys(cfg.abis).sort()).toEqual(["AssetRegistry", "AuditRegistry", "IdentityRegistry", "JobManager", "RoleRegistry"]);
+    expect(Object.keys(cfg.abis).sort()).toEqual(["AssetRegistry", "AuditRegistry", "IdentityRegistry", "JobManager", "RoleRegistry", "ValidatorRegistry"]);
     expect(cfg.confirmations).toBe(1);
   });
 

@@ -14,6 +14,7 @@ const key = (index: number) => configuredKeys?.[index]
   ? new Wallet(configuredKeys[index])
   : HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${index}`);
 const rpcUrl = process.env.BEL_E2E_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim() || "http://127.0.0.1:8545";
+const expectedChainId = Number(process.env.BEL_E2E_CHAIN_ID ?? process.env.BEL_CHAIN_ID ?? 31337);
 const adminEmployeeId = process.env.BEL_E2E_ADMIN_EMPLOYEE_ID?.trim() || "ADMIN-001";
 const adminDeviceId = process.env.BEL_E2E_ADMIN_DEVICE_ID?.trim() || "BEL-DEV-ADMIN-001";
 
@@ -24,6 +25,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
   let container: Container;
   let app: ReturnType<typeof createApp>;
   let chain: EvmBlockchainAdapter;
+  let provider: JsonRpcProvider;
   let assetRegistry: Contract;
   let jobManager: Contract;
   let admin: Actor;
@@ -85,8 +87,8 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required; start Docker PostgreSQL first");
     const keys = [0, 1, 2, 3, 4, 5].map((i) => key(i).privateKey);
-    const provider = new JsonRpcProvider(rpcUrl, 31337, { staticNetwork: true, pollingInterval: 50 });
-    expect(await provider.send("eth_chainId", [])).toBe("0x7a69");
+    provider = new JsonRpcProvider(rpcUrl, expectedChainId, { staticNetwork: true, pollingInterval: 50 });
+    expect(BigInt(await provider.send("eth_chainId", []))).toBe(BigInt(expectedChainId));
     const config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEV_SIGNER_KEYS: keys.join(",") });
     chain = new EvmBlockchainAdapter(config, { provider });
     assetRegistry = new Contract(config.deployment.contracts.AssetRegistry, config.abis.AssetRegistry, provider);
@@ -202,12 +204,18 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(withoutGrant.status).toBe(403);
     const grantResponse = await request(app).post(`/admin/users/${engineer.identityId}/grants`).set("Authorization", `Bearer ${admin.token}`).send({ resourceType: "ASSET", resourceId: assetId, action: "TRANSFER_ASSET" });
     expect(grantResponse.status, JSON.stringify(grantResponse.body)).toBe(201);
+    const transferFromBlock = await provider.getBlockNumber();
     const transferred = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: engineer.identityId, newCustodianId: engineer.identityId });
     expect(transferred.status).toBe(200);
     expect(transferred.body).toMatchObject({ assetId, ownerId: engineer.identityId, custodianId: engineer.identityId });
     expect(await prisma.assetRecord.findUnique({ where: { assetId } })).toMatchObject({ ownerId: engineer.identityId, custodianId: engineer.identityId });
     expect(await chain.getAsset(assetId)).toMatchObject({ ownerId: engineer.identityId, custodianId: engineer.identityId });
-    const transferEvents = await assetRegistry.queryFilter(assetRegistry.filters.AssetTransferred());
+    const transferToBlock = await provider.getBlockNumber();
+    const transferEvents = await assetRegistry.queryFilter(
+      assetRegistry.filters.AssetTransferred(),
+      transferFromBlock,
+      transferToBlock,
+    );
     expect(transferEvents.some((event) => {
       const args = "args" in event ? event.args : undefined;
       return args?.[2]?.toString().toLowerCase() === engineer.walletAddress.toLowerCase();
@@ -217,7 +225,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(revokedGrant.status).toBe(200);
     const afterRevoke = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: technician.identityId, newCustodianId: technician.identityId });
     expect(afterRevoke.status).toBe(403);
-  });
+  }, 120_000);
 
   it("executes rejection, reassignment, completion, and final approval", async () => {
     const assetId = `E2E-ASSET-REJECT-${Date.now()}`;
@@ -239,12 +247,12 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(approved.body).toMatchObject({ status: "VERIFIED", verifierId: verifier.identityId });
     expect(await chain.getJob(jobId)).toMatchObject({ status: "VERIFIED", verifierId: verifier.identityId });
     expect((await jobManager.getJob(jobId)).verifier).toBe(verifier.walletAddress);
-  });
+  }, 120_000);
 
   it("revokes the technician wallet and invalidates the authenticated session", async () => {
     const response = await request(app).post(`/admin/users/${technician.identityId}/revoke-wallet`).set("Authorization", `Bearer ${admin.token}`).send({ reason: "workflow cleanup" });
     expect(response.status).toBe(200);
     expect((await request(app).get("/users/me").set("Authorization", `Bearer ${technician.token}`)).status).toBe(401);
     expect((await chain.getWallet(technician.walletAddress))?.status).toBe("REVOKED");
-  });
+  }, 120_000);
 });

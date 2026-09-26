@@ -37,7 +37,7 @@ export type JobPriority = (typeof JOB_PRIORITIES)[number];
 export const VALIDATOR_STATUSES = ["ACTIVE", "INACTIVE", "SLASHED"] as const;
 export type ValidatorStatus = (typeof VALIDATOR_STATUSES)[number];
 
-export const AUDIT_ENTITY_TYPES = ["ASSET", "JOB", "IDENTITY", "DEVICE", "WALLET", "GRANT"] as const;
+export const AUDIT_ENTITY_TYPES = ["ASSET", "JOB", "IDENTITY", "DEVICE", "WALLET", "GRANT", "VALIDATOR"] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 
 // Mirrors docs/CONTRACT_SPEC.md — every on-chain transaction type.
@@ -60,7 +60,14 @@ export const TRANSACTION_TYPES = [
   "JOB_REJECT",
   "COMPONENT_ATTACH",
   "COMPONENT_REMOVE",
+  "VALIDATOR_ADD",
+  "VALIDATOR_REMOVE",
+  "VALIDATOR_RESTORE",
+  "VALIDATOR_REMOVE_CANCEL",
   "GRANT_CREATE",
   "GRANT_REVOKE",
 ] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+
+

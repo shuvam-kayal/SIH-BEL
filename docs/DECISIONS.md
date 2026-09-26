@@ -58,9 +58,8 @@ backup, malware scanning, retention, and key/network hardening.
 round.
 **Why:** Full-validator-set voting doesn't scale with N; a random
 committee gives probabilistic security while keeping message/vote
-overhead bounded. Exact committee size and selection mechanism are
-still being benchmarked — see CONSENSUS_SPEC.md and
-blockchain/simulator/.
+overhead bounded. The resolved committee rule is documented in
+CONSENSUS_SPEC.md and implemented through the Besu BEL module.
 
 ### ADR-007: Adapter pattern for parallel development
 **Decision:** Backend and frontend depend on interfaces
@@ -165,7 +164,120 @@ rather than silently resolved. Decide before first release.
 **Why:** Operational queries need a durable database while lifecycle history needs tamper-evident evidence.
 **Consequences:** Other workstreams consume repository/API contracts and do not couple directly to Prisma tables.
 
-### ADR-022: Local device verification is separate from BEL authentication
+### ADR-022: Final BEL consensus protocol and Besu implementation
+**Status:** Accepted — supersedes ADR-006's open committee parameters and the
+earlier leader-VRF draft in `CONSENSUS_SPEC.md`.
+
+**Decision:** The production consensus target is a customized Hyperledger Besu
+24.8.0 implementation. For an active validator population (N), committee
+sortition uses RFC 9381 ECVRF-P256-SHA256-SSWU with
+
+`p_N = min(1, max(70/N, 0.0132))`.
+
+If fewer than 70 valid tickets are selected, the first 70 tickets in canonical
+`(vrfOutput, validatorId)` order are used. The committee remains fixed for a
+block height. The round leader is derived by hashing the seed, height, round,
+and canonical committee encoding with `BEL-LEADER`, then indexing the ordered
+committee; no leader VRF ticket set is used.
+
+PREPARE/COMMIT quorum remains `floor(2K/3)+1`; safety takes precedence over
+liveness; round changes preserve the highest valid prepared value. VRF keys
+are separate validator consensus credentials and are never application wallet
+keys or stored in blocks.
+
+**Consequences:** The Java/Besu implementation is the actual consensus implementation.
+The previous-block-hash seed is deterministic and verifiable but is not a
+bias-resistant randomness beacon. The ECVRF backend must be an RFC-compatible
+implementation; an unaudited or custom cryptographic implementation cannot be
+claimed production-ready.
+
+### ADR-023: Hackathon VRF backend gate and test provider
+**Status:** Accepted for the remaining hackathon implementation.
+
+**Decision:** No unvalidated VRF implementation may determine a live
+committee. The bounded `vrf-rfc9381` investigation found that 0.0.5 fails to
+build with the resolved `hash2curve` API, while 0.0.6 and 0.0.7 fail RFC
+Appendix B.2 public-key derivation and proof-generation interoperability.
+Besu consensus work therefore proceeds behind `VrfProvider` with
+`DeterministicTestVrfProvider` only for deterministic protocol demonstrations.
+
+**Consequences:** The test provider is explicitly test-only, not RFC 9381
+cryptography, and not production-grade. The RFC backend
+remains isolated and cannot be enabled until all required official-vector and
+negative tests pass.
+
+
+### ADR-024: Public selection seed
+**Status:** Accepted.
+
+**Decision:** For block height h, committee selection derives its public seed
+from the previous finalized block hash plus the frozen domain-separated
+height/chain context.
+
+**Limitation:** The previous finalized block hash is deterministic and
+verifiable but is not claimed to be a bias-resistant distributed randomness
+beacon.
+
+### ADR-025: Frozen committee probability and minimum
+**Status:** Accepted.
+
+**Decision:** For active validator population N >= 70, committee selection
+uses `p_N = min(1, max(70/N, 0.0132))`. If fewer than 70 valid VRF tickets
+are selected, the 70 smallest valid tickets under canonical
+`(vrfOutput, validatorId)` ordering form the committee.
+
+**Consequence:** Committee size varies between blocks; it is not a fixed
+constant. The value 0.0132 is a frozen protocol parameter, not a claim of
+formal optimization.
+
+### ADR-026: Per-round randomized leader selection
+**Status:** Accepted.
+
+**Decision:** The leader is selected from the ordered committee for every round
+using the domain-separated `BEL-LEADER` hash-index rule over the public seed,
+height, round, and canonical committee encoding. There is no separate leader
+VRF ticket set.
+
+**Consequence:** A round change changes the leader while keeping the committee
+fixed for the block height.
+
+### ADR-027: QBFT quorum and failure handling
+**Status:** Accepted.
+
+**Decision:** The consensus layer retains QBFT-style PREPARE/COMMIT finality with
+`Q = floor(2K/3)+1`. Offline validators do not contribute to quorum. Invalid
+or conflicting Byzantine messages are rejected through consensus validation
+and evidence handling. Leader failure triggers round change, with preservation
+of the highest valid prepared value.
+
+**Consequence:** Safety is not weakened to recover liveness during failures.
+For f = floor((K-1)/3), the quorum relation is Q >= 2f+1; equality is not
+universal for all K.
+
+### ADR-028: Besu is the consensus implementation boundary
+**Status:** Accepted.
+
+**Decision:** The customized Hyperledger Besu/QBFT source tree is the actual
+consensus implementation and source of truth for validator/committee
+consensus behavior. Smart contracts do not implement or replace consensus.
+
+**Current evidence:** Compilation and consensus tests pass; BEL committee RPC
+plumbing is implemented; Byzantine evidence validation is covered. The
+4-node WSL network is an infrastructure/P2P/RPC smoke test, not proof of live
+dynamic-committee finality.
+
+**Open production items:** RFC 9381 VRF backend, validator admission/removal,
+randomness robustness, large-scale evaluation, and comprehensive live failure
+testing.
+
+### ADR-029: Local device verification is separate from BEL authentication
 **Decision:** The managed authenticator controls local user verification and authorizes use of the device-held private key. BEL authentication remains the backend-issued challenge, device signature, public-key verification, and bearer-session protocol.
 **Why:** Device PINs, Windows Hello, biometrics, security keys, and other approved modalities are platform-specific and must not become a BEL application PIN or cross the API boundary.
 **Consequences:** The frontend transports challenge proofs but never collects or receives local verification data or private-key material. High-impact operations use the existing short-lived, single-use, session/operation/resource-bound fresh-auth proof.
+## Validator governance rework
+
+BEL ADMIN is the sole application authority for validator lifecycle changes.
+No validator governance or approval committee is modeled. Bootstrap validators
+remain permanent infrastructure validators under the existing contract
+invariant. Recovery clears the current removal boundary through a new RESTORE
+transaction and never rewrites history.

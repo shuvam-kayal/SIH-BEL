@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import type { AuthorizationGrant, Device, Identity, ProvisioningChallenge, User, Wallet } from "../../../shared/types";
+import type { AuthorizationGrant, Device, Identity, ProvisioningChallenge, User, Wallet, ValidatorRegistration, ValidatorHistoryRecord, NotificationDelivery } from "../../../shared/types";
 import type {
   AuthorizationGrantRepository,
   CredentialRepository,
@@ -11,6 +11,9 @@ import type {
   SessionRepository,
   UserRepository,
   WalletRepository,
+  ValidatorRepository,
+  ValidatorHistoryRepository,
+  NotificationRepository,
 } from "./repositories";
 import { hashCredential, type SessionRecord, IdentityStore } from "./identity.store";
 
@@ -54,6 +57,30 @@ export class PrismaWalletRepository implements WalletRepository {
   }
 }
 
+export class PrismaValidatorRepository implements ValidatorRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+  async findById(id: string) { return mapValidator(await this.prisma.validatorRegistration.findUnique({ where: { registrationId: id } })); }
+  async findByValidatorId(id: string) { return mapValidator(await this.prisma.validatorRegistration.findUnique({ where: { validatorId: id } })); }
+  async list() { return (await this.prisma.validatorRegistration.findMany({ orderBy: { requestedAt: "asc" } })).map((row: any) => mapValidator(row)!); }
+  async save(value: ValidatorRegistration) { await this.prisma.validatorRegistration.upsert({ where: { registrationId: value.registrationId }, create: validatorData(value), update: validatorData(value) }); }
+}
+class MemoryValidatorRepository implements ValidatorRepository {
+  constructor(private readonly store: IdentityStore) {}
+  async findById(id: string) { const v = this.store.validators.get(id); return v ? { ...v } : null; }
+  async findByValidatorId(id: string) { const v = [...this.store.validators.values()].find((item) => item.validatorId === id); return v ? { ...v } : null; }
+  async list() { return [...this.store.validators.values()].map((v) => ({ ...v })); }
+  async save(value: ValidatorRegistration) { this.store.validators.set(value.registrationId, { ...value }); }
+}
+class MemoryValidatorHistoryRepository implements ValidatorHistoryRepository {
+  constructor(private readonly store: IdentityStore) {}
+  async list() { return [...this.store.validatorHistory.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp)); }
+  async append(value: ValidatorHistoryRecord) { this.store.validatorHistory.set(value.historyId, { ...value }); }
+}
+class MemoryNotificationRepository implements NotificationRepository {
+  constructor(private readonly store: IdentityStore) {}
+  async list() { return [...this.store.notifications.values()]; }
+  async append(value: NotificationDelivery) { this.store.notifications.set(value.notificationId, { ...value }); }
+}
 export class PrismaProvisioningChallengeRepository implements ProvisioningChallengeRepository {
   constructor(private readonly prisma: PrismaClient) {}
   async findById(challengeId: string) { return mapChallenge(await this.prisma.provisioningChallenge.findUnique({ where: { challengeId } })); }
@@ -113,8 +140,19 @@ export class PrismaAuthorizationGrantRepository implements AuthorizationGrantRep
   }
 }
 
+class PrismaValidatorHistoryRepository implements ValidatorHistoryRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+  async list() { return (await this.prisma.validatorHistory.findMany({ orderBy: { timestamp: "asc" } })).map((row: any) => ({ ...row, timestamp: asIso(row.timestamp) })); }
+  async append(value: ValidatorHistoryRecord) { await this.prisma.validatorHistory.create({ data: { ...value, timestamp: asDate(value.timestamp) } }); }
+}
+class PrismaNotificationRepository implements NotificationRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+  async list() { return (await this.prisma.notificationDelivery.findMany({ orderBy: { createdAt: "asc" } })).map((row: any) => ({ ...row, createdAt: asIso(row.createdAt) })); }
+  async append(value: NotificationDelivery) { await this.prisma.notificationDelivery.create({ data: { ...value, createdAt: asDate(value.createdAt) } }); }
+}
+
 export function createPrismaRepositories(prisma: PrismaClient): IdentityRepositories {
-  return { identities: new PrismaIdentityRepository(prisma), users: new PrismaUserRepository(prisma), devices: new PrismaDeviceRepository(prisma), wallets: new PrismaWalletRepository(prisma), credentials: new PrismaCredentialRepository(prisma), sessions: new PrismaSessionRepository(prisma), grants: new PrismaAuthorizationGrantRepository(prisma), challenges: new PrismaProvisioningChallengeRepository(prisma) };
+  return { identities: new PrismaIdentityRepository(prisma), users: new PrismaUserRepository(prisma), devices: new PrismaDeviceRepository(prisma), wallets: new PrismaWalletRepository(prisma), credentials: new PrismaCredentialRepository(prisma), sessions: new PrismaSessionRepository(prisma), grants: new PrismaAuthorizationGrantRepository(prisma), validators: new PrismaValidatorRepository(prisma), validatorHistory: new PrismaValidatorHistoryRepository(prisma), notifications: new PrismaNotificationRepository(prisma), challenges: new PrismaProvisioningChallengeRepository(prisma) };
 }
 
 /** Test/development adapters with the same ports as the Prisma adapters. */
@@ -178,7 +216,7 @@ class MemoryProvisioningChallengeRepository implements ProvisioningChallengeRepo
 }
 
 export function createMemoryRepositories(store: IdentityStore = new IdentityStore()): IdentityRepositories {
-  return { identities: new MemoryIdentityRepository(store), users: new MemoryUserRepository(store), devices: new MemoryDeviceRepository(store), wallets: new MemoryWalletRepository(store), credentials: new MemoryCredentialRepository(store), sessions: new MemorySessionRepository(store), grants: new MemoryGrantRepository(store), challenges: new MemoryProvisioningChallengeRepository() };
+  return { identities: new MemoryIdentityRepository(store), users: new MemoryUserRepository(store), devices: new MemoryDeviceRepository(store), wallets: new MemoryWalletRepository(store), credentials: new MemoryCredentialRepository(store), sessions: new MemorySessionRepository(store), grants: new MemoryGrantRepository(store), challenges: new MemoryProvisioningChallengeRepository(), validators: new MemoryValidatorRepository(store), validatorHistory: new MemoryValidatorHistoryRepository(store), notifications: new MemoryNotificationRepository(store) };
 }
 
 const identityData = (value: Identity) => ({ identityId: value.identityId, employeeId: value.employeeId, fullName: value.fullName, role: value.role, department: value.department, status: value.status, createdAt: asDate(value.createdAt), verifiedAt: value.verifiedAt ? asDate(value.verifiedAt) : null, verifiedBy: value.verifiedBy ?? null });
@@ -192,4 +230,7 @@ const mapUser = (row: any): User | null => row ? { ...row } : null;
 const mapDevice = (row: any): Device | null => row ? { ...row, registeredAt: asIso(row.registeredAt), activatedAt: row.activatedAt ? asIso(row.activatedAt) : null, revokedAt: row.revokedAt ? asIso(row.revokedAt) : null, metadata: row.metadata ?? null } : null;
 const mapWallet = (row: any): Wallet | null => row ? { ...row, activatedAt: row.activatedAt ? asIso(row.activatedAt) : null, revokedAt: row.revokedAt ? asIso(row.revokedAt) : null } : null;
 const mapGrant = (row: any): AuthorizationGrant | null => row ? { ...row, issuedAt: asIso(row.issuedAt), expiresAt: row.expiresAt ? asIso(row.expiresAt) : null } : null;
+const validatorData = (value: ValidatorRegistration) => ({ ...value, requestedAt: asDate(value.requestedAt) });
+const mapValidator = (row: any): ValidatorRegistration | null => row ? { ...row, requestedAt: asIso(row.requestedAt) } : null;
 const mapChallenge = (row: any): ProvisioningChallenge | null => row ? { ...row, expiresAt: asIso(row.expiresAt), usedAt: row.usedAt ? asIso(row.usedAt) : null, metadata: row.metadata ?? null } : null;
+
