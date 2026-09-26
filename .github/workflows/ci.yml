@@ -89,7 +89,7 @@ jobs:
       - name: Start Anvil Docker service
         run: |
           set -euo pipefail
-          docker run -d --name bel-anvil -p 8545:8545 --entrypoint anvil ghcr.io/foundry-rs/foundry:latest --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000
+          docker run -d --name bel-anvil -p 8545:8545 --entrypoint anvil ghcr.io/foundry-rs/foundry:latest --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000 --base-fee 0
           for i in {1..30}; do
             if cast rpc --rpc-url http://127.0.0.1:8545 eth_chainId; then
               exit 0

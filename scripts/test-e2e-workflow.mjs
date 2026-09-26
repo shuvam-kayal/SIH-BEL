@@ -40,7 +40,7 @@ if ((env.BEL_E2E_RESET || "true").toLowerCase() === "true") try {
   const response = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_reset", params: [] }) });
   const body = await response.json();
   if (body.error) throw new Error(body.error.message);
-  const feeResponse = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "anvil_setNextBlockBaseFeePerGas", params: ["0x3b9aca00"] }) });
+  const feeResponse = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "anvil_setNextBlockBaseFeePerGas", params: ["0x0"] }) });
   const feeBody = await feeResponse.json();
   if (feeBody.error) throw new Error(feeBody.error.message);
 } catch (error) {
