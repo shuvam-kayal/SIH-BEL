@@ -231,7 +231,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(revokedGrant.status).toBe(200);
     const afterRevoke = await request(app).post(`/assets/${assetId}/transfer`).set("Authorization", `Bearer ${engineer.token}`).send({ newOwnerId: technician.identityId, newCustodianId: technician.identityId });
     expect(afterRevoke.status).toBe(403);
-  });
+  }, 120_000);
 
   it("executes rejection, reassignment, completion, and final approval", async () => {
     const assetId = `E2E-ASSET-REJECT-${Date.now()}`;
@@ -253,12 +253,12 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(approved.body).toMatchObject({ status: "VERIFIED", verifierId: verifier.identityId });
     expect(await chain.getJob(jobId)).toMatchObject({ status: "VERIFIED", verifierId: verifier.identityId });
     expect((await jobManager.getJob(jobId)).verifier).toBe(verifier.walletAddress);
-  });
+  }, 120_000);
 
   it("revokes the technician wallet and invalidates the authenticated session", async () => {
     const response = await request(app).post(`/admin/users/${technician.identityId}/revoke-wallet`).set("Authorization", `Bearer ${admin.token}`).send({ reason: "workflow cleanup" });
     expect(response.status).toBe(200);
     expect((await request(app).get("/users/me").set("Authorization", `Bearer ${technician.token}`)).status).toBe(401);
     expect((await chain.getWallet(technician.walletAddress))?.status).toBe("REVOKED");
-  });
+  }, 120_000);
 });

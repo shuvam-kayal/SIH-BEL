@@ -27,13 +27,22 @@ export BEL_BOOTSTRAP_ADMIN_WALLET="${BEL_BOOTSTRAP_ADMIN_WALLET:-0xf39Fd6e51aad8
 export BEL_BOOTSTRAP_ADMIN_DID="${BEL_BOOTSTRAP_ADMIN_DID:-DID:BEL:ADMIN}"
 export BEL_RPC_URL="${BEL_RPC_URL:-http://127.0.0.1:8645}"
 
-if [[ -z "${BEL_DEPLOYER_PRIVATE_KEY:-}" ]]; then
-  BEL_DEPLOYER_PRIVATE_KEY="ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-fi
+DEPLOYMENT_FILE="${ROOT}/contracts/deployments/besu-prototype.json"
+# This is Foundry/Anvil's standard development key and derives to
+# BEL_BOOTSTRAP_ADMIN_WALLET's default address (0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266).
+BEL_DEPLOYER_PRIVATE_KEY="${BEL_DEPLOYER_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
+
+# Never leave a deployment from an earlier chain run looking valid after a
+# failed broadcast. Deploy.s.sol writes this file only after all transactions
+# complete successfully; this removes any stale file before starting a retry.
+rm -f "${DEPLOYMENT_FILE}"
+
 forge script "${ROOT}/contracts/script/Deploy.s.sol" \
   --root "${ROOT}/contracts" \
   --rpc-url "${BEL_RPC_URL}" \
   --private-key "${BEL_DEPLOYER_PRIVATE_KEY}" \
+  --legacy \
   --broadcast
 
-echo "Besu contracts deployed to contracts/deployments/besu-prototype.json"
+[[ -f "${DEPLOYMENT_FILE}" ]] || { echo "Forge succeeded but did not write ${DEPLOYMENT_FILE}" >&2; exit 1; }
+echo "Besu contracts deployed to ${DEPLOYMENT_FILE}"
