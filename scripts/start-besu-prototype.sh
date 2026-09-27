@@ -7,4 +7,4 @@ BEL_EXECUTION_PROFILE=prototype \
 BEL_PROTOTYPE_QBFT_VALIDATOR_COUNT=4 \
 BEL_REQUIRE_TEST_ACCOUNTS=true \
 BEL_SMOKE_KEEP_RUNNING=true \
-"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-besu-smoke.sh" "$@"
+bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-besu-smoke.sh" "$@"

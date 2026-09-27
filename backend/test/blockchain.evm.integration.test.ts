@@ -9,12 +9,12 @@ import { BlockchainError, EvmBlockchainAdapter, loadChainConfigFromEnv, type Evm
 const configuredRpcUrl = process.env.BEL_EVM_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim();
 const configuredKeys = (process.env.BEL_E2E_PRIVATE_KEYS ?? process.env.BEL_CHAIN_DEV_SIGNER_KEYS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 const integrationRun = process.env.BEL_RUN_INTEGRATION === "true";
-if (integrationRun) vi.setConfig({ testTimeout: 180_000, hookTimeout: 240_000 });
-const key = (i: number) => configuredKeys[i];
-const addr = (i: number) => new EvmWallet(key(i)).address;
-const [ADMIN, MANAGER, ENGINEER, TECH, AUDITOR, VERIFIER, ISSUER, TECH2, DEVICE] = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(addr);
 
 describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () => {
+  vi.setConfig({ testTimeout: 180_000, hookTimeout: 240_000 });
+  const key = (i: number) => configuredKeys[i];
+  const addr = (i: number) => new EvmWallet(key(i)).address;
+  const [ADMIN, MANAGER, ENGINEER, TECH, AUDITOR, VERIFIER, ISSUER, TECH2, DEVICE] = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(addr);
   let provider: JsonRpcProvider;
   let adapter: EvmBlockchainAdapter;
   let config: EvmChainConfig;

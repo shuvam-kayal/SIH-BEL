@@ -63,6 +63,7 @@ jobs:
       BEL_NETWORK: besu-prototype
       BEL_EXECUTION_PROFILE: prototype
       BEL_BOOTSTRAP_VALIDATOR_COUNT: "4"
+      BEL_BESU_RUN_ROOT: ${{ runner.temp }}/besu-run-${{ github.run_id }}-${{ github.run_attempt }}
     services:
       postgres:
         image: postgres:16-alpine
@@ -100,14 +101,37 @@ jobs:
           cd besu
           ./gradlew :consensus:bel:test :consensus:qbft:test :besu:compileJava installDist --no-daemon
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Besu pre-flight diagnostics
+        run: |
+          set +e
+          echo "Java:"; java -version
+          echo "Node: $(node --version)"
+          echo "OS: $(uname -a)"
+          besu_bin="$GITHUB_WORKSPACE/besu/build/install/besu/bin/besu-untuned"
+          echo "Besu executable: $besu_bin"
+          if [[ -e "$besu_bin" ]]; then stat "$besu_bin"; else echo "MISSING"; fi
+          if [[ -x "$besu_bin" ]]; then echo "executable=yes"; else echo "executable=no"; fi
+          echo "Repository status:"; git status --short
+          echo "Besu submodule commit: $(git -C besu rev-parse HEAD)"
+          echo "Relevant script modes:"; git ls-files --stage scripts/start-besu-prototype.sh scripts/run-besu-smoke.sh scripts/check-besu-bel-demo.sh scripts/stop-besu-bel-demo.sh
+          stat scripts/start-besu-prototype.sh scripts/run-besu-smoke.sh scripts/check-besu-bel-demo.sh scripts/stop-besu-bel-demo.sh
+          echo "Besu configuration: profile=$BEL_EXECUTION_PROFILE validators=$BEL_BOOTSTRAP_VALIDATOR_COUNT rpc_base=8645 p2p_base=31303"
       - name: Start real Besu prototype network
         run: |
-          set -euo pipefail
-          output="$(BEL_EXECUTION_PROFILE=prototype BEL_REQUIRE_TEST_ACCOUNTS=true BEL_SMOKE_INITIAL_NODES=4 BEL_SMOKE_MIN_PEERS=1 bash scripts/start-besu-prototype.sh)"
-          printf '%s\n' "$output"
-          run_root="$(printf '%s\n' "$output" | sed -n 's/^Besu smoke network started: //p' | tail -n 1)"
-          test -n "$run_root" && test -f "$run_root/run.json"
+          set -uo pipefail
+          run_root="$BEL_BESU_RUN_ROOT"
+          mkdir -p "$run_root"
           echo "BEL_BESU_RUN_ROOT=$run_root" >> "$GITHUB_ENV"
+          set +e
+          BEL_BESU_RUN_ROOT="$run_root" BEL_EXECUTION_PROFILE=prototype BEL_REQUIRE_TEST_ACCOUNTS=true BEL_SMOKE_INITIAL_NODES=4 BEL_SMOKE_MIN_PEERS=1 bash scripts/start-besu-prototype.sh 2>&1 | tee "$run_root/startup.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if (( status != 0 )); then
+            echo "Besu startup failed with exit status $status; collecting diagnostics." >&2
+            bash scripts/check-besu-bel-demo.sh "$run_root" 4 8645 || true
+            exit "$status"
+          fi
+          test -f "$run_root/run.json"
           echo "BEL_E2E_PRIVATE_KEYS=$(paste -sd, "$run_root/test-account-keys")" >> "$GITHUB_ENV"
           node - "$run_root" >> "$GITHUB_ENV" <<'NODE'
           const fs = require('node:fs');
@@ -120,13 +144,32 @@ jobs:
         run: |
           set -euo pipefail
           test -s "$BEL_BESU_RUN_ROOT/pids"
+          while IFS= read -r pid; do test -n "$pid" && kill -0 "$pid"; done < "$BEL_BESU_RUN_ROOT/pids"
+          initial=""
+          minimum=""
+          maximum=0
           for port in 8645 8646 8647 8648; do
-            curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"web3_clientVersion","params":[]}' "http://127.0.0.1:$port"
-            curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":2,"method":"eth_chainId","params":[]}' "http://127.0.0.1:$port"
-            curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":3,"method":"eth_blockNumber","params":[]}' "http://127.0.0.1:$port"
-            curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":4,"method":"net_peerCount","params":[]}' "http://127.0.0.1:$port"
-            echo
+            rpc="http://127.0.0.1:$port"
+            client="$(curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"web3_clientVersion","params":[]}' "$rpc")"
+            chain="$(curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":2,"method":"eth_chainId","params":[]}' "$rpc")"
+            block="$(curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":3,"method":"eth_blockNumber","params":[]}' "$rpc")"
+            peers="$(curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":4,"method":"net_peerCount","params":[]}' "$rpc")"
+            echo "rpc=$rpc client=$client chain=$chain block=$block peers=$peers"
+            echo "$client" | grep -Eiq '"result"[[:space:]]*:[[:space:]]*"[^"]*besu' || { echo "RPC $port is not Besu" >&2; exit 1; }
+            echo "$chain" | grep -Eq '"result"[[:space:]]*:[[:space:]]*"0x1352838"' || { echo "RPC $port is not BEL chain 20260920" >&2; exit 1; }
+            value="$(echo "$block" | sed -nE 's/.*"result"[[:space:]]*:[[:space:]]*"0x([0-9a-fA-F]+)".*/\1/p')"
+            number=$((16#$value))
+            if [[ -z "$initial" || "$number" -lt "$initial" ]]; then initial=$number; fi
+            if [[ -z "$minimum" || "$number" -lt "$minimum" ]]; then minimum=$number; fi
+            if (( number > maximum )); then maximum=$number; fi
           done
+          sleep 5
+          now="$(curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":5,"method":"eth_blockNumber","params":[]}' http://127.0.0.1:8645)"
+          now_hex="$(echo "$now" | sed -nE 's/.*"result"[[:space:]]*:[[:space:]]*"0x([0-9a-fA-F]+)".*/\1/p')"
+          now_number=$((16#$now_hex))
+          (( now_number > initial )) || { echo "Besu block height did not advance from $initial" >&2; exit 1; }
+          (( maximum - minimum <= 1 )) || { echo "Besu node heights are not converged: $minimum-$maximum" >&2; exit 1; }
+          echo "[CI] blockchain=evm rpc=http://127.0.0.1:8645 chainId=20260920 client=Besu block=$now_number"
       - name: Start real IPFS/Kubo service
         run: |
           set -euo pipefail
@@ -148,8 +191,27 @@ jobs:
         run: npm run db:migrate
       - name: Deploy contracts to this Besu run
         run: bash scripts/deploy-besu-prototype.sh "$BEL_BESU_RUN_ROOT"
+      - name: Verify deployed contract bytecode on this Besu run
+        run: |
+          node - "$BEL_BESU_RUN_ROOT" <<'NODE'
+          const fs = require('node:fs');
+          const deployment = JSON.parse(fs.readFileSync('contracts/deployments/besu-prototype.json', 'utf8'));
+          if (Number(deployment.chainId) !== 20260920) throw new Error(`deployment chain mismatch: ${deployment.chainId}`);
+          const call = async (method, params) => {
+            const response = await fetch('http://127.0.0.1:8645', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+            const body = await response.json();
+            if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
+            return body.result;
+          };
+          console.log(`[CI] contracts deployment=${deployment.network} chainId=${deployment.chainId} runRoot=${process.argv[2]}`);
+          for (const [name, address] of Object.entries(deployment.contracts)) {
+            const code = await call('eth_getCode', [address, 'latest']);
+            if (!code || code === '0x') throw new Error(`${name} has no bytecode at ${address}`);
+            console.log(`[CI] contract=${name} address=${address} bytecode=present`);
+          }
+          NODE
       - name: Run backend EVM integration against Besu
-        run: npm run test:evm
+        run: echo "[CI] blockchain=evm rpc=$BEL_EVM_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; npm run test:evm
       - name: Bootstrap PostgreSQL admin for Besu-backed user integration
         run: npx tsx scripts/bootstrap-dev.ts
         env:
@@ -158,9 +220,9 @@ jobs:
           BEL_BLOCKCHAIN: evm
           BEL_BOOTSTRAP_CREDENTIAL: e2e-admin-credential
       - name: Run Person 1 EVM/PostgreSQL integration
-        run: npx vitest run backend/test/users.evm.integration.test.ts --testTimeout=120000
+        run: echo "[CI] blockchain=evm rpc=$BEL_EVM_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; npx vitest run backend/test/users.evm.integration.test.ts --testTimeout=120000
       - name: Run complete cross-person E2E workflow
-        run: npm run test:e2e:workflow
+        run: echo "[CI] blockchain=evm rpc=$BEL_E2E_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; npm run test:e2e:workflow
         env:
           IPFS_API_URL: http://127.0.0.1:5001
           BEL_E2E_DEPLOYED: "true"
@@ -181,6 +243,9 @@ jobs:
             ${{ env.BEL_BESU_RUN_ROOT }}/nodes/**/besu.log
             ${{ env.BEL_BESU_RUN_ROOT }}/config/network-config.json
             ${{ env.BEL_BESU_RUN_ROOT }}/generated/genesis.json
+            ${{ env.BEL_BESU_RUN_ROOT }}/run.json
+            ${{ env.BEL_BESU_RUN_ROOT }}/pids
+            ${{ env.BEL_BESU_RUN_ROOT }}/startup.log
 
   contracts:
     name: Build and test contracts

@@ -13,30 +13,29 @@ const configuredRpcUrl = process.env.BEL_EVM_RPC_URL?.trim() || process.env.BEL_
 const hasPostgres = Boolean(process.env.DATABASE_URL);
 const configuredKeys = (process.env.BEL_E2E_PRIVATE_KEYS ?? process.env.BEL_CHAIN_DEV_SIGNER_KEYS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 const integrationRun = process.env.BEL_RUN_INTEGRATION === "true";
-if (integrationRun) vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
-
-const key = (index: number) => configuredKeys[index];
-const wallet = (index: number) => new EvmWallet(key(index));
-// Keep the integration identities/wallets disjoint from the repository's
-// long-lived bootstrap admin and from each other. This suite cleans up its
-// own rows, but must not collide with the real E2E bootstrap account.
-// The Besu deployment/bootstrap script funds and authorizes account 0 as the
-// real bootstrap admin. This suite must use that same live identity rather
-// than inventing an Anvil-only administrator.
-const ADMIN = wallet(0);
-const BAD_ACTOR = wallet(4);
-const publicKey = (privateKey: string) => `0x${SigningKey.computePublicKey(privateKey, false).slice(4)}`;
-const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, actorIdentity: string, payload: Record<string, unknown>) => ({
-  txId: `p1-${type}-${Date.now()}-${Math.random()}`,
-  type,
-  actorWallet,
-  actorIdentity,
-  payload,
-  timestamp: new Date().toISOString(),
-  signature: "development",
-} as const);
 
 describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized Besu and PostgreSQL", () => {
+  vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
+  const key = (index: number) => configuredKeys[index];
+  const wallet = (index: number) => new EvmWallet(key(index));
+  // Keep the integration identities/wallets disjoint from the repository's
+  // long-lived bootstrap admin and from each other. This suite cleans up its
+  // own rows, but must not collide with the real E2E bootstrap account.
+  // The Besu deployment/bootstrap script funds and authorizes account 0 as the
+  // real bootstrap admin. This suite must use that same live identity rather
+  // than inventing an Anvil-only administrator.
+  const ADMIN = wallet(0);
+  const BAD_ACTOR = wallet(4);
+  const publicKey = (privateKey: string) => `0x${SigningKey.computePublicKey(privateKey, false).slice(4)}`;
+  const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, actorIdentity: string, payload: Record<string, unknown>) => ({
+    txId: `p1-${type}-${Date.now()}-${Math.random()}`,
+    type,
+    actorWallet,
+    actorIdentity,
+    payload,
+    timestamp: new Date().toISOString(),
+    signature: "development",
+  } as const);
   let provider: JsonRpcProvider;
   let adapter: EvmBlockchainAdapter;
   let container: Container;

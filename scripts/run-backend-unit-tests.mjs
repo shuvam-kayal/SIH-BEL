@@ -24,7 +24,9 @@ for (const key of [
 }
 
 const vitestPath = fileURLToPath(new URL("../node_modules/vitest/vitest.mjs", import.meta.url));
-const result = spawnSync(process.execPath, [vitestPath, "run", "--pool=forks", "--no-file-parallelism", "--exclude", "test/workflow.e2e.test.ts"], {
+const result = spawnSync(process.execPath, [vitestPath, "run", "--pool=forks", "--no-file-parallelism",
+  "--exclude", "test/{workflow.e2e.test.ts,*.evm.integration.test.ts}",
+], {
   cwd: fileURLToPath(new URL("../backend/", import.meta.url)),
   stdio: "inherit",
   env,
