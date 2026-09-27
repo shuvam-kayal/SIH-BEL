@@ -14,7 +14,7 @@ describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () =
   vi.setConfig({ testTimeout: 180_000, hookTimeout: 240_000 });
   const key = (i: number) => configuredKeys[i];
   const addr = (i: number) => new EvmWallet(key(i)).address;
-  const [ADMIN, MANAGER, ENGINEER, TECH, AUDITOR, VERIFIER, ISSUER, TECH2, DEVICE] = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(addr);
+  const [ADMIN, MANAGER, ENGINEER, TECH, AUDITOR, VERIFIER, ISSUER, TECH2, DEVICE, NONCE_GAP] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(addr);
   let provider: JsonRpcProvider;
   let adapter: EvmBlockchainAdapter;
   let config: EvmChainConfig;
@@ -37,7 +37,7 @@ describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () =
 
   beforeAll(async () => {
     if (!configuredRpcUrl) throw new Error("BEL_EVM_RPC_URL/BEL_CHAIN_RPC_URL is required for the Besu integration suite");
-    if (configuredKeys.length < 9) throw new Error("BEL_E2E_PRIVATE_KEYS/BEL_CHAIN_DEV_SIGNER_KEYS must contain at least nine Besu-funded keys");
+    if (configuredKeys.length < 10) throw new Error("BEL_E2E_PRIVATE_KEYS/BEL_CHAIN_DEV_SIGNER_KEYS must contain at least ten Besu-funded keys");
     const rpcUrl = configuredRpcUrl;
     config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEPLOYMENT: process.env.BEL_CHAIN_DEPLOYMENT || "besu-prototype", BEL_CHAIN_DEV_SIGNER_KEYS: configuredKeys.join(",") });
     provider = new JsonRpcProvider(rpcUrl, config.deployment.chainId, { staticNetwork: true, pollingInterval: 50 });
@@ -205,9 +205,12 @@ describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () =
   });
 
   it("explains a stuck transaction on timeout (nonce gap) instead of just 'timed out'", async () => {
-    const device = new EvmWallet(key(8), provider);
+    // Keep the deliberately pending nonce-gap transaction off every wallet
+    // used by the later PostgreSQL and cross-person integration suites.
+    await onboard("DID:BEL:NONCE-GAP", NONCE_GAP, "MANAGER");
+    const device = new EvmWallet(key(9), provider);
     const quick = new EvmBlockchainAdapter({ ...config, txTimeoutMs: 400 }, { provider });
-    const envelope = env("JOB_CREATE", DEVICE, "DID:BEL:DEVICE-USER", { jobId: "J-GAP", assetId: "PUMP-1" });
+    const envelope = env("JOB_CREATE", NONCE_GAP, "DID:BEL:NONCE-GAP", { jobId: "J-GAP", assetId: "PUMP-1" });
     const p = await quick.prepareTransaction(envelope);
     const populated = await device.populateTransaction({ to: p.to, data: p.data, chainId: p.chainId });
     const skipped = await device.signTransaction({ ...populated, nonce: Number(populated.nonce) + 5 });
