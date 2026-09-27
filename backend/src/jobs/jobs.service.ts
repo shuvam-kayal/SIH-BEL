@@ -237,7 +237,9 @@ export class JobsServiceImpl implements JobsService {
     });
 
     if (result.status !== "SUCCESS") {
-      throw new Error(`Blockchain rejected ${type}`);
+      const revert = result.revert;
+      const detail = revert ? `: ${revert.name}(${revert.args.join(", ")}) — ${revert.message}` : "";
+      throw new Error(`Blockchain rejected ${type}${detail}`);
     }
   }
 

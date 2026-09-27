@@ -1,5 +1,17 @@
 # Threat Model (v1 integration baseline)
 
+## Hackathon consensus limitation
+
+The RFC 9381 ECVRF-P256-SHA256-SSWU backend is unresolved. The Besu
+demonstration may use `DeterministicTestVrfProvider` only for deterministic
+protocol testing. It is test-only, not RFC 9381 cryptography, and not
+production-grade; it provides no cryptographic committee-selection security.
+No unvalidated provider may determine a deployed committee.
+
+This expands `SYSTEM_SPEC.md`'s Security Assumptions into concrete
+threats and mitigations. Like `CONSENSUS_SPEC.md`, this is a starting
+draft, not a finished security review — treat it as the checklist to
+argue with, not a completed audit.
 This document expands `SYSTEM_SPEC.md` security assumptions into concrete threats and mitigations for the current prototype. It is a security baseline, not a claim of production security certification. Items explicitly marked open or future work remain integration gates.
 
 ## Assets to protect
@@ -13,6 +25,15 @@ This document expands `SYSTEM_SPEC.md` security assumptions into concrete threat
 - Authentication sessions and the lifecycle state that makes them valid
 
 ## Threats and mitigations
+
+Validator governance threats include rogue administrators, unauthorized add,
+remove, or restore operations, cross-operation fresh-auth replay,
+database/blockchain divergence, duplicate operations, notification spoofing,
+and notification delivery failure. Mitigations are ADMIN-only
+`MANAGE_VALIDATORS`, short-lived single-use session/resource-bound fresh auth,
+blockchain-first receipt/event confirmation, append-only on-chain and
+application history, inverse RESTORE transactions, reconciliation, and
+authenticated notification delivery. Blockchain history is never deleted.
 
 | # | Threat | Current mitigation / remaining gap | Owner |
 |---|---|---|---|

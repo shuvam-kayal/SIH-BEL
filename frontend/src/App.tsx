@@ -20,6 +20,7 @@ import { JobDetailPage } from "./jobs/JobDetailPage";
 import { EmployeesPage } from "./employees/EmployeesPage";
 import { AuditTrailPage } from "./audit/AuditTrailPage";
 import { ValidatorStatusPage } from "./validators/ValidatorStatusPage";
+import { ValidatorManagementPage } from "./validators/ValidatorManagementPage";
 
 type View =
   | { name: "dashboard" }
@@ -29,7 +30,8 @@ type View =
   | { name: "job"; jobId: string }
   | { name: "employees" }
   | { name: "audit"; assetId: string }
-  | { name: "validators" };
+  | { name: "validators" }
+  | { name: "validator-management" };
 
 type NavItem = {
   label: string;
@@ -45,6 +47,7 @@ const NAV: NavItem[] = [
   { label: "Employees", view: { name: "employees" }, requires: "CREATE_EMPLOYEE" },
   { label: "Audit trail", view: { name: "audit", assetId: "AST-001" }, requires: "VIEW_AUDIT_HISTORY" },
   { label: "Network", view: { name: "validators" }, requires: "VIEW_VALIDATOR_STATUS" },
+  { label: "Validator management", view: { name: "validator-management" }, requires: "MANAGE_VALIDATORS" },
 ];
 
 export function App() {
@@ -125,6 +128,7 @@ export function App() {
           {view.name === "employees" && <EmployeesPage />}
           {view.name === "audit" && <AuditTrailPage assetId={view.assetId} />}
           {view.name === "validators" && <ValidatorStatusPage />}
+          {view.name === "validator-management" && <ValidatorManagementPage />}
         </main>
       </div>
     </div>

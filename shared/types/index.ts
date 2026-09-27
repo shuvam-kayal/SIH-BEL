@@ -146,6 +146,26 @@ export type Validator = {
   joinedAt: string;
 };
 
+export type ValidatorRegistrationStatus = "PENDING" | "ACTIVE" | "REMOVAL_SCHEDULED" | "REMOVED";
+export type ValidatorRegistration = {
+  registrationId: string; validatorId: string; identityId: string; walletAddress: string;
+  nodeId: string; nodeAddress: string; publicKey: string; signingPublicKey: string;
+  status: ValidatorRegistrationStatus; requestedAt: string; activationHeight: number;
+  removalHeight: number | null; removalReason: string | null; txHash: string | null;
+  blockNumber: number | null;
+};
+export type ValidatorHistoryRecord = {
+  historyId: string; validatorId: string; operation: "VALIDATOR_ADD" | "VALIDATOR_REMOVE" | "VALIDATOR_RESTORE" | "VALIDATOR_REMOVE_CANCEL";
+  actorIdentityId: string; actorWallet: string; timestamp: string; blockNumber: number | null;
+  transactionHash: string | null; previousState: string | null; newState: string;
+  reason: string | null; status: "SUCCESS" | "FAILED"; inverseTransactionHash: string | null;
+};
+export type NotificationChannel = "IN_APP" | "EMAIL";
+export type NotificationDelivery = {
+  notificationId: string; eventType: "VALIDATOR_ADD" | "VALIDATOR_REMOVE" | "VALIDATOR_RESTORE" | "VALIDATOR_REMOVE_CANCEL";
+  validatorId: string; operation: string; recipientIdentityId: string; channel: NotificationChannel;
+  createdAt: string; status: "PENDING" | "DELIVERED" | "FAILED";
+};
 export type Transaction = {
   txId: string;
   type: import("../enums").TransactionType;
@@ -163,3 +183,4 @@ export type Block = {
   transactions: string[];
   finalizedAt: string;
 };
+

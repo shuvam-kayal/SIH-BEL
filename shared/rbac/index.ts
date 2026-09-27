@@ -22,6 +22,7 @@ export const ACTIONS = [
   "TRANSFER_ASSET",
   "VIEW_AUDIT_HISTORY",
   "VIEW_VALIDATOR_STATUS",
+  "MANAGE_VALIDATORS",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -79,6 +80,10 @@ export const RBAC_MATRIX: Record<Action, Record<Role, Permission>> = {
   VIEW_VALIDATOR_STATUS: {
     ADMIN: "ALLOW", MANAGER: "ALLOW", ENGINEER: "ALLOW", TECHNICIAN: "ALLOW",
     AUDITOR: "ALLOW", ISSUER: "ALLOW", VERIFIER: "ALLOW",
+  },
+  MANAGE_VALIDATORS: {
+    ADMIN: "ALLOW", MANAGER: "DENY", ENGINEER: "DENY", TECHNICIAN: "DENY",
+    AUDITOR: "DENY", ISSUER: "DENY", VERIFIER: "DENY",
   },
 };
 

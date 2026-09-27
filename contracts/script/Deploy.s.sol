@@ -7,6 +7,7 @@ import { RoleRegistry } from "../src/RoleRegistry.sol";
 import { AssetRegistry } from "../src/AssetRegistry.sol";
 import { JobManager } from "../src/JobManager.sol";
 import { AuditRegistry } from "../src/AuditRegistry.sol";
+import { ValidatorRegistry } from "../src/ValidatorRegistry.sol";
 
 /// Deploys and wires the registry set in docs/CONTRACT_SPEC.md order and
 /// writes contracts/deployments/<BEL_NETWORK>.json for the backend adapter.
@@ -26,48 +27,77 @@ contract DeployScript is Script {
         AssetRegistry assets;
         JobManager jobs;
         AuditRegistry audit;
+        ValidatorRegistry validators;
     }
 
     function run() external returns (Deployment memory d) {
         address bootstrapAdmin = vm.envAddress("BEL_BOOTSTRAP_ADMIN_WALLET");
         string memory bootstrapDid = vm.envString("BEL_BOOTSTRAP_ADMIN_DID");
         string memory network = vm.envOr("BEL_NETWORK", string("local"));
+        string memory profile = vm.envOr("BEL_EXECUTION_PROFILE", string("production"));
         uint256 startBlock = block.number;
+        uint256 bootstrapCount = vm.envOr("BEL_BOOTSTRAP_VALIDATOR_COUNT", uint256(70));
+        uint256 minimumPopulation = 70;
+        if (keccak256(bytes(profile)) == keccak256(bytes("prototype"))) {
+            if (bootstrapCount != 4) revert("BEL prototype requires exactly four bootstrap validators");
+            minimumPopulation = 4;
+        } else if (bootstrapCount < 70) {
+            revert("BEL production requires at least 70 bootstrap validators");
+        }
+        address[] memory bootstrapValidators = new address[](bootstrapCount);
+        for (uint256 i = 0; i < bootstrapCount; i++) {
+            bootstrapValidators[i] = vm.envAddress(string.concat("BEL_BOOTSTRAP_VALIDATOR_", vm.toString(i)));
+        }
 
         vm.startBroadcast();
-        d = deploy(bootstrapAdmin, bootstrapDid);
+        d = _deployWithBootstrap(bootstrapAdmin, bootstrapDid, bootstrapValidators, minimumPopulation);
         vm.stopBroadcast();
 
         _write(network, d, bootstrapAdmin, startBlock);
     }
 
-    /// Exposed separately so tests can exercise the exact deploy sequence.
-    function deploy(address bootstrapAdmin, string memory bootstrapDid)
+    function deployWithBootstrap(address bootstrapAdmin, string memory bootstrapDid, address[] memory bootstrap)
         public
         returns (Deployment memory d)
     {
+        return _deployWithBootstrap(bootstrapAdmin, bootstrapDid, bootstrap, 70);
+    }
+
+    /// @dev Prototype-only entry point used by run() when BEL_EXECUTION_PROFILE=prototype.
+    /// The normal public helper and production run path retain the frozen 70-validator rule.
+    function _deployWithBootstrap(address bootstrapAdmin, string memory bootstrapDid, address[] memory bootstrap, uint256 minimumPopulation)
+        private
+        returns (Deployment memory d)
+    {
+        if (minimumPopulation < 70 && minimumPopulation != 4) revert("invalid BEL minimum population");
+        if (bootstrap.length < minimumPopulation) revert("insufficient bootstrap validators");
         d.identity = new IdentityRegistry(bootstrapAdmin, bootstrapDid);
         d.roles = new RoleRegistry(address(d.identity), bootstrapAdmin);
         d.assets = new AssetRegistry();
         d.jobs = new JobManager(address(d.assets));
 
-        address[] memory recorders = new address[](4);
+        d.validators = new ValidatorRegistry(minimumPopulation, bootstrap);
+
+        address[] memory recorders = new address[](5);
         recorders[0] = address(d.identity);
         recorders[1] = address(d.roles);
         recorders[2] = address(d.assets);
         recorders[3] = address(d.jobs);
+        recorders[4] = address(d.validators);
         d.audit = new AuditRegistry(address(d.identity), address(d.roles), recorders);
 
         d.identity.wire(address(d.identity), address(d.roles), address(d.audit));
         d.roles.wire(address(d.identity), address(d.roles), address(d.audit));
         d.assets.wire(address(d.identity), address(d.roles), address(d.audit));
         d.jobs.wire(address(d.identity), address(d.roles), address(d.audit));
+        d.validators.wire(address(d.identity), address(d.roles), address(d.audit));
     }
 
     function _write(string memory network, Deployment memory d, address admin, uint256 startBlock)
         private
     {
         string memory c = "contracts";
+        vm.serializeAddress(c, "ValidatorRegistry", address(d.validators));
         vm.serializeAddress(c, "IdentityRegistry", address(d.identity));
         vm.serializeAddress(c, "RoleRegistry", address(d.roles));
         vm.serializeAddress(c, "AssetRegistry", address(d.assets));
@@ -87,3 +117,9 @@ contract DeployScript is Script {
         console2.log("Deployment written to", path);
     }
 }
+
+
+
+
+
+

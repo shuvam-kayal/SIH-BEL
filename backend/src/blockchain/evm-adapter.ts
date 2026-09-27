@@ -147,7 +147,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
   readonly provider: AbstractProvider;
   private readonly contracts: Record<ContractName, Contract>;
   private readonly interfaces: Record<ContractName, Interface>;
-  private readonly byAddress = new Map<string, ContractName>();
+  private readonly byAddress = new Map<string, ContractName[]>();
   private readonly signers = new Map<string, EvmWallet>();
   /** Per-wallet send queue: nonce lookup + broadcast never interleave for one wallet. */
   private readonly sendQueues = new Map<string, Promise<unknown>>();
@@ -166,7 +166,8 @@ export class EvmBlockchainAdapter implements BlockchainService {
       const address = config.deployment.contracts[name];
       this.interfaces[name] = new Interface(config.abis[name]);
       this.contracts[name] = new Contract(address, this.interfaces[name], this.provider);
-      this.byAddress.set(address.toLowerCase(), name);
+      const key = address.toLowerCase();
+      this.byAddress.set(key, [...(this.byAddress.get(key) ?? []), name]);
     }
     for (const key of config.devSignerKeys) {
       const w = new EvmWallet(key, this.provider);
@@ -178,7 +179,8 @@ export class EvmBlockchainAdapter implements BlockchainService {
 
   async submitTransaction(tx: Transaction): Promise<MockBlockchainResult> {
     const r = await this.submitTransactionDetailed(tx);
-    return { txId: r.txId, status: r.status };
+    const validatorEvent = r.events.find((event) => event.contract === "ValidatorRegistry" && event.name.startsWith("Validator"));
+    return { txId: r.txId, status: r.status, transactionHash: r.hash, blockNumber: r.blockNumber, event: validatorEvent?.name, revert: r.revert };
   }
 
   /** Unsigned call fields for the device wallet to sign (production path). */
@@ -579,13 +581,21 @@ export class EvmBlockchainAdapter implements BlockchainService {
   parseEvents(logs: readonly Log[]): ChainEvent[] {
     const out: ChainEvent[] = [];
     for (const log of logs) {
-      const contract = this.byAddress.get(log.address.toLowerCase());
-      if (!contract) continue;
-      const parsed = this.interfaces[contract].parseLog({ topics: [...log.topics], data: log.data });
-      if (!parsed) continue;
-      const args: Record<string, string | string[]> = {};
-      parsed.fragment.inputs.forEach((input, i) => { args[input.name || String(i)] = plain(parsed.args[i]); });
-      out.push({ contract, name: parsed.name, args, logIndex: log.index });
+      const contracts = this.byAddress.get(log.address.toLowerCase());
+      if (!contracts) continue;
+      for (const contract of contracts) {
+        try {
+          const parsed = this.interfaces[contract].parseLog({ topics: [...log.topics], data: log.data });
+          if (!parsed) continue;
+          const args: Record<string, string | string[]> = {};
+          parsed.fragment.inputs.forEach((input, i) => { args[input.name || String(i)] = plain(parsed.args[i]); });
+          out.push({ contract, name: parsed.name, args, logIndex: log.index });
+          break;
+        } catch {
+          // The same address can intentionally stand in for multiple configured
+          // contracts in local tests (for example, an undeployed validator registry).
+        }
+      }
     }
     return out;
   }

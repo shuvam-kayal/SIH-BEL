@@ -15,6 +15,7 @@ import { UsersServiceImpl, type UsersService } from "./users/users.service";
 import { createMemoryRepositories, createPrismaRepositories } from "./users/repository-implementations";
 import type { IdentityRepositories } from "./users/repositories";
 import { MemoryIntegrityAdapter, type IntegrityAdapter } from "./integrity/integrity";
+import { ValidatorServiceImpl, type ValidatorService } from "./validators/validator.service";
 import { MockDeviceAttestationAdapter, NotConfiguredManagedDeviceAttestationProvider, type DeviceAttestationAdapter } from "./devices/device-attestation";
 import { MemoryAssetRepository, MemoryJobRepository, PrismaAssetRepository, PrismaJobRepository, type AssetRepository, type JobRepository } from "./domain/repositories";
 import { EvidenceServiceImpl } from "./evidence/evidence.service";
@@ -29,6 +30,7 @@ export type Container = {
   jobs: JobsService;
   audit: AuditService;
   blockchain: BlockchainController;
+  validators: ValidatorService;
   repositories: IdentityRepositories;
   integrity: IntegrityAdapter;
   attestation: DeviceAttestationAdapter;
@@ -94,5 +96,8 @@ export function createContainer(chain: BlockchainService = createBlockchainServi
     evidenceStorage,
     audit: new AuditServiceImpl(chain),
     blockchain: new BlockchainController(chain),
+    validators: new ValidatorServiceImpl(chain, repositories),
   };
 }
+
+

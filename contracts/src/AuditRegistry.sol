@@ -116,6 +116,7 @@ contract AuditRegistry is IAuditRegistry, IAuditRecorder {
     function _validEntityType(string calldata t) private pure returns (bool) {
         bytes32 h = keccak256(bytes(t));
         return h == keccak256("ASSET") || h == keccak256("JOB") || h == keccak256("IDENTITY")
-            || h == keccak256("DEVICE") || h == keccak256("WALLET") || h == keccak256("GRANT");
+            || h == keccak256("DEVICE") || h == keccak256("WALLET") || h == keccak256("GRANT") || h == keccak256("VALIDATOR");
     }
 }
+

@@ -24,15 +24,20 @@ const findAnvil = (): string | null => {
   return candidates.find((candidate) => spawnSync(candidate, ["--version"], { stdio: "ignore" }).status === 0) ?? null;
 };
 const anvilBin = findAnvil();
+const configuredRpcUrl = process.env.BEL_EVM_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim();
+const useExternalNode = Boolean(configuredRpcUrl);
 const haveArtifacts = existsSync(resolve(OUT, "JobManager.sol/JobManager.json"));
 const hasPostgres = Boolean(process.env.DATABASE_URL);
-const skipReason = !anvilBin ? "anvil not installed" : !haveArtifacts ? "contracts/out missing (run forge build)" : !hasPostgres ? "DATABASE_URL is not configured" : null;
+const skipReason = !useExternalNode && !anvilBin ? "no configured EVM RPC endpoint and local anvil is not installed" : !haveArtifacts ? "contracts/out missing (run forge build)" : !hasPostgres ? "DATABASE_URL is not configured" : null;
 if (skipReason) console.warn(`[users.evm.integration] SKIPPED: ${skipReason}`);
 
 const key = (index: number) => HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${index}`).privateKey;
 const wallet = (index: number) => new EvmWallet(key(index));
-const ADMIN = wallet(0);
-const BAD_ACTOR = wallet(8);
+// Keep the integration identities/wallets disjoint from the repository's
+// long-lived bootstrap admin and from each other. This suite cleans up its
+// own rows, but must not collide with the real E2E bootstrap account.
+const ADMIN = wallet(8);
+const BAD_ACTOR = wallet(4);
 const publicKey = (privateKey: string) => `0x${SigningKey.computePublicKey(privateKey, false).slice(4)}`;
 const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, actorIdentity: string, payload: Record<string, unknown>) => ({
   txId: `p1-${type}-${Date.now()}-${Math.random()}`,
@@ -45,16 +50,16 @@ const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, ac
 } as const);
 
 describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and PostgreSQL", () => {
-  let anvil: ChildProcess;
+  let anvil: ChildProcess | undefined;
   let provider: JsonRpcProvider;
   let adapter: EvmBlockchainAdapter;
   let container: Container;
   let config: EvmChainConfig;
   const previousBlockchain = process.env.BEL_BLOCKCHAIN;
   const previousEnvironment = process.env.BEL_ENV;
-  const adminDid = "DID:BEL:ADMIN";
   const badActorDid = "DID:BEL:P1-BAD-ACTOR";
   const runId = Date.now().toString(36);
+  const adminDid = `DID:BEL:P1-ADMIN-${runId}`;
   const adminEmployee = `P1-EVM-ADMIN-${runId}`;
   const badActorEmployee = `P1-EVM-BAD-${runId}`;
   const targetEmployee = `P1-EVM-TARGET-${runId}`;
@@ -68,7 +73,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     if (!(await waitForReceipt(provider, hash, 1, 20_000, 25))) throw new Error(`transaction ${hash} was not confirmed`);
   }
 
-  async function deployContracts(port: number): Promise<EvmChainConfig> {
+  async function deployContracts(rpcUrl: string): Promise<EvmChainConfig> {
     const deployer = new NonceManager(new EvmWallet(key(0), provider));
     const artifact = (name: string) => JSON.parse(readFileSync(resolve(OUT, `${name}.sol/${name}.json`), "utf8"));
     const deploy = async (name: string, ...args: unknown[]) => {
@@ -86,8 +91,8 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     const auditAddress = await audit.getAddress();
     for (const contract of [identity, roles, assets, jobs]) await mined((await contract.getFunction("wire")(addresses[0], addresses[1], auditAddress)).hash);
     return {
-      rpcUrl: `http://127.0.0.1:${port}`,
-      deployment: { network: "p1-vitest", chainId: 31337, contracts: { IdentityRegistry: addresses[0], RoleRegistry: addresses[1], AssetRegistry: addresses[2], JobManager: addresses[3], AuditRegistry: auditAddress } },
+      rpcUrl,
+      deployment: { network: "p1-vitest", chainId: 31337, contracts: { IdentityRegistry: addresses[0], RoleRegistry: addresses[1], AssetRegistry: addresses[2], JobManager: addresses[3], AuditRegistry: auditAddress, ValidatorRegistry: auditAddress } },
       abis: loadAbis(), confirmations: 1, txTimeoutMs: 20_000, pollingIntervalMs: 25,
       devSignerKeys: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(key),
     };
@@ -114,13 +119,14 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
 
   beforeAll(async () => {
     const port = 19545 + Math.floor(Math.random() * 1000);
-    anvil = spawn(anvilBin!, ["--port", String(port), "--silent"], { stdio: "ignore" });
-    provider = new JsonRpcProvider(`http://127.0.0.1:${port}`, 31337, { staticNetwork: true, pollingInterval: 50 });
+    const rpcUrl = configuredRpcUrl ?? `http://127.0.0.1:${port}`;
+    if (!useExternalNode) anvil = spawn(anvilBin!, ["--port", String(port), "--silent"], { stdio: "ignore" });
+    provider = new JsonRpcProvider(rpcUrl, 31337, { staticNetwork: true, pollingInterval: 50 });
     for (let attempt = 0; ; attempt++) {
       try { await provider.send("eth_chainId", []); break; }
       catch { if (attempt > 50) throw new Error("anvil did not start"); await new Promise((resolveDelay) => setTimeout(resolveDelay, 100)); }
     }
-    config = await deployContracts(port);
+    config = await deployContracts(rpcUrl);
     adapter = new EvmBlockchainAdapter(config, { provider });
     process.env.BEL_BLOCKCHAIN = "evm";
     process.env.BEL_ENV = "development";
@@ -136,7 +142,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     await container.prisma!.$connect();
 
     await container.users.createUser({ employeeId: adminEmployee, identityId: adminDid, fullName: "P1 EVM Admin", role: "ADMIN", department: "PLATFORM" });
-    await container.users.registerDevice(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, "p1-evm-admin-credential", publicKey(key(0)));
+    await container.users.registerDevice(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, "p1-evm-admin-credential", publicKey(key(8)));
     await container.users.registerWallet(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, ADMIN.address);
     await container.users.activateWallet(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, ADMIN.address);
   }, 90_000);
@@ -150,7 +156,7 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
       await container.prisma.credential.deleteMany({ where: { deviceId: { in: deviceIds } } });
       await container.prisma.wallet.deleteMany({ where: { identityId: { in: identityIds } } });
       await container.prisma.device.deleteMany({ where: { deviceId: { in: deviceIds } } });
-      await container.prisma.user.deleteMany({ where: { employeeId: { in: employeeIds } } });
+      await container.prisma.user.deleteMany({ where: { OR: [{ employeeId: { in: employeeIds } }, { identityId: { in: identityIds } }] } });
       await container.prisma.identity.deleteMany({ where: { identityId: { in: identityIds } } });
       await container.prisma.$disconnect();
     }
@@ -199,8 +205,8 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     await adapter.submitTransaction(tx("WALLET_ACTIVATE", ADMIN.address, adminDid, { address: BAD_ACTOR.address }));
     await container.repositories.identities.save({ identityId: badActorDid, employeeId: badActorEmployee, fullName: "Bad Actor", role: "ADMIN", department: "TEST", status: "ACTIVE", createdAt: new Date().toISOString(), verifiedAt: null, verifiedBy: null });
     await container.repositories.users.save({ employeeId: badActorEmployee, identityId: badActorDid, walletAddress: BAD_ACTOR.address, role: "ADMIN", department: "TEST", status: "ACTIVE" });
-    await container.repositories.devices.save({ deviceId: badActorDevice, identityId: badActorDid, status: "ACTIVE", registeredAt: new Date().toISOString(), activatedAt: new Date().toISOString(), revokedAt: null, publicKey: publicKey(key(8)), metadata: null });
-    await container.repositories.wallets.save({ address: BAD_ACTOR.address, identityId: badActorDid, deviceId: badActorDevice, status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: publicKey(key(8)) });
+    await container.repositories.devices.save({ deviceId: badActorDevice, identityId: badActorDid, status: "ACTIVE", registeredAt: new Date().toISOString(), activatedAt: new Date().toISOString(), revokedAt: null, publicKey: publicKey(key(4)), metadata: null });
+    await container.repositories.wallets.save({ address: BAD_ACTOR.address, identityId: badActorDid, deviceId: badActorDevice, status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: publicKey(key(4)) });
 
     const pending = await createPendingRegistration(7, `${targetEmployee}-FAIL`, `${targetDevice}-FAIL`);
     await expect(container.users.activateRegistration(badActorDid, pending.identityId)).rejects.toBeInstanceOf(BlockchainError);

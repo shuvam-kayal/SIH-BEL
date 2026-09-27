@@ -68,4 +68,9 @@ describe("conditional cells", () => {
       expect(can(role, "VIEW_VALIDATOR_STATUS"), role).toBe(true);
     }
   });
+
+  it("only ADMIN can manage validators", () => {
+    expect(can("ADMIN", "MANAGE_VALIDATORS")).toBe(true);
+    for (const role of ["MANAGER", "ENGINEER", "TECHNICIAN"] as const) expect(can(role, "MANAGE_VALIDATORS")).toBe(false);
+  });
 });

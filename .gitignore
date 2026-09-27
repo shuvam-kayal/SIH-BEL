@@ -7,6 +7,26 @@ build/
 *.log
 coverage/
 
+# Local Besu/Java build and demo state
+.gradle/
+.gradle-user/
+besu/.gradle-user/
+**/build/
+**/target/
+besu/data/
+besu/logs/
+network-data/
+.bel-demo/
+
+# Private keys, certificates, keystores, and node credentials
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore
+**/nodekey
+**/nodekey.*
+
 # Frontend build tooling
 frontend/dist/
 .vite/
@@ -33,5 +53,29 @@ __pycache__/
 .pytest_cache/
 *.tsbuildinfo
 *.log
+
+# Besu-generated validator key material
+**/key.priv
+**/key.pub
+# Local secret material and developer-only credentials
+*.secret
+*.secrets
+*.token
+*.jwt
+*.seed
+*.mnemonic
+*.private
+*.priv
+.secrets/
+secrets/
+credentials/
+
+# Local OS/IDE files
+.DS_Store
+Thumbs.db
+.idea/
+
+# Besu is maintained as a separate nested Git repository
+/besu/
 *.pem
 temp/
