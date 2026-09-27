@@ -127,7 +127,7 @@ function runForge(args, extraEnv = {}) {
 
 run(process.execPath, [nodeModule("prisma/build/index.js"), "generate", "--schema", resolve(root, "backend/prisma/schema.prisma")]);
 run(process.execPath, [nodeModule("prisma/build/index.js"), "migrate", "deploy", "--schema", resolve(root, "backend/prisma/schema.prisma")]);
-const configuredKeys = (env.BEL_E2E_PRIVATE_KEYS || "").split(",").map((key) => key.trim()).filter(Boolean);
+const configuredKeys = (env.BEL_E2E_PRIVATE_KEYS || (env.BEL_E2E_PRIVATE_KEYS_FILE ? readFileSync(env.BEL_E2E_PRIVATE_KEYS_FILE, "utf8") : "")).split(",").flatMap((value) => value.split(/\r?\n/)).map((key) => key.trim()).filter(Boolean);
 if (configuredKeys.length < 6) fail("BEL_E2E_PRIVATE_KEYS must contain at least six ephemeral Besu-funded test keys");
 const wallets = configuredKeys.map((privateKey) => new Wallet(privateKey));
 const admin = wallets[0];

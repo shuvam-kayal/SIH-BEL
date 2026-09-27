@@ -135,7 +135,9 @@ jobs:
             exit "$status"
           fi
           test -f "$run_root/run.json"
-          echo "BEL_E2E_PRIVATE_KEYS=$(paste -sd, "$run_root/test-account-keys")" >> "$GITHUB_ENV"
+          e2e_keys_file="$RUNNER_TEMP/besu-e2e-private-keys"
+          install -m 600 "$run_root/test-account-keys" "$e2e_keys_file"
+          echo "BEL_E2E_PRIVATE_KEYS_FILE=$e2e_keys_file" >> "$GITHUB_ENV"
           node - "$run_root" >> "$GITHUB_ENV" <<'NODE'
           const fs = require('node:fs');
           const { Wallet } = require('ethers');
@@ -197,6 +199,7 @@ jobs:
       - name: Verify deployed contract bytecode on this Besu run
         run: |
           node --input-type=commonjs - "$BEL_BESU_RUN_ROOT" <<'NODE'
+          (async () => {
           const fs = require('node:fs');
           const deployment = JSON.parse(fs.readFileSync('contracts/deployments/besu-prototype.json', 'utf8'));
           if (Number(deployment.chainId) !== 20260920) throw new Error(`deployment chain mismatch: ${deployment.chainId}`);
@@ -212,18 +215,19 @@ jobs:
             if (!code || code === '0x') throw new Error(`${name} has no bytecode at ${address}`);
             console.log(`[CI] contract=${name} address=${address} bytecode=present`);
           }
+          })().catch((error) => { console.error(error); process.exit(1); });
           NODE
       - name: Run backend EVM integration against Besu
-        run: echo "[CI] blockchain=evm rpc=$BEL_EVM_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; npm run test:evm
+        run: echo "[CI] blockchain=evm rpc=$BEL_EVM_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; BEL_E2E_PRIVATE_KEYS="$(tr '\n' ',' < "$BEL_E2E_PRIVATE_KEYS_FILE")" npm run test:evm
       - name: Bootstrap PostgreSQL admin for Besu-backed user integration
-        run: npx tsx scripts/bootstrap-dev.ts
+        run: BEL_CHAIN_DEV_SIGNER_KEYS="$(tr '\n' ',' < "$BEL_E2E_PRIVATE_KEYS_FILE")" npx tsx scripts/bootstrap-dev.ts
         env:
           BEL_ENV: development
           BEL_DEV_BOOTSTRAP: "true"
           BEL_BLOCKCHAIN: evm
           BEL_BOOTSTRAP_CREDENTIAL: e2e-admin-credential
       - name: Run Person 1 EVM/PostgreSQL integration
-        run: echo "[CI] blockchain=evm rpc=$BEL_EVM_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; npx vitest run backend/test/users.evm.integration.test.ts --testTimeout=120000
+        run: echo "[CI] blockchain=evm rpc=$BEL_EVM_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; BEL_E2E_PRIVATE_KEYS="$(tr '\n' ',' < "$BEL_E2E_PRIVATE_KEYS_FILE")" npx vitest run backend/test/users.evm.integration.test.ts --testTimeout=120000
       - name: Run complete cross-person E2E workflow
         run: echo "[CI] blockchain=evm rpc=$BEL_E2E_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; npm run test:e2e:workflow
         env:
@@ -235,6 +239,8 @@ jobs:
           set +e
           bash scripts/check-besu-bel-demo.sh "$BEL_BESU_RUN_ROOT" 4 8645 || true
           bash scripts/stop-besu-bel-demo.sh "$BEL_BESU_RUN_ROOT" || true
+          rm -f "$BEL_E2E_PRIVATE_KEYS_FILE"
+          rm -f "$BEL_BESU_RUN_ROOT/test-account-keys"
           docker rm -f bel-ipfs >/dev/null 2>&1 || true
       - name: Upload Besu logs and runtime configuration
         if: failure()
