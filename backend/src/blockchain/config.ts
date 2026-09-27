@@ -34,7 +34,7 @@ export type EvmChainConfig = {
   txTimeoutMs: number;
   /** How often to poll for receipts/blocks (ethers defaults to 4000ms). */
   pollingIntervalMs?: number;
-  /** DEVELOPMENT ONLY. Private keys the backend may sign with (local anvil). */
+  /** DEVELOPMENT/CI ONLY. Ephemeral private keys for the real Besu prototype. */
   devSignerKeys: string[];
 };
 

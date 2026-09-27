@@ -2,8 +2,8 @@
 set -u
 
 RUN_ROOT="${1:?usage: check-besu-bel-demo.sh <run-root> [count] [base-rpc-port]}"
-COUNT="${2:-70}"
-BASE_RPC="${3:-8545}"
+COUNT="${2:-4}"
+BASE_RPC="${3:-8645}"
 
 for ((i=0; i<COUNT; i++)); do
   port=$((BASE_RPC + i))
@@ -11,6 +11,10 @@ for ((i=0; i<COUNT; i++)); do
     --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
     "http://127.0.0.1:${port}" || true)"
   printf 'rpc=%s %s\n' "${port}" "${result:-UNAVAILABLE}"
+  client="$(curl -s --max-time 5 -H 'Content-Type: application/json' \
+    --data '{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":3}' \
+    "http://127.0.0.1:${port}" || true)"
+  printf 'rpc=%s client=%s\n' "${port}" "${client:-UNAVAILABLE}"
 done
 
 printf '\nNode 001 log tail:\n'

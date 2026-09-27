@@ -48,21 +48,21 @@ jobs:
       - run: npm test --workspace=bel-frontend --if-present
       - run: npm run build --workspace=bel-frontend
 
-  evm-integration:
-    name: Backend EVM integration
+  besu-integration:
+    name: Real Besu + PostgreSQL + IPFS integration
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://bel:bel@localhost:5432/bel
       BEL_RUN_INTEGRATION: "true"
-      BEL_EVM_RPC_URL: http://127.0.0.1:8545
-      BEL_CHAIN_RPC_URL: http://127.0.0.1:8545
+      BEL_EVM_RPC_URL: http://127.0.0.1:8645
+      BEL_CHAIN_RPC_URL: http://127.0.0.1:8645
+      BEL_E2E_RPC_URL: http://127.0.0.1:8645
+      BEL_E2E_CHAIN_ID: "20260920"
+      BEL_CHAIN_TX_TIMEOUT_MS: "120000"
+      BEL_CHAIN_DEPLOYMENT: besu-prototype
+      BEL_NETWORK: besu-prototype
       BEL_EXECUTION_PROFILE: prototype
       BEL_BOOTSTRAP_VALIDATOR_COUNT: "4"
-      # Public deterministic Anvil accounts 1-4; account 0 is the bootstrap admin.
-      BEL_BOOTSTRAP_VALIDATOR_0: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-      BEL_BOOTSTRAP_VALIDATOR_1: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
-      BEL_BOOTSTRAP_VALIDATOR_2: "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
-      BEL_BOOTSTRAP_VALIDATOR_3: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"
     services:
       postgres:
         image: postgres:16-alpine
@@ -79,26 +79,55 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+      - name: Set up JDK 21 for customized Besu
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
-      - name: Start Anvil Docker service
+      - name: Build customized Besu and BEL consensus tests
         run: |
           set -euo pipefail
-          docker run -d --name bel-anvil -p 8545:8545 --entrypoint anvil ghcr.io/foundry-rs/foundry:latest --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000 --base-fee 0
-          for i in {1..30}; do
-            if cast rpc --rpc-url http://127.0.0.1:8545 eth_chainId; then
-              exit 0
-            fi
-            sleep 1
+          cd besu
+          ./gradlew :consensus:bel:test :consensus:qbft:test :besu:compileJava installDist --no-daemon
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Start real Besu prototype network
+        run: |
+          set -euo pipefail
+          output="$(BEL_EXECUTION_PROFILE=prototype BEL_REQUIRE_TEST_ACCOUNTS=true BEL_SMOKE_INITIAL_NODES=4 BEL_SMOKE_MIN_PEERS=1 bash scripts/start-besu-prototype.sh)"
+          printf '%s\n' "$output"
+          run_root="$(printf '%s\n' "$output" | sed -n 's/^Besu smoke network started: //p' | tail -n 1)"
+          test -n "$run_root" && test -f "$run_root/run.json"
+          echo "BEL_BESU_RUN_ROOT=$run_root" >> "$GITHUB_ENV"
+          echo "BEL_E2E_PRIVATE_KEYS=$(paste -sd, "$run_root/test-account-keys")" >> "$GITHUB_ENV"
+          node - "$run_root" >> "$GITHUB_ENV" <<'NODE'
+          const fs = require('node:fs');
+          const { Wallet } = require('ethers');
+          const run = JSON.parse(fs.readFileSync(`${process.argv[2]}/run.json`, 'utf8'));
+          const nodeKeys = fs.readdirSync(run.generatedKeys).sort().map(name => fs.readFileSync(`${run.generatedKeys}/${name}/key.priv`, 'utf8').trim());
+          nodeKeys.forEach((key, index) => console.log(`BEL_BOOTSTRAP_VALIDATOR_${index}=${new Wallet(key).address}`));
+          NODE
+      - name: Verify Besu process and network identity
+        run: |
+          set -euo pipefail
+          test -s "$BEL_BESU_RUN_ROOT/pids"
+          for port in 8645 8646 8647 8648; do
+            curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"web3_clientVersion","params":[]}' "http://127.0.0.1:$port"
+            curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":2,"method":"eth_chainId","params":[]}' "http://127.0.0.1:$port"
+            curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":3,"method":"eth_blockNumber","params":[]}' "http://127.0.0.1:$port"
+            curl --fail --silent --show-error -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":4,"method":"net_peerCount","params":[]}' "http://127.0.0.1:$port"
+            echo
           done
-          echo "Anvil did not become ready within 30 seconds" >&2
-          exit 1
-      - name: Start IPFS Docker service
+      - name: Start real IPFS/Kubo service
         run: |
           set -euo pipefail
           docker run -d --name bel-ipfs -p 5001:5001 ipfs/kubo:v0.30.0
@@ -110,7 +139,6 @@ jobs:
           done
           echo "IPFS did not become ready within 30 seconds" >&2
           exit 1
-      - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install pinned Solidity dependencies
         run: bash scripts/setup-contracts.sh
       - run: forge build
@@ -118,15 +146,41 @@ jobs:
       - run: npm run prisma:generate
       - name: Apply PostgreSQL migrations
         run: npm run db:migrate
-      - name: Prepare Foundry runtime directories
-        run: mkdir -p contracts/deployments contracts/broadcast
-      - run: npm run test:evm
+      - name: Deploy contracts to this Besu run
+        run: bash scripts/deploy-besu-prototype.sh "$BEL_BESU_RUN_ROOT"
+      - name: Run backend EVM integration against Besu
+        run: npm run test:evm
+      - name: Bootstrap PostgreSQL admin for Besu-backed user integration
+        run: npx tsx scripts/bootstrap-dev.ts
+        env:
+          BEL_ENV: development
+          BEL_DEV_BOOTSTRAP: "true"
+          BEL_BLOCKCHAIN: evm
+          BEL_BOOTSTRAP_CREDENTIAL: e2e-admin-credential
       - name: Run Person 1 EVM/PostgreSQL integration
         run: npx vitest run backend/test/users.evm.integration.test.ts --testTimeout=120000
       - name: Run complete cross-person E2E workflow
         run: npm run test:e2e:workflow
         env:
           IPFS_API_URL: http://127.0.0.1:5001
+          BEL_E2E_DEPLOYED: "true"
+      - name: Collect Besu diagnostics and clean up
+        if: always()
+        run: |
+          set +e
+          bash scripts/check-besu-bel-demo.sh "$BEL_BESU_RUN_ROOT" 4 8645 || true
+          bash scripts/stop-besu-bel-demo.sh "$BEL_BESU_RUN_ROOT" || true
+          docker rm -f bel-ipfs >/dev/null 2>&1 || true
+      - name: Upload Besu logs and runtime configuration
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: besu-integration-diagnostics
+          if-no-files-found: warn
+          path: |
+            ${{ env.BEL_BESU_RUN_ROOT }}/nodes/**/besu.log
+            ${{ env.BEL_BESU_RUN_ROOT }}/config/network-config.json
+            ${{ env.BEL_BESU_RUN_ROOT }}/generated/genesis.json
 
   contracts:
     name: Build and test contracts

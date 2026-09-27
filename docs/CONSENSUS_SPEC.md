@@ -663,6 +663,16 @@ The validator checks:
 
 The underlying execution layer verifies all applicable blockchain rules, including transaction validity and state-transition correctness.
 
+## 20.5 Verification boundary
+
+The Python consensus tests validate the protocol model and simulator only. They
+are not evidence that the Java implementation is active. The mandatory
+integration gate builds the checked-in `besu` submodule, including
+`consensus:bel` and QBFT, then verifies the live customized Besu prototype
+process. The prototype uses four active validators solely to fit current
+compute limits; production remains the N >= 70 baseline and the prototype is
+not a production-scale performance or finality claim.
+
 A consensus vote does not override an execution-layer failure.
 
 ---

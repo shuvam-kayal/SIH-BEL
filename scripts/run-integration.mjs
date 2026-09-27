@@ -6,6 +6,9 @@ if (!process.env.DATABASE_URL) {
 }
 const result = spawnSync(process.execPath, ["node_modules/vitest/vitest.mjs", "run", "backend/test/integration.persistence.test.ts"], {
   stdio: "inherit",
-  env: { ...process.env, BEL_RUN_INTEGRATION: "true" },
+  // This suite deliberately tests PostgreSQL persistence with the explicit
+  // MockBlockchainAdapter. Do not inherit BEL_BLOCKCHAIN=evm from a Besu
+  // integration shell and apply EVM-only provisioning rules to this suite.
+  env: { ...process.env, BEL_BLOCKCHAIN: "mock", BEL_RUN_INTEGRATION: "true" },
 });
 process.exit(result.status ?? 1);

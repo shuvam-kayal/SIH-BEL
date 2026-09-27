@@ -1,42 +1,29 @@
-// Person 1 integration: real UsersService -> EVM adapter -> Anvil -> Solidity
-// -> PostgreSQL lifecycle. This suite skips explicitly when either required
-// external service/artifact set is unavailable; it never replaces the chain
-// with a successful mock.
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ContractFactory, HDNodeWallet, JsonRpcProvider, NonceManager, SigningKey, Wallet as EvmWallet, Contract, hashMessage } from "ethers";
+// Person 1 integration: real UsersService -> EVM adapter -> customized Besu
+// -> Solidity -> PostgreSQL lifecycle. Ordinary unit runs skip this suite;
+// the mandatory integration workflow supplies the live Besu endpoint.
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { JsonRpcProvider, SigningKey, Wallet as EvmWallet, Contract, hashMessage } from "ethers";
 import { createContainer, type Container } from "../src/container";
-import { EvmBlockchainAdapter, loadAbis, type EvmChainConfig } from "../src/blockchain";
-import { waitForReceipt } from "../src/blockchain/evm-adapter";
+import { EvmBlockchainAdapter, loadChainConfigFromEnv, type EvmChainConfig } from "../src/blockchain";
 import { BlockchainError } from "../src/blockchain/errors";
 import { MemoryIntegrityAdapter } from "../src/integrity/integrity";
 import { MockDeviceAttestationAdapter } from "../src/devices/device-attestation";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const OUT = resolve(ROOT, "contracts/out");
-const MNEMONIC = "test test test test test test test test test test test junk";
-const findAnvil = (): string | null => {
-  const candidates = [process.env.ANVIL_BIN, resolve(homedir(), ".foundry/bin/anvil"), "anvil"].filter(Boolean) as string[];
-  return candidates.find((candidate) => spawnSync(candidate, ["--version"], { stdio: "ignore" }).status === 0) ?? null;
-};
-const anvilBin = findAnvil();
 const configuredRpcUrl = process.env.BEL_EVM_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim();
-const useExternalNode = Boolean(configuredRpcUrl);
-const haveArtifacts = existsSync(resolve(OUT, "JobManager.sol/JobManager.json"));
 const hasPostgres = Boolean(process.env.DATABASE_URL);
-const skipReason = !useExternalNode && !anvilBin ? "no configured EVM RPC endpoint and local anvil is not installed" : !haveArtifacts ? "contracts/out missing (run forge build)" : !hasPostgres ? "DATABASE_URL is not configured" : null;
-if (skipReason) console.warn(`[users.evm.integration] SKIPPED: ${skipReason}`);
+const configuredKeys = (process.env.BEL_E2E_PRIVATE_KEYS ?? process.env.BEL_CHAIN_DEV_SIGNER_KEYS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+const integrationRun = process.env.BEL_RUN_INTEGRATION === "true";
+if (integrationRun) vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
 
-const key = (index: number) => HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${index}`).privateKey;
+const key = (index: number) => configuredKeys[index];
 const wallet = (index: number) => new EvmWallet(key(index));
 // Keep the integration identities/wallets disjoint from the repository's
 // long-lived bootstrap admin and from each other. This suite cleans up its
 // own rows, but must not collide with the real E2E bootstrap account.
-const ADMIN = wallet(8);
+// The Besu deployment/bootstrap script funds and authorizes account 0 as the
+// real bootstrap admin. This suite must use that same live identity rather
+// than inventing an Anvil-only administrator.
+const ADMIN = wallet(0);
 const BAD_ACTOR = wallet(4);
 const publicKey = (privateKey: string) => `0x${SigningKey.computePublicKey(privateKey, false).slice(4)}`;
 const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, actorIdentity: string, payload: Record<string, unknown>) => ({
@@ -49,8 +36,7 @@ const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, ac
   signature: "development",
 } as const);
 
-describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and PostgreSQL", () => {
-  let anvil: ChildProcess | undefined;
+describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized Besu and PostgreSQL", () => {
   let provider: JsonRpcProvider;
   let adapter: EvmBlockchainAdapter;
   let container: Container;
@@ -59,8 +45,8 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
   const previousEnvironment = process.env.BEL_ENV;
   const badActorDid = "DID:BEL:P1-BAD-ACTOR";
   const runId = Date.now().toString(36);
-  const adminDid = `DID:BEL:P1-ADMIN-${runId}`;
-  const adminEmployee = `P1-EVM-ADMIN-${runId}`;
+  const adminDid = process.env.BEL_BOOTSTRAP_ADMIN_DID || "DID:BEL:ADMIN";
+  const adminEmployee = process.env.BEL_E2E_ADMIN_EMPLOYEE_ID || "ADMIN-001";
   const badActorEmployee = `P1-EVM-BAD-${runId}`;
   const targetEmployee = `P1-EVM-TARGET-${runId}`;
   const targetDevice = `P1-EVM-DEVICE-${runId}`;
@@ -68,35 +54,6 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
   const targetIdentityIds: string[] = [];
   const targetEmployeeIds: string[] = [];
   const targetDeviceIds: string[] = [];
-
-  async function mined(hash: string): Promise<void> {
-    if (!(await waitForReceipt(provider, hash, 1, 20_000, 25))) throw new Error(`transaction ${hash} was not confirmed`);
-  }
-
-  async function deployContracts(rpcUrl: string): Promise<EvmChainConfig> {
-    const deployer = new NonceManager(new EvmWallet(key(0), provider));
-    const artifact = (name: string) => JSON.parse(readFileSync(resolve(OUT, `${name}.sol/${name}.json`), "utf8"));
-    const deploy = async (name: string, ...args: unknown[]) => {
-      const a = artifact(name);
-      const contract = await new ContractFactory(a.abi, a.bytecode.object, deployer).deploy(...args);
-      await mined(contract.deploymentTransaction()!.hash);
-      return contract;
-    };
-    const identity = await deploy("IdentityRegistry", ADMIN.address, adminDid);
-    const roles = await deploy("RoleRegistry", await identity.getAddress(), ADMIN.address);
-    const assets = await deploy("AssetRegistry");
-    const jobs = await deploy("JobManager", await assets.getAddress());
-    const addresses = await Promise.all([identity, roles, assets, jobs].map((contract) => contract.getAddress()));
-    const audit = await deploy("AuditRegistry", addresses[0], addresses[1], addresses);
-    const auditAddress = await audit.getAddress();
-    for (const contract of [identity, roles, assets, jobs]) await mined((await contract.getFunction("wire")(addresses[0], addresses[1], auditAddress)).hash);
-    return {
-      rpcUrl,
-      deployment: { network: "p1-vitest", chainId: 31337, contracts: { IdentityRegistry: addresses[0], RoleRegistry: addresses[1], AssetRegistry: addresses[2], JobManager: addresses[3], AuditRegistry: auditAddress, ValidatorRegistry: auditAddress } },
-      abis: loadAbis(), confirmations: 1, txTimeoutMs: 20_000, pollingIntervalMs: 25,
-      devSignerKeys: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(key),
-    };
-  }
 
   async function createPendingRegistration(index = 9, employeeId = targetEmployee, deviceId = targetDevice): Promise<{ identityId: string; walletAddress: string }> {
     const targetWallet = wallet(index);
@@ -118,15 +75,22 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
   }
 
   beforeAll(async () => {
-    const port = 19545 + Math.floor(Math.random() * 1000);
-    const rpcUrl = configuredRpcUrl ?? `http://127.0.0.1:${port}`;
-    if (!useExternalNode) anvil = spawn(anvilBin!, ["--port", String(port), "--silent"], { stdio: "ignore" });
-    provider = new JsonRpcProvider(rpcUrl, 31337, { staticNetwork: true, pollingInterval: 50 });
+    if (!configuredRpcUrl) throw new Error("BEL_EVM_RPC_URL/BEL_CHAIN_RPC_URL is required for the Besu integration suite");
+    if (!hasPostgres) throw new Error("DATABASE_URL is required for the PostgreSQL integration suite");
+    if (configuredKeys.length < 10) throw new Error("BEL_E2E_PRIVATE_KEYS/BEL_CHAIN_DEV_SIGNER_KEYS must contain at least ten Besu-funded keys");
+    const rpcUrl = configuredRpcUrl;
+    config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEPLOYMENT: process.env.BEL_CHAIN_DEPLOYMENT || "besu-prototype", BEL_CHAIN_DEV_SIGNER_KEYS: configuredKeys.join(",") });
+    provider = new JsonRpcProvider(rpcUrl, config.deployment.chainId, { staticNetwork: true, pollingInterval: 50 });
     for (let attempt = 0; ; attempt++) {
-      try { await provider.send("eth_chainId", []); break; }
-      catch { if (attempt > 50) throw new Error("anvil did not start"); await new Promise((resolveDelay) => setTimeout(resolveDelay, 100)); }
+      try {
+        const chainId = await provider.send("eth_chainId", []);
+        if (BigInt(chainId) !== BigInt(config.deployment.chainId)) throw new Error(`RPC chain id ${chainId} does not match deployment ${config.deployment.chainId}`);
+        const client = await provider.send("web3_clientVersion", []);
+        if (!String(client).toLowerCase().includes("besu")) throw new Error(`expected Besu RPC client, got ${client}`);
+        break;
+      }
+      catch (error) { if (attempt > 50) throw new Error(`Besu did not start: ${String(error)}`); await new Promise((resolveDelay) => setTimeout(resolveDelay, 100)); }
     }
-    config = await deployContracts(rpcUrl);
     adapter = new EvmBlockchainAdapter(config, { provider });
     process.env.BEL_BLOCKCHAIN = "evm";
     process.env.BEL_ENV = "development";
@@ -141,16 +105,17 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
     });
     await container.prisma!.$connect();
 
-    await container.users.createUser({ employeeId: adminEmployee, identityId: adminDid, fullName: "P1 EVM Admin", role: "ADMIN", department: "PLATFORM" });
-    await container.users.registerDevice(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, "p1-evm-admin-credential", publicKey(key(8)));
-    await container.users.registerWallet(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, ADMIN.address);
-    await container.users.activateWallet(adminEmployee, `P1-EVM-ADMIN-DEVICE-${runId}`, ADMIN.address);
+    const bootstrapAdmin = await container.users.getById(adminEmployee);
+    if (!bootstrapAdmin) throw new Error("Bootstrap admin is missing; run scripts/bootstrap-dev.ts against this Besu deployment before the users integration suite");
+    if (bootstrapAdmin.identityId !== adminDid || bootstrapAdmin.walletAddress.toLowerCase() !== ADMIN.address.toLowerCase()) {
+      throw new Error(`Bootstrap admin does not match the current Besu deployment: database=${bootstrapAdmin.identityId}/${bootstrapAdmin.walletAddress}, expected=${adminDid}/${ADMIN.address}`);
+    }
   }, 90_000);
 
   afterAll(async () => {
     if (container?.prisma) {
-      const identityIds = [adminDid, badActorDid, ...targetIdentityIds];
-      const employeeIds = [adminEmployee, badActorEmployee, ...targetEmployeeIds];
+      const identityIds = [badActorDid, ...targetIdentityIds];
+      const employeeIds = [badActorEmployee, ...targetEmployeeIds];
       const deviceIds = [`P1-EVM-ADMIN-DEVICE-${runId}`, badActorDevice, ...targetDeviceIds];
       await container.prisma.session.deleteMany({ where: { identityId: { in: identityIds } } });
       await container.prisma.credential.deleteMany({ where: { deviceId: { in: deviceIds } } });
@@ -160,7 +125,6 @@ describe.skipIf(skipReason !== null)("Person 1 registration lifecycle on EVM and
       await container.prisma.identity.deleteMany({ where: { identityId: { in: identityIds } } });
       await container.prisma.$disconnect();
     }
-    anvil?.kill();
     if (previousBlockchain === undefined) delete process.env.BEL_BLOCKCHAIN;
     else process.env.BEL_BLOCKCHAIN = previousBlockchain;
     if (previousEnvironment === undefined) delete process.env.BEL_ENV;

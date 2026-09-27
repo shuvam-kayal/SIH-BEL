@@ -4,9 +4,10 @@ import type {
   CreateJobRequest, CreateUserRequest, CreateUserResponse, InitializeAccountRequest,
   LoginProofRequest, PendingRegistration, ProvisioningChallengeRequest, RegisterDeviceRequest,
   RegisterWalletRequest, RejectJobRequest, Session, TransferAssetRequest,
-  VerifyRegistrationRequest, WalletActionResponse,
+  VerifyRegistrationRequest, WalletActionResponse, ValidatorAddInput, ValidatorRemovalInput,
+  ValidatorRestoreInput, ValidatorRemoveCancelInput,
 } from "../../../shared/api";
-import type { Asset, AuditEvent, Device, Identity, Job, ProvisioningChallenge, User, Validator, Wallet } from "../../../shared/types";
+import type { Asset, AuditEvent, Device, Identity, Job, ProvisioningChallenge, User, Validator, ValidatorHistoryRecord, ValidatorRegistration, Wallet } from "../../../shared/types";
 
 const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || "/api";
 const API_BASE_URL = configuredBase.replace(/\/$/, "");
@@ -84,6 +85,12 @@ export const apiClient: ApiClient & { restoreSession(): Promise<Session | null>;
   async getAssetAuditTrail(assetId: string) { return get<AuditEvent[]>(`/audit/assets/${encodeURIComponent(assetId)}`); },
   async getBlockchainStatus() { return get<BlockchainStatus>("/blockchain/status", false); },
   async getValidators() { return get<Validator[]>("/blockchain/validators"); },
+  async getValidatorRegistrations() { return get<ValidatorRegistration[]>("/admin/validators"); },
+  async getValidatorHistory() { return get<ValidatorHistoryRecord[]>("/admin/validators/history"); },
+  async addValidator(input: ValidatorAddInput) { return json<ValidatorRegistration>("/admin/validators", input, true); },
+  async removeValidator(id: string, input: ValidatorRemovalInput) { return json<ValidatorRegistration>(`/admin/validators/${encodeURIComponent(id)}/remove`, input, true); },
+  async restoreValidator(id: string, input: ValidatorRestoreInput) { return json<ValidatorRegistration>(`/admin/validators/${encodeURIComponent(id)}/restore`, input, true); },
+  async cancelScheduledRemoval(id: string, input: ValidatorRemoveCancelInput) { return json<ValidatorRegistration>(`/admin/validators/${encodeURIComponent(id)}/remove/cancel`, input, true); },
   async getCommittee(height: number) { return get<CommitteeResponse>(`/blockchain/committee/${height}`); },
   async restoreSession() { const current = token(); if (!current) return null; try { return { user: await this.getMe(), token: current }; } catch (error) { if (error instanceof HttpApiError && error.status === 401) return null; throw error; } },
   clearSession() { saveToken(null); },

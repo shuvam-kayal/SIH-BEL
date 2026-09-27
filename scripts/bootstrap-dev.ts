@@ -20,6 +20,16 @@ async function main() {
     if (evm && (!onChain || onChain.status !== "ACTIVE")) throw new Error("EVM bootstrap wallet must already be ACTIVE on-chain");
     const existing = await container.users.getById("ADMIN-001");
     if (existing) {
+      if (
+        evm &&
+        (existing.identityId !== onChain?.identityId || existing.walletAddress.toLowerCase() !== walletAddress.toLowerCase())
+      ) {
+        throw new Error(
+          `PostgreSQL ADMIN-001 is bound to identity ${existing.identityId} / wallet ${existing.walletAddress}, ` +
+          `but the current Besu deployment uses identity ${onChain?.identityId ?? "<missing>"} / wallet ${walletAddress}. ` +
+          "Reset the disposable integration database before starting a fresh Besu run.",
+        );
+      }
       console.log("ADMIN-001 already bootstrapped");
     } else {
       // Mirror that identity in PostgreSQL instead of attempting duplicate

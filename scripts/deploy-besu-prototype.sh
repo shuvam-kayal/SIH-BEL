@@ -20,18 +20,24 @@ for i in {0..3}; do
   export "BEL_BOOTSTRAP_VALIDATOR_${i}=${validator_address}"
 done
 
+TEST_ACCOUNT_KEYS_FILE="$(node -e 'const r=require(process.argv[1]); console.log(r.testAccountKeys || "")' "${RUN_ROOT}/run.json")"
+if [[ ! -s "${TEST_ACCOUNT_KEYS_FILE}" ]]; then
+  echo "Besu run metadata does not contain ephemeral test accounts: ${RUN_ROOT}" >&2
+  exit 1
+fi
+mapfile -t TEST_KEYS < "${TEST_ACCOUNT_KEYS_FILE}"
+if (( ${#TEST_KEYS[@]} < 1 )); then echo "No ephemeral Besu test account was generated" >&2; exit 1; fi
+DEPLOYER_KEY="${TEST_KEYS[0]}"
+export BEL_BOOTSTRAP_ADMIN_WALLET="$(node -e 'const {Wallet}=require("ethers"); console.log(new Wallet(process.argv[1]).address)' "${DEPLOYER_KEY}")"
+
 export BEL_EXECUTION_PROFILE=prototype
 export BEL_BOOTSTRAP_VALIDATOR_COUNT=4
 export BEL_NETWORK=besu-prototype
-export BEL_BOOTSTRAP_ADMIN_WALLET="${BEL_BOOTSTRAP_ADMIN_WALLET:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}"
 export BEL_BOOTSTRAP_ADMIN_DID="${BEL_BOOTSTRAP_ADMIN_DID:-DID:BEL:ADMIN}"
 export BEL_RPC_URL="${BEL_RPC_URL:-http://127.0.0.1:8645}"
 
 DEPLOYMENT_FILE="${ROOT}/contracts/deployments/besu-prototype.json"
-# This is Foundry/Anvil's standard local-only development key and derives to
-# BEL_BOOTSTRAP_ADMIN_WALLET's default address. Keep the environment override
-# for callers using another local fixture.
-BEL_DEPLOYER_PRIVATE_KEY="${BEL_DEPLOYER_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
+BEL_DEPLOYER_PRIVATE_KEY="${BEL_DEPLOYER_PRIVATE_KEY:-${DEPLOYER_KEY}}"
 
 # Never leave a deployment from an earlier chain run looking valid after a
 # failed broadcast. Deploy.s.sol writes this file only after all transactions

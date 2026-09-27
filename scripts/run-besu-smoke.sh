@@ -24,7 +24,7 @@ RPC_HOST="${RPC_HOST:-127.0.0.1}"
 BOOTNODE_HOST="${BOOTNODE_HOST:-${P2P_HOST}}"
 BOOTNODE_PORT="${BOOTNODE_PORT:-${BASE_P2P}}"
 MIN_PEERS="${BEL_SMOKE_MIN_PEERS:-1}"
-BLOCK_WAIT_SECONDS="${BEL_SMOKE_BLOCK_WAIT_SECONDS:-12}"
+BLOCK_WAIT_SECONDS="${BEL_SMOKE_BLOCK_WAIT_SECONDS:-45}"
 if [[ "${PROFILE}" == "production" && ${VALIDATOR_COUNT} -lt 70 ]]; then echo "Production profile requires the unchanged 70-validator protocol configuration." >&2; exit 1; fi
 if [[ "${PROFILE}" == "prototype" && ${VALIDATOR_COUNT} -ne 4 ]]; then echo "Prototype profile requires exactly four QBFT validators." >&2; exit 1; fi
 if (( ACTIVE_COUNT != VALIDATOR_COUNT )); then echo "Active Besu validators must equal the profile genesis validator count (${VALIDATOR_COUNT})." >&2; exit 1; fi
@@ -37,6 +37,23 @@ CONFIG="${RUN_ROOT}/config"
 GENERATED="${RUN_ROOT}/generated"
 NODES="${RUN_ROOT}/nodes"
 mkdir -p "${CONFIG}" "${GENERATED}" "${NODES}"
+
+if [[ ! -x "${BESU}" ]]; then
+  echo "Besu distribution not found: ${BESU}. Build it with JDK 21 and installDist first." >&2
+  exit 1
+fi
+
+# Integration callers set BEL_TEST_ACCOUNT_KEYS_FILE to an ephemeral file of
+# private keys. The prototype launcher owns the file and keeps it below the
+# ignored .bel-demo runtime directory; it is never printed or committed.
+TEST_ACCOUNT_KEYS_FILE="${BEL_TEST_ACCOUNT_KEYS_FILE:-${RUN_ROOT}/test-account-keys}"
+if [[ "${BEL_REQUIRE_TEST_ACCOUNTS:-false}" == "true" && ! -s "${TEST_ACCOUNT_KEYS_FILE}" ]]; then
+  command -v node >/dev/null 2>&1 || { echo "Node.js is required to generate ephemeral Besu test accounts." >&2; exit 1; }
+  node -e 'const fs=require("node:fs"); const {Wallet}=require("ethers"); fs.writeFileSync(process.argv[1], Array.from({length:10},()=>Wallet.createRandom().privateKey).join("\n"), {mode:0o600});' "${TEST_ACCOUNT_KEYS_FILE}"
+fi
+if [[ -s "${TEST_ACCOUNT_KEYS_FILE}" ]]; then
+  chmod 600 "${TEST_ACCOUNT_KEYS_FILE}" 2>/dev/null || true
+fi
 
 cat > "${CONFIG}/network-config.json" <<EOF
 {
@@ -61,12 +78,30 @@ cat > "${CONFIG}/network-config.json" <<EOF
 }
 EOF
 
+if [[ -s "${TEST_ACCOUNT_KEYS_FILE}" ]]; then
+  # Besu has no Anvil-only setBalance RPC. Fund only the ephemeral accounts
+  # used by this run in genesis, before the chain is started.
+  node -e '
+    const fs=require("node:fs");
+    const {Wallet}=require("ethers");
+    const configPath=process.argv[1], keysPath=process.argv[2];
+    const config=JSON.parse(fs.readFileSync(configPath,"utf8"));
+    const keys=fs.readFileSync(keysPath,"utf8").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    config.genesis.alloc=Object.fromEntries(keys.map(key=>[new Wallet(key).address.slice(2).toLowerCase(),{balance:"0x3635C9ADC5DEA0000000"}]));
+    fs.writeFileSync(configPath, JSON.stringify(config,null,2)+"\n");
+  ' "${CONFIG}/network-config.json" "${TEST_ACCOUNT_KEYS_FILE}"
+fi
+
 "${BESU}" operator generate-blockchain-config \
   --config-file="${CONFIG}/network-config.json" \
   --to="${GENERATED}" \
   --genesis-file-name=genesis.json
 
 mapfile -t KEYS < <(find "${GENERATED}/keys" -mindepth 2 -maxdepth 2 -name key.priv | sort)
+if (( ${#KEYS[@]} != VALIDATOR_COUNT )); then
+  echo "Expected ${VALIDATOR_COUNT} generated Besu validator keys, found ${#KEYS[@]}" >&2
+  exit 1
+fi
 PUB="$(tr -d '\r\n' < "$(dirname "${KEYS[0]}")/key.pub" | sed 's/^0x//')"
 BOOTNODE="enode://${PUB}@${BOOTNODE_HOST}:${BOOTNODE_PORT}"
 PIDS=()
@@ -115,18 +150,24 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
   block_number=$((16#${block_digits}))
   if [[ -z "${initial_block}" || block_number -lt initial_block ]]; then initial_block="${block_number}"; fi
 done
-sleep "${BLOCK_WAIT_SECONDS}"
 minimum_block=""
 maximum_block=0
-for ((i=0; i<ACTIVE_COUNT; i++)); do
-  port=$((BASE_RPC + i))
-  response="$(curl -fsS --max-time 2 -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "http://${RPC_HOST}:${port}")" || { echo "Block synchronization RPC failed for ${RPC_HOST}:${port}" >&2; exit 1; }
-  block_hex="$(sed -nE 's/.*"result"[[:space:]]*:[[:space:]]*"(0x[0-9a-fA-F]+)".*/\1/p' <<<"${response}")"
-  if [[ -z "${block_hex}" ]]; then echo "Block synchronization check returned no eth_blockNumber result for ${RPC_HOST}:${port}: ${response}" >&2; exit 1; fi
-  block_digits="${block_hex#0x}"
-  block_number=$((16#${block_digits}))
-  if [[ -z "${minimum_block}" || block_number -lt minimum_block ]]; then minimum_block="${block_number}"; fi
-  if (( block_number > maximum_block )); then maximum_block="${block_number}"; fi
+block_deadline=$((SECONDS + BLOCK_WAIT_SECONDS))
+while (( SECONDS < block_deadline )); do
+  minimum_block=""
+  maximum_block=0
+  for ((i=0; i<ACTIVE_COUNT; i++)); do
+    port=$((BASE_RPC + i))
+    response="$(curl -fsS --max-time 2 -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "http://${RPC_HOST}:${port}")" || { echo "Block synchronization RPC failed for ${RPC_HOST}:${port}" >&2; exit 1; }
+    block_hex="$(sed -nE 's/.*"result"[[:space:]]*:[[:space:]]*"(0x[0-9a-fA-F]+)".*/\1/p' <<<"${response}")"
+    if [[ -z "${block_hex}" ]]; then echo "Block synchronization check returned no eth_blockNumber result for ${RPC_HOST}:${port}: ${response}" >&2; exit 1; fi
+    block_digits="${block_hex#0x}"
+    block_number=$((16#${block_digits}))
+    if [[ -z "${minimum_block}" || block_number -lt minimum_block ]]; then minimum_block="${block_number}"; fi
+    if (( block_number > maximum_block )); then maximum_block="${block_number}"; fi
+  done
+  if (( minimum_block > initial_block )); then break; fi
+  sleep 2
 done
 if (( minimum_block <= initial_block )); then echo "Block production check failed: height remained at ${initial_block}." >&2; exit 1; fi
 if (( maximum_block - minimum_block > 1 )); then echo "Block synchronization check failed: node heights ranged from ${minimum_block} to ${maximum_block}." >&2; exit 1; fi
@@ -158,6 +199,8 @@ cat > "${RUN_ROOT}/run.json" <<EOF
   "baseP2pPort": ${BASE_P2P},
   "baseRpcPort": ${BASE_RPC},
   "profile": "${PROFILE}",
+  "chainId": 20260920,
+  "testAccountKeys": "${TEST_ACCOUNT_KEYS_FILE}",
   "pids": [$(IFS=,; echo "${PIDS[*]}")]
 }
 EOF

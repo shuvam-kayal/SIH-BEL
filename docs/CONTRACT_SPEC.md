@@ -154,3 +154,11 @@ The following interface corrections are part of the base-v1 contract and are alr
 8. `ROLE_ASSIGN` / `ROLE_REVOKE` are explicit transaction types.
 9. Asset transfer semantics are ownership + custody together by default.
 10. Job rejection is non-terminal; re-assignment uses `assignJob`.
+
+## Deployment verification boundary
+
+Contract unit tests run in Foundry and validate Solidity behavior in isolation.
+The deployment-realism gate builds and starts the customized Besu submodule,
+deploys this registry set to the live prototype RPC, and passes the generated
+deployment file to the backend adapter. No deployment file generated on Anvil
+or another chain is valid for the Besu E2E workflow.

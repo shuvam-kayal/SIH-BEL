@@ -79,6 +79,7 @@ export interface ApiClient {
   getAssetAuditTrail(assetId: string): Promise<AuditEvent[]>;
   getBlockchainStatus(): Promise<BlockchainStatus>;
   getValidators(): Promise<Validator[]>;
+  getValidatorRegistrations(): Promise<ValidatorRegistration[]>;
   getValidatorHistory(): Promise<ValidatorHistoryRecord[]>;
   addValidator(input: ValidatorAddInput): Promise<ValidatorRegistration>;
   removeValidator(id: string, input: ValidatorRemovalInput): Promise<ValidatorRegistration>;

@@ -376,7 +376,18 @@ export class UsersServiceImpl implements UsersService {
   }
   private async revokeWalletObject(wallet: Wallet, reason: string): Promise<void> { wallet.status = "REVOKED"; wallet.revokedAt = new Date().toISOString(); wallet.revokedReason = reason; await this.repositories.wallets.save(wallet); }
   private async ensureIdentityCreated(actor: Identity, identity: Identity, walletAddress: string): Promise<void> {
-    if (this.evmCryptoEnabled() && await this.chain.getWallet(walletAddress)) return;
+    if (this.evmCryptoEnabled()) {
+      const existingWallet = await this.chain.getWallet(walletAddress);
+      if (existingWallet) {
+        if (existingWallet.identityId !== identity.identityId) {
+          throw new ConflictError(`Wallet ${walletAddress} is already bound to ${existingWallet.identityId} on-chain`);
+        }
+        if (!(await this.chain.getIdentity(identity.identityId))) {
+          throw new ConflictError(`Wallet ${walletAddress} has an inconsistent on-chain identity record`);
+        }
+        return;
+      }
+    }
     await this.submit("IDENTITY_CREATE", actor, { walletAddress, identityId: identity.identityId });
   }
   private async ensureRoleAssigned(actor: Identity, identity: Identity, walletAddress: string): Promise<void> {
