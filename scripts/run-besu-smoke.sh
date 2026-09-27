@@ -49,7 +49,7 @@ fi
 TEST_ACCOUNT_KEYS_FILE="${BEL_TEST_ACCOUNT_KEYS_FILE:-${RUN_ROOT}/test-account-keys}"
 if [[ "${BEL_REQUIRE_TEST_ACCOUNTS:-false}" == "true" && ! -s "${TEST_ACCOUNT_KEYS_FILE}" ]]; then
   command -v node >/dev/null 2>&1 || { echo "Node.js is required to generate ephemeral Besu test accounts." >&2; exit 1; }
-  node -e 'const fs=require("node:fs"); const {Wallet}=require("ethers"); fs.writeFileSync(process.argv[1], Array.from({length:10},()=>Wallet.createRandom().privateKey).join("\n"), {mode:0o600});' "${TEST_ACCOUNT_KEYS_FILE}"
+  node -e 'const fs=require("node:fs"); const {Wallet}=require("ethers"); fs.writeFileSync(process.argv[1], Array.from({length:20},()=>Wallet.createRandom().privateKey).join("\n"), {mode:0o600});' "${TEST_ACCOUNT_KEYS_FILE}"
 fi
 if [[ -s "${TEST_ACCOUNT_KEYS_FILE}" ]]; then
   chmod 600 "${TEST_ACCOUNT_KEYS_FILE}" 2>/dev/null || true

@@ -25,7 +25,7 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
   // real bootstrap admin. This suite must use that same live identity rather
   // than inventing an Anvil-only administrator.
   const ADMIN = wallet(0);
-  const BAD_ACTOR = wallet(4);
+  const BAD_ACTOR = wallet(10);
   const publicKey = (privateKey: string) => `0x${SigningKey.computePublicKey(privateKey, false).slice(4)}`;
   const tx = (type: "IDENTITY_CREATE" | "WALLET_ACTIVATE", actorWallet: string, actorIdentity: string, payload: Record<string, unknown>) => ({
     txId: `p1-${type}-${Date.now()}-${Math.random()}`,
@@ -54,7 +54,7 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
   const targetEmployeeIds: string[] = [];
   const targetDeviceIds: string[] = [];
 
-  async function createPendingRegistration(index = 9, employeeId = targetEmployee, deviceId = targetDevice): Promise<{ identityId: string; walletAddress: string }> {
+  async function createPendingRegistration(index: number, employeeId: string, deviceId: string): Promise<{ identityId: string; walletAddress: string }> {
     const targetWallet = wallet(index);
     const challenge = await container.users.requestProvisioningChallenge({ deviceId, deviceMetadata: { managedDevice: true, onBelNetwork: true } });
     const digest = hashMessage(challenge.challenge);
@@ -76,7 +76,7 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
   beforeAll(async () => {
     if (!configuredRpcUrl) throw new Error("BEL_EVM_RPC_URL/BEL_CHAIN_RPC_URL is required for the Besu integration suite");
     if (!hasPostgres) throw new Error("DATABASE_URL is required for the PostgreSQL integration suite");
-    if (configuredKeys.length < 10) throw new Error("BEL_E2E_PRIVATE_KEYS/BEL_CHAIN_DEV_SIGNER_KEYS must contain at least ten Besu-funded keys");
+    if (configuredKeys.length < 15) throw new Error("BEL_E2E_PRIVATE_KEYS/BEL_CHAIN_DEV_SIGNER_KEYS must contain at least fifteen Besu-funded keys");
     const rpcUrl = configuredRpcUrl;
     config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEPLOYMENT: process.env.BEL_CHAIN_DEPLOYMENT || "besu-prototype", BEL_CHAIN_DEV_SIGNER_KEYS: configuredKeys.join(",") });
     provider = new JsonRpcProvider(rpcUrl, config.deployment.chainId, { staticNetwork: true, pollingInterval: 50 });
@@ -131,7 +131,7 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
   });
 
   it("confirms IDENTITY_CREATE -> ROLE_ASSIGN -> WALLET_ACTIVATE before PostgreSQL ACTIVE", async () => {
-    const pending = await createPendingRegistration(9, targetEmployee, targetDevice);
+    const pending = await createPendingRegistration(11, targetEmployee, targetDevice);
     expect(await container.users.getIdentity(pending.identityId)).toMatchObject({ status: "PENDING", role: "ENGINEER" });
     expect((await container.users.listWallets(pending.identityId))[0]).toMatchObject({ status: "PENDING", address: pending.walletAddress });
 
@@ -149,7 +149,7 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
   }, 45_000);
 
   it("confirms WALLET_REVOKE on-chain before revoking the device and wallet in PostgreSQL", async () => {
-    const pending = await createPendingRegistration(6, `${targetEmployee}-REVOKE`, `${targetDevice}-REVOKE`);
+    const pending = await createPendingRegistration(12, `${targetEmployee}-REVOKE`, `${targetDevice}-REVOKE`);
     await container.users.activateRegistration(adminDid, pending.identityId);
 
     await container.users.revokeDevice(`${targetDevice}-REVOKE`, adminDid);
@@ -168,10 +168,10 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
     await adapter.submitTransaction(tx("WALLET_ACTIVATE", ADMIN.address, adminDid, { address: BAD_ACTOR.address }));
     await container.repositories.identities.save({ identityId: badActorDid, employeeId: badActorEmployee, fullName: "Bad Actor", role: "ADMIN", department: "TEST", status: "ACTIVE", createdAt: new Date().toISOString(), verifiedAt: null, verifiedBy: null });
     await container.repositories.users.save({ employeeId: badActorEmployee, identityId: badActorDid, walletAddress: BAD_ACTOR.address, role: "ADMIN", department: "TEST", status: "ACTIVE" });
-    await container.repositories.devices.save({ deviceId: badActorDevice, identityId: badActorDid, status: "ACTIVE", registeredAt: new Date().toISOString(), activatedAt: new Date().toISOString(), revokedAt: null, publicKey: publicKey(key(4)), metadata: null });
-    await container.repositories.wallets.save({ address: BAD_ACTOR.address, identityId: badActorDid, deviceId: badActorDevice, status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: publicKey(key(4)) });
+    await container.repositories.devices.save({ deviceId: badActorDevice, identityId: badActorDid, status: "ACTIVE", registeredAt: new Date().toISOString(), activatedAt: new Date().toISOString(), revokedAt: null, publicKey: publicKey(key(10)), metadata: null });
+    await container.repositories.wallets.save({ address: BAD_ACTOR.address, identityId: badActorDid, deviceId: badActorDevice, status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: publicKey(key(10)) });
 
-    const pending = await createPendingRegistration(7, `${targetEmployee}-FAIL`, `${targetDevice}-FAIL`);
+    const pending = await createPendingRegistration(13, `${targetEmployee}-FAIL`, `${targetDevice}-FAIL`);
     await expect(container.users.activateRegistration(badActorDid, pending.identityId)).rejects.toBeInstanceOf(BlockchainError);
     expect(await container.users.getIdentity(pending.identityId)).toMatchObject({ status: "PENDING", role: "ENGINEER" });
     expect((await container.users.listWallets(pending.identityId))[0].status).toBe("PENDING");
@@ -179,7 +179,7 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
     // The same real unauthorized actor must not be able to revoke an active
     // wallet. The adapter returns the contract rejection and PostgreSQL stays
     // ACTIVE because revokeDevice submits before persisting local state.
-    const active = await createPendingRegistration(5, `${targetEmployee}-REVOKE-FAIL`, `${targetDevice}-REVOKE-FAIL`);
+    const active = await createPendingRegistration(14, `${targetEmployee}-REVOKE-FAIL`, `${targetDevice}-REVOKE-FAIL`);
     await container.users.activateRegistration(adminDid, active.identityId);
     await expect(container.users.revokeDevice(`${targetDevice}-REVOKE-FAIL`, badActorDid)).rejects.toMatchObject({ kind: "REVERTED" });
     expect((await container.users.listDevices(active.identityId))[0].status).toBe("ACTIVE");

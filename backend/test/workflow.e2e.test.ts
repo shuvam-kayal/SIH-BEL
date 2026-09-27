@@ -9,7 +9,7 @@ import { EvmBlockchainAdapter, loadChainConfigFromEnv } from "../src/blockchain"
 import { MockDeviceAttestationAdapter } from "../src/devices/device-attestation";
 
 const configuredKeys = process.env.BEL_E2E_PRIVATE_KEYS?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
-if (configuredKeys.length < 6) throw new Error("BEL_E2E_PRIVATE_KEYS must contain at least six ephemeral Besu-funded keys");
+if (configuredKeys.length < 19) throw new Error("BEL_E2E_PRIVATE_KEYS must contain at least nineteen ephemeral Besu-funded keys");
 const key = (index: number) => new Wallet(configuredKeys[index]);
 const rpcUrl = process.env.BEL_E2E_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim();
 if (!rpcUrl) throw new Error("BEL_E2E_RPC_URL or BEL_CHAIN_RPC_URL is required; E2E never defaults to Anvil");
@@ -90,7 +90,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
 
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required; start Docker PostgreSQL first");
-    const keys = [0, 1, 2, 3, 4, 5].map((i) => key(i).privateKey);
+    const keys = [0, 15, 16, 17, 18].map((i) => key(i).privateKey);
     provider = new JsonRpcProvider(rpcUrl, expectedChainId, { staticNetwork: true, pollingInterval: 50 });
     expect(BigInt(await provider.send("eth_chainId", []))).toBe(BigInt(expectedChainId));
     const config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEV_SIGNER_KEYS: keys.join(",") });
@@ -117,10 +117,10 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(adminUser.identityId).toBe((await chain.getIdentity(adminUser.identityId))?.identityId);
     admin = await login(adminDeviceId, adminWallet);
     expect(admin).toMatchObject({ employeeId: adminEmployeeId, identityId: adminUser.identityId, role: "ADMIN", walletAddress: adminWallet.address });
-    technician = await provisionActor("TECHNICIAN", 1, "TECHNICIAN");
-    technician2 = await provisionActor("TECHNICIAN-2", 4, "TECHNICIAN");
-    engineer = await provisionActor("ENGINEER", 2, "ENGINEER");
-    verifier = await provisionActor("VERIFIER", 3, "VERIFIER");
+    technician = await provisionActor("TECHNICIAN", 15, "TECHNICIAN");
+    technician2 = await provisionActor("TECHNICIAN-2", 16, "TECHNICIAN");
+    engineer = await provisionActor("ENGINEER", 17, "ENGINEER");
+    verifier = await provisionActor("VERIFIER", 18, "VERIFIER");
   // A real four-validator QBFT prototype needs several confirmed Besu
   // transactions per actor. Keep the suite timeout separate from individual
   // request assertions so slow consensus does not abort setup prematurely.
