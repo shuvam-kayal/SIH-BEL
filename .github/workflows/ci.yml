@@ -219,6 +219,18 @@ jobs:
           NODE
       - name: Run backend EVM integration against Besu
         run: echo "[CI] blockchain=evm rpc=$BEL_EVM_RPC_URL chainId=$BEL_E2E_CHAIN_ID client=Besu"; BEL_E2E_PRIVATE_KEYS="$(tr '\n' ',' < "$BEL_E2E_PRIVATE_KEYS_FILE")" npm run test:evm
+      - name: Derive Besu bootstrap identity
+        run: |
+          node --input-type=module - "$BEL_E2E_PRIVATE_KEYS_FILE" >> "$GITHUB_ENV" <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { Wallet } from 'ethers';
+          const firstKey = readFileSync(process.argv[2], 'utf8').split(/\r?\n/).map((value) => value.trim()).find(Boolean);
+          if (!firstKey) throw new Error('The Besu E2E private-key file is empty');
+          const admin = new Wallet(firstKey);
+          const publicKey = `0x${admin.signingKey.publicKey.slice(4)}`;
+          console.log(`BEL_BOOTSTRAP_WALLET_ADDRESS=${admin.address}`);
+          console.log(`BEL_BOOTSTRAP_PUBLIC_KEY=${publicKey}`);
+          NODE
       - name: Bootstrap PostgreSQL admin for Besu-backed user integration
         run: BEL_CHAIN_DEV_SIGNER_KEYS="$(tr '\n' ',' < "$BEL_E2E_PRIVATE_KEYS_FILE")" npx tsx scripts/bootstrap-dev.ts
         env:
