@@ -196,7 +196,7 @@ jobs:
         run: bash scripts/deploy-besu-prototype.sh "$BEL_BESU_RUN_ROOT"
       - name: Verify deployed contract bytecode on this Besu run
         run: |
-          node - "$BEL_BESU_RUN_ROOT" <<'NODE'
+          node --input-type=commonjs - "$BEL_BESU_RUN_ROOT" <<'NODE'
           const fs = require('node:fs');
           const deployment = JSON.parse(fs.readFileSync('contracts/deployments/besu-prototype.json', 'utf8'));
           if (Number(deployment.chainId) !== 20260920) throw new Error(`deployment chain mismatch: ${deployment.chainId}`);
