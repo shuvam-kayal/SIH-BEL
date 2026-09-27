@@ -63,7 +63,6 @@ jobs:
       BEL_NETWORK: besu-prototype
       BEL_EXECUTION_PROFILE: prototype
       BEL_BOOTSTRAP_VALIDATOR_COUNT: "4"
-      BEL_BESU_RUN_ROOT: ${{ runner.temp }}/besu-run-${{ github.run_id }}-${{ github.run_attempt }}
     services:
       postgres:
         image: postgres:16-alpine
@@ -116,12 +115,16 @@ jobs:
           echo "Relevant script modes:"; git ls-files --stage scripts/start-besu-prototype.sh scripts/run-besu-smoke.sh scripts/check-besu-bel-demo.sh scripts/stop-besu-bel-demo.sh
           stat scripts/start-besu-prototype.sh scripts/run-besu-smoke.sh scripts/check-besu-bel-demo.sh scripts/stop-besu-bel-demo.sh
           echo "Besu configuration: profile=$BEL_EXECUTION_PROFILE validators=$BEL_BOOTSTRAP_VALIDATOR_COUNT rpc_base=8645 p2p_base=31303"
+      - name: Initialize Besu run root
+        run: |
+          set -euo pipefail
+          run_root="$RUNNER_TEMP/besu-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$run_root"
+          echo "BEL_BESU_RUN_ROOT=$run_root" >> "$GITHUB_ENV"
       - name: Start real Besu prototype network
         run: |
           set -uo pipefail
           run_root="$BEL_BESU_RUN_ROOT"
-          mkdir -p "$run_root"
-          echo "BEL_BESU_RUN_ROOT=$run_root" >> "$GITHUB_ENV"
           set +e
           BEL_BESU_RUN_ROOT="$run_root" BEL_EXECUTION_PROFILE=prototype BEL_REQUIRE_TEST_ACCOUNTS=true BEL_SMOKE_INITIAL_NODES=4 BEL_SMOKE_MIN_PEERS=1 bash scripts/start-besu-prototype.sh 2>&1 | tee "$run_root/startup.log"
           status=${PIPESTATUS[0]}
