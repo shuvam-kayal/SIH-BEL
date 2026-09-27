@@ -22,7 +22,12 @@
 // | JOB_ASSIGN                             | JobManager.assignJob                | jobId, technicianId (DID or address; alias technicianWallet)     |
 // | JOB_START / JOB_APPROVE                | JobManager.startJob/approveJob      | jobId                                                            |
 // | JOB_COMPLETE                           | JobManager.completeJob              | jobId, evidenceHash (32-byte hex, with or without 0x)            |
+// | VALIDATOR_ADD                          | ValidatorRegistry.addValidator | validatorId, publicKey, signingPublicKey, activationHeight |
+// | VALIDATOR_REMOVE                       | ValidatorRegistry.removeValidator | validatorId, removalHeight, reason |
+// | VALIDATOR_RESTORE                      | ValidatorRegistry.restoreValidator | validatorId, reason |
+// | VALIDATOR_REMOVE_CANCEL                | ValidatorRegistry.cancelScheduledRemoval | validatorId, reason |
 // | JOB_REJECT                             | JobManager.rejectJob                | jobId, reason                                                    |
+// | GRANT_CREATE / GRANT_REVOKE             | AssetRegistry.setTransferGrant     | assetId, actorIdentityId, authorizationGrantId, expiresAt       |
 //
 // Off-chain-only fields (assetType, priority, verifierId, deviceId, ...) are
 // ignored here: they never go on-chain (ADR-005).
@@ -67,6 +72,14 @@ function optionalAddress(type: string, p: Payload, keys: string[]): string | und
 
 function requiredAddress(type: string, p: Payload, keys: string[]): string {
   return optionalAddress(type, p, keys) ?? invalid(type, `payload.${keys[0]} is required`);
+}
+
+function grantExpiry(type: string, p: Payload): number {
+  const value = p.expiresAt;
+  if (value === undefined || value === null || value === "") return 0;
+  const seconds = typeof value === "number" ? Math.floor(value) : Math.floor(Date.parse(String(value)) / 1000);
+  if (!Number.isFinite(seconds) || seconds < 0 || seconds > 0xffffffffffffffff) invalid(type, "payload.expiresAt is invalid");
+  return seconds;
 }
 
 /** Resolves "DID or address" to an address (ACTIVE wallet when a DID is given). */
@@ -118,6 +131,28 @@ export async function buildCallPlan(tx: Transaction, lookups: ChainLookups): Pro
   const wallet = ["walletAddress", "address", "wallet"];
 
   switch (type) {
+    case "VALIDATOR_ADD": {
+      const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
+      const publicKey = str(type, p, ["publicKey"]);
+      const signingPublicKey = str(type, p, ["signingPublicKey"]);
+      const activationHeight = p.activationHeight;
+      if (!(typeof activationHeight === "number" && Number.isSafeInteger(activationHeight) && activationHeight > 0)) invalid(type, "payload.activationHeight must be a positive integer");
+      return { contract: "ValidatorRegistry", method: "addValidator", args: [validator, publicKey, signingPublicKey, activationHeight] };
+    }
+    case "VALIDATOR_REMOVE": {
+      const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
+      const removalHeight = p.removalHeight;
+      if (!(typeof removalHeight === "number" && Number.isSafeInteger(removalHeight) && removalHeight > 0)) invalid(type, "payload.removalHeight must be a positive integer");
+      return { contract: "ValidatorRegistry", method: "removeValidator", args: [validator, removalHeight, str(type, p, ["reason"])] };
+    }
+    case "VALIDATOR_RESTORE": {
+      const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
+      return { contract: "ValidatorRegistry", method: "restoreValidator", args: [validator, str(type, p, ["reason"])] };
+    }
+    case "VALIDATOR_REMOVE_CANCEL": {
+      const validator = requiredAddress(type, p, ["validatorId", "validator", "address"]);
+      return { contract: "ValidatorRegistry", method: "cancelScheduledRemoval", args: [validator, str(type, p, ["reason"])] };
+    }
     case "IDENTITY_CREATE":
     case "IDENTITY_REGISTER":
     case "WALLET_REGISTER":
@@ -161,6 +196,22 @@ export async function buildCallPlan(tx: Transaction, lookups: ChainLookups): Pro
         args: [await nftRef(type, p, ["assetId"], ["nftId"], lookups), await party(type, p, ["newOwnerId", "newOwnerWallet", "newOwner"], lookups, true)],
       };
     }
+    case "GRANT_CREATE":
+    case "GRANT_REVOKE": {
+      const actorIdentityId = str(type, p, ["actorIdentityId"]);
+      const grantId = str(type, p, ["authorizationGrantId"]);
+      return {
+        contract: "AssetRegistry",
+        method: "setTransferGrant",
+        args: [
+          await nftRef(type, p, ["resourceId", "assetId"], ["nftId"], lookups),
+          await party(type, p, ["actorIdentityId"], lookups, true),
+          grantExpiry(type, p),
+          type === "GRANT_CREATE",
+          grantId,
+        ],
+      };
+    }
     case "ASSET_STATE_CHANGE": {
       const state = str(type, p, ["newState", "status"])!;
       if (!(ASSET_STATUSES as readonly string[]).includes(state)) invalid(type, `unknown asset state ${state}`);
@@ -202,3 +253,4 @@ export async function buildCallPlan(tx: Transaction, lookups: ChainLookups): Pro
       return { contract: "JobManager", method: "rejectJob", args: [str(type, p, ["jobId"]), str(type, p, ["reason"])] };
   }
 }
+

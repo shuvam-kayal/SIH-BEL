@@ -8,6 +8,7 @@ import { Router } from "express";
 import type { Container } from "../container";
 import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
+import { requireFreshAuthentication } from "../auth/fresh-auth.middleware";
 import { NotFoundError, ValidationError } from "../errors";
 
 function actor(req: Express.Request) {
@@ -85,7 +86,19 @@ export function jobsRouter(c: Container): Router {
     requirePermission("PERFORM_MAINTENANCE"),
     async (req, res, next) => {
       try {
-        const evidenceHash = req.body?.evidenceHash;
+        let evidenceHash = req.body?.evidenceHash;
+        const evidenceId = req.body?.evidenceId;
+        if (typeof evidenceId === "string" && evidenceId.trim()) {
+          const storedHash = await c.evidence.getHash(req.params.id, evidenceId, {
+            identityId: req.user!.identityId,
+            walletAddress: req.user!.walletAddress,
+            role: req.user!.role,
+          });
+          if (evidenceHash !== undefined && (typeof evidenceHash !== "string" || evidenceHash.toLowerCase().replace(/^0x/, "") !== storedHash)) {
+            throw new ValidationError(["evidenceHash does not match the selected evidence"]);
+          }
+          evidenceHash = storedHash;
+        }
         if (typeof evidenceHash !== "string" || evidenceHash.trim() === "") {
           throw new ValidationError(["evidenceHash is required"]);
         }
@@ -99,6 +112,7 @@ export function jobsRouter(c: Container): Router {
   router.post(
     "/jobs/:id/approve",
     requireSession,
+    requireFreshAuthentication(c.auth, "JOB_VERIFY", (req) => req.params.id),
     requirePermission("VERIFY_MAINTENANCE"),
     async (req, res, next) => {
       try {
@@ -112,6 +126,7 @@ export function jobsRouter(c: Container): Router {
   router.post(
     "/jobs/:id/reject",
     requireSession,
+    requireFreshAuthentication(c.auth, "JOB_VERIFY", (req) => req.params.id),
     requirePermission("VERIFY_MAINTENANCE"),
     async (req, res, next) => {
       try {

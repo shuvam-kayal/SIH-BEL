@@ -63,6 +63,25 @@ contract AssetRegistryTest is BelFixture {
         assertEq(identity.identityOf(assets.ownerOf(id)), "DID:BEL:ENGINEER");
     }
 
+    function test_EngineerTransferRequiresAndUsesResourceGrant() public {
+        uint256 id = mint("PUMP-GRANT", admin);
+        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.TransferNotAuthorized.selector, engineer, id));
+        vm.prank(engineer);
+        assets.transferAsset(id, manager);
+
+        vm.prank(admin);
+        assets.setTransferGrant(id, engineer, uint64(block.timestamp + 1 hours), true, "GRANT-1");
+        vm.prank(engineer);
+        assets.transferAsset(id, manager);
+        assertEq(assets.ownerOfAsset(id), manager);
+
+        vm.prank(admin);
+        assets.setTransferGrant(id, engineer, 0, false, "GRANT-1");
+        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.TransferNotAuthorized.selector, engineer, id));
+        vm.prank(engineer);
+        assets.transferAsset(id, admin);
+    }
+
     function test_RevertWhen_TransferToRevokedOrSameOwner() public {
         uint256 id = mint("PUMP-001", admin);
         vm.prank(admin);

@@ -10,6 +10,7 @@ import { assetsRouter } from "./routes/assets.routes";
 import { chainRouter } from "./routes/chain.routes";
 import { jobsRouter } from "./routes/jobs.routes";
 import { usersRouter } from "./routes/users.routes";
+import { evidenceRouter } from "./routes/evidence.routes";
 
 export function createApp(container: Container = createContainer()): Express {
   const app = express();
@@ -25,6 +26,7 @@ export function createApp(container: Container = createContainer()): Express {
   app.use(usersRouter(container));
   app.use(assetsRouter(container));
   app.use(jobsRouter(container));
+  app.use(evidenceRouter(container));
   app.use(chainRouter(container));
 
   app.use((_req, res) => {

@@ -47,7 +47,7 @@ Commitments contain state hashes and minimum event metadata, not plaintext crede
 
 ## Environment
 
-Required for the real backend: `DATABASE_URL`, `BEL_ENV`, and optionally `BEL_SESSION_TTL_SECONDS`. Development bootstrap additionally requires `BEL_DEV_BOOTSTRAP=true`, `BEL_BOOTSTRAP_CREDENTIAL`, `BEL_BOOTSTRAP_WALLET_ADDRESS`, and `BEL_BOOTSTRAP_PUBLIC_KEY`. PostgreSQL remains an internal BEL service and must not be exposed through frontend configuration.
+Required for the real backend: `DATABASE_URL`, `BEL_ENV`, and optionally `BEL_SESSION_TTL_SECONDS`. Production additionally requires `BEL_DEVICE_ATTESTATION_PROVIDER=managed` and an injected authoritative provider. Development bootstrap additionally requires `BEL_DEV_BOOTSTRAP=true`, `BEL_BOOTSTRAP_CREDENTIAL`, `BEL_BOOTSTRAP_WALLET_ADDRESS`, and `BEL_BOOTSTRAP_PUBLIC_KEY`. PostgreSQL remains an internal BEL service and must not be exposed through frontend configuration.
 
 ## E. Employee self-initialization and proof tests
 
@@ -60,8 +60,11 @@ The Person 1 suite must also cover:
 - pending identity/device/wallet cannot request or complete normal login;
 - administrator-only verification, employee ID/department assignment, role assignment, and activation;
 - proof-based login after activation and bearer-session revalidation;
+- production login uses device proof rather than the development credential path; local device verification is performed by the authenticator and is not sent to the backend;
+- frontend/API boundaries never receive a private key, seed, mnemonic, local PIN, or biometric data;
 - wallet and device replacement preserves identity, revokes old credentials, and invalidates old sessions;
 - PostgreSQL restart preserves pending registrations, verification, activation, and revocation;
 - integrity commitments exist for initialization, device/wallet registration, verification, role assignment, activation, and revocation.
+- fresh-auth proofs are short-lived, single-use, session-bound, operation-bound, and resource-bound; replay or use for another operation/resource is rejected;
 
-The current `DeviceAttestationAdapter` is a mock/rejecting seam in tests. These tests must not claim that hardware-backed secure storage or production device attestation exists.
+The current `DeviceAttestationAdapter` is a mock/rejecting seam in tests, while production requires the explicit provider boundary and fails closed without an authoritative implementation. These tests must not claim that hardware-backed secure storage or the external BEL provider exists.

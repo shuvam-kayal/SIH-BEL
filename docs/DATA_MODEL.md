@@ -1,5 +1,13 @@
 # Data Model
 
+## Consensus cryptographic status
+
+Validator and consensus identities remain distinct from any future VRF key.
+The current Besu demonstration uses deterministic test material only through
+`VrfProvider`; `DeterministicTestVrfProvider` is test-only, not RFC 9381
+cryptography, and not production-grade. VRF private keys must not be stored in
+blocks, application state, smart contracts, logs, or source control.
+
 This is the frozen definition of every core object in `docs/SYSTEM_SPEC.md`.
 It maps 1:1 to `shared/types/index.ts` — that file is the executable
 source of truth; this document is the annotated, human-readable version.
@@ -69,7 +77,12 @@ revoked and a new one issued without changing the underlying Identity.
 | revokedReason | string \| null | |
 | publicKey | string \| null | Public key only; the backend never stores a private key |
 
-Wallet address binding: `walletAddress` must correspond to the device-generated `publicKey` under the eventual wallet/signature scheme. The binding must be cryptographically validated by the wallet/blockchain integration adapter before activation; no blockchain-specific derivation is defined here.
+Wallet address binding: in the implemented EVM scheme, `walletAddress` must
+equal the address derived from the canonical secp256k1 `publicKey` (X || Y,
+without the SEC1 prefix). Provisioning, wallet registration/activation, login,
+session validation, and replacement activation enforce this invariant. Other
+future wallet/signature schemes may use a different derivation and are not
+silently treated as equivalent. This is cryptographically validated by the wallet/blockchain integration adapter before activation.
 
 ## ProvisioningChallenge
 
@@ -82,7 +95,7 @@ not contain private-key material.
 | challengeId | string | Primary key |
 | deviceId | string | Bound device reference |
 | challenge | string | Unique nonce |
-| purpose | `WALLET_INITIALIZATION` \| `AUTHENTICATION` | Protocol purpose |
+| purpose | `WALLET_INITIALIZATION` \| `AUTHENTICATION` \| `FRESH_AUTHENTICATION` | Protocol purpose |
 | expiresAt | string (ISO 8601) | Short TTL |
 | usedAt | string (ISO 8601) \| null | Replay protection |
 | metadata | object \| null | Attestation result/evidence, not trust from raw client flags |
@@ -161,6 +174,26 @@ originating blockchain transaction.
 | actorIdentityId | string | FK -> Identity.identityId |
 | timestamp | string (ISO 8601) | |
 
+## Evidence
+
+An off-chain maintenance document associated with a Job. The binary is stored
+in private IPFS; PostgreSQL stores metadata only.
+
+| Field | Type | Notes |
+|---|---|---|
+| evidenceId | string | Primary key |
+| jobId | string | FK -> Job.jobId; indexed |
+| cid | string | Private IPFS content identifier; indexed, not an authorization credential |
+| sha256 | string | Lowercase 64-character digest of the exact uploaded bytes; indexed |
+| originalFilename | string | Sanitized display filename |
+| contentType | string | Validated allowed MIME type |
+| sizeBytes | number | Exact uploaded byte count |
+| uploadedBy | string | FK -> Identity.identityId |
+| createdAt / updatedAt | string | ISO 8601 timestamps |
+
+Job completion passes this SHA-256 to `JobManager.completeJob`; the document
+itself is never stored in PostgreSQL or on-chain.
+
 ## Validator
 
 A node authorized to participate in consensus.
@@ -180,7 +213,9 @@ A finalized unit of the ledger.
 |---|---|---|
 | height | number | Primary key |
 | leaderId | string | FK -> Validator.validatorId |
-| committee | string[] | Validator ids that voted |
+| committee | string[] | Selected validator ids for this block |
+| prepareEvidence | object | Distinct valid PREPARE signatures/certificate |
+| commitEvidence | object | Distinct valid COMMIT signatures/finality certificate |
 | transactions | string[] | Ordered list of txIds |
 | finalizedAt | string (ISO 8601) | |
 
@@ -209,3 +244,7 @@ Job       1---N  AuditEvent
 Asset     1---N  AuditEvent
 Validator N---N  Block         (via committee)
 ```
+Validator application state is a projection of successful on-chain ADD,
+REMOVE, and RESTORE transactions. `ValidatorHistory` is append-only and keeps
+actor, wallet, transaction hash, block, previous/new state, and result. The
+chain event is authoritative; PostgreSQL fields are indexed operational state.

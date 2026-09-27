@@ -290,7 +290,7 @@ describe("JobsService", () => {
 
     const job = await service.complete(
       "JOB-1",
-      "HASH-001",
+      "ab".repeat(32),
       { ...actor, identityId: "TECH-001" }
     );
 
@@ -303,7 +303,7 @@ describe("JobsService", () => {
     const service = new JobsServiceImpl(mockChain);
 
     await expect(
-      service.complete("JOB-999", "HASH-001", actor)
+      service.complete("JOB-999", "ab".repeat(32), actor)
     ).rejects.toThrow("No job JOB-999");
   });
 
@@ -320,7 +320,7 @@ describe("JobsService", () => {
     );
 
     await expect(
-      service.complete("JOB-1", "HASH-001", actor)
+      service.complete("JOB-1", "ab".repeat(32), actor)
     ).rejects.toThrow(
       "Invalid job transition: CREATED -> COMPLETED"
     );
@@ -341,7 +341,7 @@ describe("JobsService", () => {
     await service.assign("JOB-1", "TECH-001", actor);
 
     await expect(
-      service.complete("JOB-1", "HASH-001", actor)
+      service.complete("JOB-1", "ab".repeat(32), actor)
     ).rejects.toThrow(
       "Invalid job transition: ASSIGNED -> COMPLETED"
     );
@@ -361,10 +361,10 @@ describe("JobsService", () => {
 
     await service.assign("JOB-1", "TECH-001", actor);
     await service.start("JOB-1", { ...actor, identityId: "TECH-001" });
-    await service.complete("JOB-1", "HASH-001", { ...actor, identityId: "TECH-001" });
+    await service.complete("JOB-1", "ab".repeat(32), { ...actor, identityId: "TECH-001" });
 
     await expect(
-      service.complete("JOB-1", "HASH-002", actor)
+      service.complete("JOB-1", "cd".repeat(32), actor)
     ).rejects.toThrow(
       "Invalid job transition: COMPLETED -> COMPLETED"
     );
@@ -376,7 +376,7 @@ describe("JobsService", () => {
     await service.assign("JOB-1", technician.identityId, actor);
     await service.start("JOB-1", technician);
 
-    await expect(service.complete("JOB-1", "HASH-001", { ...technician, identityId: "TECH-2" }))
+    await expect(service.complete("JOB-1", "ab".repeat(32), { ...technician, identityId: "TECH-2" }))
       .rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
   });
 
@@ -394,7 +394,7 @@ describe("JobsService", () => {
 
     await service.assign(job.jobId, technician.identityId, actor);
     await service.start(job.jobId, technician);
-    await service.complete(job.jobId, "hash-123", technician);
+    await service.complete(job.jobId, "ab".repeat(32), technician);
 
     const approved = await service.approve(job.jobId, verifier);
 
@@ -415,7 +415,7 @@ describe("JobsService", () => {
     const job = await service.create({ assetId: "ASSET-1", createdBy: "USER-1", priority: "HIGH" }, actor);
     await service.assign(job.jobId, technician.identityId, actor);
     await service.start(job.jobId, technician);
-    await service.complete(job.jobId, "hash-123", technician);
+    await service.complete(job.jobId, "ab".repeat(32), technician);
 
     await expect(service.approve(job.jobId, technician))
       .rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
@@ -452,7 +452,7 @@ describe("JobsService", () => {
 
     await service.assign(job.jobId, technician.identityId, actor);
     await service.start(job.jobId, technician);
-    await service.complete(job.jobId, "hash-123", technician);
+    await service.complete(job.jobId, "ab".repeat(32), technician);
     await service.approve(job.jobId, verifier);
 
     await expect(
@@ -474,7 +474,7 @@ describe("JobsService", () => {
 
     await service.assign(job.jobId, technician.identityId, actor);
     await service.start(job.jobId, technician);
-    await service.complete(job.jobId, "hash-123", technician);
+    await service.complete(job.jobId, "ab".repeat(32), technician);
 
     const rejected = await service.reject(
       job.jobId,
@@ -511,7 +511,7 @@ describe("JobsService", () => {
 
     await service.assign(job.jobId, technician.identityId, actor);
     await service.start(job.jobId, technician);
-    await service.complete(job.jobId, "hash-123", technician);
+    await service.complete(job.jobId, "ab".repeat(32), technician);
 
     await expect(
       service.reject(job.jobId, "", actor)

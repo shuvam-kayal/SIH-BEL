@@ -3,14 +3,16 @@
 // mirrored from contracts/src/IAuditRegistry.sol emissions.
 
 import { AuditEvent } from "../../../shared/types";
-import { NotImplementedError } from "../errors";
+import type { BlockchainService } from "../adapters/BlockchainService";
 
 export interface AuditService {
   getTrailForAsset(assetId: string): Promise<AuditEvent[]>;
 }
 
 export class AuditServiceImpl implements AuditService {
-  async getTrailForAsset(_assetId: string): Promise<AuditEvent[]> {
-    throw new NotImplementedError("AuditService.getTrailForAsset()");
+  constructor(private readonly chain: BlockchainService) {}
+  async getTrailForAsset(assetId: string): Promise<AuditEvent[]> {
+    const reader = this.chain as BlockchainService & { getAuditTrail?: (id: string) => Promise<AuditEvent[]> };
+    return reader.getAuditTrail ? reader.getAuditTrail(assetId) : [];
   }
 }

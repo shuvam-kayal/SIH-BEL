@@ -21,7 +21,7 @@ components:
       properties:
         code:
           type: string
-          enum: [VALIDATION_FAILED, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, NOT_IMPLEMENTED, INTERNAL_ERROR]
+          enum: [VALIDATION_FAILED, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, NOT_IMPLEMENTED, PAYLOAD_TOO_LARGE, UNSUPPORTED_MEDIA_TYPE, SERVICE_UNAVAILABLE, INTEGRITY_FAILURE, INTERNAL_ERROR]
         message:
           type: string
     Role:
@@ -212,6 +212,21 @@ components:
           type: string
           format: date-time
           nullable: true
+    Evidence:
+      type: object
+      required: [id, evidenceId, jobId, cid, sha256, filename, contentType, sizeBytes, uploadedBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        evidenceId: { type: string }
+        jobId: { type: string }
+        cid: { type: string, description: Private IPFS content identifier; not an authorization credential }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        filename: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, minimum: 1 }
+        uploadedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     AuditEvent:
       type: object
       required:
@@ -329,7 +344,7 @@ components:
         challengeId: { type: string }
         deviceId: { type: string }
         challenge: { type: string }
-        purpose: { type: string, enum: [WALLET_INITIALIZATION, AUTHENTICATION] }
+        purpose: { type: string, enum: [WALLET_INITIALIZATION, AUTHENTICATION, FRESH_AUTHENTICATION] }
         expiresAt: { type: string, format: date-time }
         usedAt: { type: string, format: date-time, nullable: true }
         metadata:
@@ -420,7 +435,7 @@ paths:
     post:
       summary: Login from a managed BEL workstation
       security: []
-      description: The human action is only Click Sign In. The managed-device wallet component handles the challenge, local signature, public key, and proof fields automatically. A legacy device credential is development-only and disabled in production. Private keys never cross the API.
+      description: The human action is only Click Sign In. The managed authenticator performs device-local user verification using its approved platform modality (for example device PIN, Windows Hello, fingerprint, face, or hardware authenticator), then the device wallet signs the backend-issued challenge locally. The frontend transports the resulting LoginProofRequest; it does not collect challenge IDs, signatures, public keys, PINs, biometrics, or private keys. The backend verifies the registered public-key proof and returns Session { user, token }. A legacy device credential is development-only and disabled in production.
       requestBody:
         required: true
         content:
@@ -454,6 +469,7 @@ paths:
   /auth/login-challenge:
     post:
       summary: Create a short-lived challenge for device-signature login (handled automatically by the device wallet)
+      description: The frontend/device wallet requests this after the user clicks Sign In. Local user verification occurs inside the managed authenticator before signing; the local PIN/biometric result and private key are never sent to BEL.
       security: []
       requestBody:
         required: true
@@ -467,6 +483,26 @@ paths:
       responses:
         '201':
           description: Authentication challenge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningChallenge' }
+  /auth/fresh-challenge:
+    post:
+      summary: Create a short-lived proof challenge for a configured high-impact operation
+      description: A bearer session may not be sufficient for a configured high-impact operation. The device performs local user verification and signs a short-lived, single-use proof bound to the current session, operation, and resource where applicable. The frontend transports the proof in the existing protected-operation request; it does not handle private-key storage or local PIN/biometric processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation]
+              properties:
+                operation: { type: string }
+                resourceId: { type: string }
+      responses:
+        '201':
+          description: Fresh-authentication challenge
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ProvisioningChallenge' }
@@ -792,11 +828,15 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-              - evidenceHash
               properties:
                 evidenceHash:
                   type: string
+                evidenceId:
+                  type: string
+                  description: Optional evidence record; when supplied its stored SHA-256 is used and checked.
+              oneOf:
+              - required: [evidenceHash]
+              - required: [evidenceId]
       responses:
         '200':
           description: Job
@@ -837,6 +877,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+  /jobs/{jobId}/evidence:
+    post:
+      summary: Upload maintenance evidence through the private IPFS backend boundary
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Evidence metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Evidence' }
+        '413': { description: File exceeds configured limit }
+        '415': { description: Unsupported content type }
+    get:
+      summary: List job evidence metadata; file bytes are not returned
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string }
+      responses:
+        '200':
+          description: Evidence metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Evidence' }
+  /jobs/{jobId}/evidence/{evidenceId}:
+    get:
+      summary: Authorize, hash-verify, and download one evidence document
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string }
+      - name: evidenceId
+        in: path
+        required: true
+        schema: { type: string }
+      responses:
+        '200':
+          description: Verified evidence bytes
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
   /audit/assets/{id}:
     get:
       parameters:
@@ -870,6 +967,43 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Validator'
+  /admin/validators:
+    get:
+      summary: List validators for the ADMIN validator-management page
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Current validator registrations }
+        '403': { description: Requires MANAGE_VALIDATORS (ADMIN only) }
+    post:
+      summary: Add a validator after receipt/event confirmation
+      security: [{ bearerAuth: [] }]
+      description: Requires MANAGE_VALIDATORS and a single-use fresh-auth proof bound to VALIDATOR_ADD and validatorId.
+      responses:
+        '201': { description: Validator registration and transaction metadata }
+        '401': { description: Missing or invalid fresh authentication }
+        '403': { description: ADMIN only }
+        '409': { description: Duplicate/current-state conflict }
+  /admin/validators/history:
+    get:
+      summary: Read append-only validator lifecycle history
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Chronological ADD, REMOVE, and RESTORE records }
+  /admin/validators/{id}/remove:
+    post:
+      summary: Schedule validator removal
+      security: [{ bearerAuth: [] }]
+      description: Requires fresh auth bound to VALIDATOR_REMOVE and the validator id. The chain transaction precedes database state.
+      responses:
+        '200': { description: Removed validator state and transaction metadata }
+        '409': { description: Duplicate or invalid lifecycle transition }
+  /admin/validators/{id}/restore:
+    post:
+      summary: Restore a removed validator with an inverse transaction
+      security: [{ bearerAuth: [] }]
+      description: Requires fresh auth bound to VALIDATOR_RESTORE and the validator id. Prior REMOVE history is never deleted.
+      responses:
+        '200': { description: Active validator state and restore transaction metadata }
   /blockchain/committee/{height}:
     get:
       parameters:

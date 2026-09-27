@@ -102,7 +102,7 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
       rpcUrl,
       deployment: {
         network: "vitest", chainId: 31337,
-        contracts: { IdentityRegistry: addrs[0], RoleRegistry: addrs[1], AssetRegistry: addrs[2], JobManager: addrs[3], AuditRegistry: auditAddr },
+        contracts: { IdentityRegistry: addrs[0], RoleRegistry: addrs[1], AssetRegistry: addrs[2], JobManager: addrs[3], AuditRegistry: auditAddr, ValidatorRegistry: auditAddr },
       },
       abis: loadAbis(),
       confirmations: 1,
@@ -145,7 +145,7 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
     expect(dup.hash).toBeUndefined(); // caught in simulation: no gas spent
 
     const unauth = await adapter.submitTransaction(env("ASSET_MINT", TECH, "DID:BEL:TECH", { assetId: "X", ownerId: TECH }));
-    expect(unauth).toEqual({ txId: expect.any(String), status: "REJECTED" });
+    expect(unauth).toMatchObject({ txId: expect.any(String), status: "REJECTED", revert: { name: "Unauthorized" } });
     const detailed = await adapter.submitTransactionDetailed(env("ASSET_MINT", TECH, "DID:BEL:TECH", { assetId: "X", ownerId: TECH }));
     // 39 = ADMIN|MANAGER|ENGINEER|ISSUER, the "Register asset" row of RBAC_MATRIX.md
     expect(detailed.revert).toMatchObject({ name: "Unauthorized", args: [TECH, "39"] });

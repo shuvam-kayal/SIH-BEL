@@ -51,6 +51,7 @@ contract AssetRegistry is IAssetRegistry, ERC721, BelAccess {
     error CyclicHierarchy(uint256 parentNftId, uint256 componentNftId);
     error ComponentIsAttached(uint256 nftId);
     error DirectTransferDisabled();
+    error TransferNotAuthorized(address actor, uint256 nftId);
 
     uint256 public constant MAX_ASSET_ID_LENGTH = 128;
 
@@ -59,6 +60,8 @@ contract AssetRegistry is IAssetRegistry, ERC721, BelAccess {
     mapping(bytes32 => uint256) private _idByAssetId;
     mapping(uint256 => uint256[]) private _components;
     mapping(uint256 => uint256) private _componentIndex; // 1-based index in parent's array
+    struct TransferGrant { uint64 expiresAt; bool active; }
+    mapping(uint256 => mapping(address => TransferGrant)) private _transferGrants;
 
     constructor() ERC721("BEL Industrial Asset", "BELA") { }
 
@@ -91,12 +94,12 @@ contract AssetRegistry is IAssetRegistry, ERC721, BelAccess {
     }
 
     /// ASSET_TRANSFER. Ownership and custody move together
-    /// (CONTRACT_SPEC.md "Asset transfer semantics"). ENGINEER's `auth` cell
-    /// fails closed until a grant-verification interface is specified.
+    /// (CONTRACT_SPEC.md "Asset transfer semantics"). ENGINEER callers must
+    /// also hold an active, resource-scoped grant registered by an ADMIN.
     function transferAsset(uint256 nftId, address newOwner)
         external
-        onlyRoles(BelRoles.TRANSFER_ASSET)
     {
+        _checkTransferAccess(msg.sender, nftId);
         AssetRecord storage a = _existing(nftId);
         if (a.state == AssetState.DECOMMISSIONED) revert AssetDecommissioned(nftId);
         if (a.parent != 0) revert ComponentIsAttached(nftId);
@@ -108,6 +111,31 @@ contract AssetRegistry is IAssetRegistry, ERC721, BelAccess {
         a.custodian = newOwner;
         emit AssetTransferred(nftId, from, newOwner);
         _audit("ASSET", a.assetId, "ASSET_TRANSFER");
+    }
+
+    function setTransferGrant(uint256 nftId, address actor, uint64 expiresAt, bool active, string calldata grantId)
+        external
+        onlyRoles(BelRoles.MANAGE_ROLES)
+    {
+        _existing(nftId);
+        if (actor == address(0)) revert ZeroAddress();
+        _transferGrants[nftId][actor] = TransferGrant({ expiresAt: expiresAt, active: active });
+        emit TransferGrantSet(nftId, actor, expiresAt, active, grantId);
+        _audit("GRANT", grantId, active ? "GRANT_CREATE" : "GRANT_REVOKE");
+    }
+
+    function _checkTransferAccess(address caller, uint256 nftId) internal view {
+        if (_hasAnyRole(caller, BelRoles.ENGINEER)) {
+            _checkRoles(caller, BelRoles.ENGINEER);
+            if (!_hasActiveTransferGrant(nftId, caller)) revert TransferNotAuthorized(caller, nftId);
+        } else {
+            _checkRoles(caller, BelRoles.TRANSFER_ASSET);
+        }
+    }
+
+    function _hasActiveTransferGrant(uint256 nftId, address actor) internal view returns (bool) {
+        TransferGrant memory grant = _transferGrants[nftId][actor];
+        return grant.active && (grant.expiresAt == 0 || grant.expiresAt > block.timestamp);
     }
 
     /// ASSET_STATE_CHANGE. `newState` is one of shared/enums ASSET_STATUSES.

@@ -47,6 +47,12 @@ model Identity {
   wallets Wallet[]
   grants AuthorizationGrant[] @relation("GrantTarget")
   granted AuthorizationGrant[] @relation("Grantor")
+  assetsOwned AssetRecord[] @relation("AssetOwner")
+  assetsCustodied AssetRecord[] @relation("AssetCustodian")
+  jobsCreated JobRecord[] @relation("JobCreator")
+  jobsAssigned JobRecord[] @relation("JobAssignee")
+  jobsVerified JobRecord[] @relation("JobVerifier")
+  uploadedEvidence EvidenceRecord[] @relation("EvidenceUploader")
 }
 
 model User {
@@ -123,4 +129,101 @@ model AuthorizationGrant {
   status GrantStatus
   target Identity @relation("GrantTarget", fields: [actorIdentityId], references: [identityId])
   grantor Identity @relation("Grantor", fields: [grantedByIdentityId], references: [identityId])
+}
+
+model ValidatorRegistration {
+  registrationId String @id
+  validatorId String @unique
+  identityId String
+  walletAddress String
+  nodeId String
+  nodeAddress String
+  publicKey String
+  signingPublicKey String
+  status String
+  requestedAt DateTime
+  activationHeight Int
+  removalHeight Int?
+  removalReason String?
+  txHash String?
+  blockNumber Int?
+}
+model ValidatorHistory {
+  historyId String @id
+  validatorId String
+  operation String
+  actorIdentityId String
+  actorWallet String
+  timestamp DateTime
+  blockNumber Int?
+  transactionHash String?
+  previousState String?
+  newState String
+  reason String?
+  status String
+  inverseTransactionHash String?
+  @@index([validatorId, timestamp])
+}
+model NotificationDelivery {
+  notificationId String @id
+  eventType String
+  validatorId String
+  operation String
+  recipientIdentityId String
+  channel String
+  createdAt DateTime
+  status String
+  @@index([validatorId, createdAt])
+}
+model AssetRecord {
+  assetId String @id
+  nftId String
+  assetType String
+  ownerId String
+  custodianId String
+  parentAssetId String?
+  status String
+  jobs JobRecord[]
+  owner Identity @relation("AssetOwner", fields: [ownerId], references: [identityId])
+  custodian Identity @relation("AssetCustodian", fields: [custodianId], references: [identityId])
+}
+
+model JobRecord {
+  jobId String @id
+  assetId String
+  createdBy String
+  assignedTo String?
+  verifierId String?
+  status String
+  priority String
+  createdAt DateTime
+  completedAt DateTime?
+  asset AssetRecord @relation(fields: [assetId], references: [assetId])
+  creator Identity @relation("JobCreator", fields: [createdBy], references: [identityId])
+  assignee Identity? @relation("JobAssignee", fields: [assignedTo], references: [identityId])
+  verifier Identity? @relation("JobVerifier", fields: [verifierId], references: [identityId])
+  evidence EvidenceRecord[]
+
+  @@index([assetId])
+}
+
+model EvidenceRecord {
+  evidenceId       String    @id
+  jobId            String
+  cid              String
+  sha256           String    @db.VarChar(64)
+  originalFilename String
+  contentType      String
+  sizeBytes        Int
+  uploadedBy       String
+  createdAt        DateTime
+  updatedAt        DateTime
+  job              JobRecord @relation(fields: [jobId], references: [jobId])
+  uploader         Identity  @relation("EvidenceUploader", fields: [uploadedBy], references: [identityId])
+
+  @@index([cid])
+  @@index([jobId])
+  @@index([sha256])
+  @@index([uploadedBy])
+  @@unique([jobId, sha256])
 }
