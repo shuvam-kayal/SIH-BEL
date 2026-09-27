@@ -146,7 +146,7 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
     expect(await onChainIdentity.identityOf(pending.walletAddress)).toBe(pending.identityId);
     expect(await onChainIdentity.isActiveWallet(pending.walletAddress)).toBe(true);
     expect(await onChainRoles.hasRole(pending.walletAddress, 2)).toBe(true); // ENGINEER, shared ROLES index 2
-  }, 45_000);
+  });
 
   it("confirms WALLET_REVOKE on-chain before revoking the device and wallet in PostgreSQL", async () => {
     const pending = await createPendingRegistration(12, `${targetEmployee}-REVOKE`, `${targetDevice}-REVOKE`);
@@ -161,7 +161,7 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
     const onChainIdentity = new Contract(config.deployment.contracts.IdentityRegistry, config.abis.IdentityRegistry, provider);
     expect(await onChainIdentity.identityOf(pending.walletAddress)).toBe(pending.identityId);
     expect(await onChainIdentity.isActiveWallet(pending.walletAddress)).toBe(false);
-  }, 45_000);
+  });
 
   it("leaves PostgreSQL pending when an unauthorized blockchain actor fails activation", async () => {
     await adapter.submitTransaction(tx("IDENTITY_CREATE", ADMIN.address, adminDid, { identityId: badActorDid, walletAddress: BAD_ACTOR.address }));
@@ -185,5 +185,5 @@ describe.skipIf(!integrationRun)("Person 1 registration lifecycle on customized 
     expect((await container.users.listDevices(active.identityId))[0].status).toBe("ACTIVE");
     expect((await container.users.listWallets(active.identityId))[0]).toMatchObject({ address: active.walletAddress, status: "ACTIVE" });
     expect(await adapter.getWallet(active.walletAddress)).toMatchObject({ address: active.walletAddress, status: "ACTIVE" });
-  }, 45_000);
+  });
 });
