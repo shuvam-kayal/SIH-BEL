@@ -19,7 +19,6 @@ type NavItem = { label: string; icon: string; view: View; requires?: Action };
 const NAV: NavItem[] = [
   { label: "Overview", icon: "⌂", view: { name: "dashboard" } }, { label: "Assets", icon: "◈", view: { name: "assets" } },
   { label: "Maintenance jobs", icon: "▣", view: { name: "jobs" } }, { label: "Employees", icon: "♙", view: { name: "employees" }, requires: "CREATE_EMPLOYEE" },
-  { label: "Audit trail", icon: "◌", view: { name: "audit", assetId: "AST-001" }, requires: "VIEW_AUDIT_HISTORY" },
   { label: "Network", icon: "⌁", view: { name: "validators" }, requires: "VIEW_VALIDATOR_STATUS" },
   { label: "Validator management", icon: "⚙", view: { name: "validator-management" }, requires: "MANAGE_VALIDATORS" },
 ];
