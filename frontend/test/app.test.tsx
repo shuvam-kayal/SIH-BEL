@@ -9,7 +9,7 @@ const job = { jobId: "JOB-001", assetId: "AST-001", createdBy: user.identityId, 
 
 beforeEach(() => {
   sessionStorage.clear();
-  window.belDeviceWallet = { getIdentity: async () => ({ deviceId: "BEL-DEVICE-001", publicKey: "public-key", walletAddress: user.walletAddress }), sign: async () => "signature" };
+  window.belDeviceWallet = { getIdentity: async () => ({ deviceId: "BEL-DEVICE-001", publicKey: "public-key", walletAddress: user.walletAddress }), sign: async () => ({ signature: "signature", userVerified: true }) };
   globalThis.fetch = vi.fn(async (input) => {
     const path = String(input);
     if (path.endsWith("/auth/login-challenge")) return new Response(JSON.stringify({ challengeId: "challenge-1", deviceId: "BEL-DEVICE-001", challenge: "challenge", purpose: "AUTHENTICATION", expiresAt: new Date(Date.now() + 60000).toISOString(), usedAt: null }), { status: 201 });

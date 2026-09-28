@@ -2,6 +2,8 @@
 
 The frontend is an HTTP client. It does not access Besu/EVM JSON-RPC, PostgreSQL, contracts, or Kubo/IPFS. `VITE_API_BASE_URL` selects the backend origin (default `/api`). Bearer sessions are held in `sessionStorage`; a `401` clears the session and returns the user to sign-in.
 
+The production device bridge must implement `sign(challenge, { operation, requireUserVerification: true })` and return a cryptographic signature with `userVerified: true`. The frontend fails closed for legacy string-only signatures, cancelled prompts, unavailable authenticators, and unverified results. PINs, biometrics, and private keys never enter the browser.
+
 | Endpoint | Consumer | Auth / RBAC | Fresh auth | Wire handling | Status |
 | --- | --- | --- | --- | --- | --- |
 | `POST /auth/provisioning-challenge` | Account initialization | None | No | JSON device id + deployment-supplied metadata | Integrated |

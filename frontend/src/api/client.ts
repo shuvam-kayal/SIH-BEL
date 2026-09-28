@@ -79,7 +79,7 @@ function get<T>(path: string, authenticated = true) { return request<T>(path, { 
 async function freshHeaders(operation: string, resourceId?: string): Promise<Headers> {
   const identity = await deviceWallet.getIdentity();
   const challenge = await json<ProvisioningChallenge>("/auth/fresh-challenge", { operation, ...(resourceId ? { resourceId } : {}) }, true);
-  const signature = await deviceWallet.sign(challenge.challenge);
+  const signature = await deviceWallet.sign(challenge.challenge, { operation, requireUserVerification: true });
   const headers = new Headers();
   headers.set("X-BEL-Fresh-Auth", JSON.stringify({ challengeId: challenge.challengeId, publicKey: identity.publicKey, signature }));
   return headers;
@@ -96,16 +96,16 @@ export const apiClient: FrontendApiClient = {
   async requestAuthenticationChallenge(deviceId: string) { return json<ProvisioningChallenge>("/auth/login-challenge", { deviceId }); },
   async getPendingRegistrations() { return get<PendingRegistration[]>("/admin/registrations/pending"); },
   async verifyRegistration(id: string, input: VerifyRegistrationRequest) { return json<Identity>(`/admin/users/${encodeURIComponent(id)}/verify`, input, true); },
-  async assignRole(id: string, input: AssignRoleRequest) { return json<User>(`/admin/users/${encodeURIComponent(id)}/role`, input, true); },
+  async assignRole(id: string, input: AssignRoleRequest) { return freshJson<User>(`/admin/users/${encodeURIComponent(id)}/role`, input, "ROLE_ASSIGN", id); },
   async activateRegistration(id: string) { return post<PendingRegistration>(`/admin/users/${encodeURIComponent(id)}/activate`, true); },
   async registerDevice(userId: string, input: RegisterDeviceRequest) { return json<Device>(`/admin/users/${encodeURIComponent(userId)}/devices`, input, true); },
   async getDevices(userId: string) { return get<Device[]>(`/admin/users/${encodeURIComponent(userId)}/devices`); },
   async registerWallet(userId: string, input: RegisterWalletRequest) { return json<Wallet>(`/admin/users/${encodeURIComponent(userId)}/wallets`, input, true); },
   async getWallets(userId: string) { return get<Wallet[]>(`/admin/users/${encodeURIComponent(userId)}/wallets`); },
-  async revokeDevice(deviceId: string) { return post<Device>(`/admin/devices/${encodeURIComponent(deviceId)}/revoke`, true); },
+  async revokeDevice(deviceId: string) { return freshJson<Device>(`/admin/devices/${encodeURIComponent(deviceId)}/revoke`, undefined, "WALLET_REVOKE", deviceId); },
   async createUser(input: CreateUserRequest) { return json<CreateUserResponse>("/admin/users", input, true); },
-  async revokeWallet(userId: string, reason: string) { return json<WalletActionResponse>(`/admin/users/${encodeURIComponent(userId)}/revoke-wallet`, { reason }, true); },
-  async activateWallet(userId: string, input: ActivateWalletRequest) { return json<WalletActionResponse>(`/admin/users/${encodeURIComponent(userId)}/activate-wallet`, input, true); },
+  async revokeWallet(userId: string, reason: string) { return freshJson<WalletActionResponse>(`/admin/users/${encodeURIComponent(userId)}/revoke-wallet`, { reason }, "WALLET_REVOKE", userId); },
+  async activateWallet(userId: string, input: ActivateWalletRequest) { return freshJson<WalletActionResponse>(`/admin/users/${encodeURIComponent(userId)}/activate-wallet`, input, "WALLET_ACTIVATE", userId); },
   async logout() { try { if (token()) await request<void>("/auth/logout", { method: "POST" }, true); } finally { saveToken(null); } },
   async getMe() { return get<User>("/users/me"); },
   async getUser(id: string) { try { return await get<User>(`/users/${encodeURIComponent(id)}`); } catch (error) { if (error instanceof HttpApiError && error.status === 404) return null; throw error; } },

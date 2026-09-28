@@ -10,20 +10,23 @@
 export type SignedChallenge = {
   publicKey: string;
   signature: string;
+  userVerified: true;
 };
 
+export type PlatformSigningOptions = { operation: string; requireUserVerification: true };
+
 export interface PlatformAuthenticator {
-  signChallenge(challenge: string): Promise<SignedChallenge>;
-  signFreshChallenge(challenge: string): Promise<SignedChallenge>;
+  signChallenge(challenge: string, options: PlatformSigningOptions): Promise<SignedChallenge>;
+  signFreshChallenge(challenge: string, options: PlatformSigningOptions): Promise<SignedChallenge>;
 }
 
 /** Explicit production placeholder. It prevents a fake login fallback. */
 export class UnconfiguredPlatformAuthenticator implements PlatformAuthenticator {
-  async signChallenge(_challenge: string): Promise<SignedChallenge> {
+  async signChallenge(_challenge: string, _options: PlatformSigningOptions): Promise<SignedChallenge> {
     throw new Error("No platform authenticator is configured for this client");
   }
 
-  async signFreshChallenge(_challenge: string): Promise<SignedChallenge> {
+  async signFreshChallenge(_challenge: string, _options: PlatformSigningOptions): Promise<SignedChallenge> {
     throw new Error("No platform authenticator is configured for this client");
   }
 }
