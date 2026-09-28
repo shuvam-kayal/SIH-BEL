@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ const RPC_PORTS = [8645, 8646, 8647, 8648];
 const OWNER = "bel-dev-bootstrap";
 let activeState;
 let invocationRunRoot;
+let invocationAdminKeyFile;
 
 mkdirSync(logDir, { recursive: true });
 
@@ -159,6 +160,7 @@ function besuRunInputs(runRoot) {
   return { keyFile, keys };
 }
 async function cleanupAfterFailure() {
+  if (invocationAdminKeyFile) { try { unlinkSync(invocationAdminKeyFile); } catch { /* cleanup is best effort */ } }
   if (!invocationRunRoot || !runMetadata(invocationRunRoot)) return;
   if (!managedBesuRun(invocationRunRoot)) return console.error(`[dev-bootstrap] refusing to stop ${invocationRunRoot}: ownership verification failed; inspect its run.json and logs.`);
   stopBesuRun(invocationRunRoot);
@@ -191,12 +193,16 @@ async function main() {
     await waitFor("Besu peer connectivity", async () => Number.parseInt(await jsonRpc("net_peerCount"), 16) >= 1);
     await waitFor("Besu block production", async () => Number.parseInt(await jsonRpc("eth_blockNumber"), 16) > 0);
     besuInputs = besuRunInputs(runRoot); process.env.BEL_CHAIN_DEV_SIGNER_KEYS = besuInputs.keys.join(","); process.env.BEL_CHAIN_RPC_URL = "http://127.0.0.1:8645"; process.env.BEL_BLOCKCHAIN = "evm"; process.env.BEL_CHAIN_DEPLOYMENT = "besu-prototype";
+    invocationAdminKeyFile = join(stateDir, "admin-device-private-key");
+    writeFileSync(invocationAdminKeyFile, `${besuInputs.keys[0]}\n`, { mode: 0o600 });
+    try { chmodSync(invocationAdminKeyFile, 0o600); } catch { /* Windows ACLs are deployment-owned. */ }
     if (!existsSync(join(root, "contracts", "deployments", "besu-prototype.json")) || explicitDeploy) { if (!commandExists("forge")) fail("Forge is required to deploy contracts."); runBesuScript("deploy-besu-prototype.sh", runRoot); }
   }
-  const wallet = readAdminIdentity(); const walletEnv = { BEL_DEV_WALLET_SECRET: wallet.secret, BEL_DEV_DEVICE_ID: wallet.deviceId, BEL_DEV_WALLET_PORT: wallet.port, BEL_DEV_WALLET_DIR: process.env.BEL_DEV_WALLET_DIR ?? join(stateDir, "devices"), ...(besuInputs ? { BEL_DEV_DEVICE_IMPORT_KEY_FILE: besuInputs.keyFile } : {}) };
+  const wallet = readAdminIdentity(); const walletEnv = { BEL_DEV_WALLET_SECRET: wallet.secret, BEL_DEV_DEVICE_ID: wallet.deviceId, BEL_DEV_WALLET_PORT: wallet.port, BEL_DEV_WALLET_DIR: process.env.BEL_DEV_WALLET_DIR ?? join(stateDir, "devices"), ...(invocationAdminKeyFile ? { BEL_DEV_DEVICE_IMPORT_KEY_FILE: invocationAdminKeyFile } : {}) };
   const walletUrl = `http://127.0.0.1:${wallet.port}/identity?deviceId=${encodeURIComponent(wallet.deviceId)}`;
   if (!(await probe(walletUrl))) { const walletProcess = spawnLogged("dev-wallet", process.execPath, [join(root, "frontend", "dev-wallet", "server.mjs")], walletEnv); activeState.started.push(walletProcess); persistState(activeState); await waitFor("development wallet", async () => { if (walletProcess.exited) fail(`wallet exited with code ${walletProcess.exitCode}; see ${walletProcess.logPath}`); return probe(walletUrl); }); } else console.log(`[dev-bootstrap] reusing development wallet at http://127.0.0.1:${wallet.port}`);
   const identity = await (await fetch(walletUrl)).json();
+  if (invocationAdminKeyFile) { try { unlinkSync(invocationAdminKeyFile); } catch { /* cleanup is best effort */ } invocationAdminKeyFile = undefined; }
   const backendEnv = { BEL_ENV: "development", BEL_DEV_BOOTSTRAP: "true", BEL_BLOCKCHAIN: process.env.BEL_BLOCKCHAIN ?? "evm", BEL_CHAIN_RPC_URL: process.env.BEL_CHAIN_RPC_URL ?? "http://127.0.0.1:8645", BEL_CHAIN_DEPLOYMENT: process.env.BEL_CHAIN_DEPLOYMENT ?? "besu-prototype", BEL_RUN_INTEGRATION: "true", BEL_DEVICE_ATTESTATION: "mock", BEL_MOCK_APPROVED_DEVICE_IDS: wallet.deviceId, BEL_CHAIN_DEV_SIGNER_KEYS: process.env.BEL_CHAIN_DEV_SIGNER_KEYS ?? "", BEL_BOOTSTRAP_PUBLIC_KEY: identity.publicKey, BEL_BOOTSTRAP_WALLET_ADDRESS: identity.walletAddress, DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://bel:bel@localhost:5432/bel", IPFS_API_URL: process.env.IPFS_API_URL ?? "http://127.0.0.1:5001", BEL_CORS_ORIGINS: process.env.BEL_CORS_ORIGINS ?? "http://localhost:3000,http://127.0.0.1:3000" };
   run("npm", ["run", "db:migrate"], { env: backendEnv }); if (backendEnv.BEL_BLOCKCHAIN === "evm") run("npm", ["run", "bootstrap:dev"], { env: backendEnv });
   if (!(await probe("http://127.0.0.1:4000/health"))) { const backend = spawnLogged("backend", process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev:backend"], backendEnv); activeState.started.push(backend); persistState(activeState); await waitFor("backend", async () => { if (backend.exited) fail(`backend exited with code ${backend.exitCode}; see ${backend.logPath}`); return probe("http://127.0.0.1:4000/health"); }); } else console.log("[dev-bootstrap] reusing backend at http://127.0.0.1:4000");
