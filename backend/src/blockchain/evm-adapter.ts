@@ -120,7 +120,7 @@ export function classifyError(err: unknown, context: string): BlockchainError {
  * Polls for a receipt until it has `confirmations` blocks or `timeoutMs`
  * elapses (then returns null). Deliberately not ethers' waitForTransaction:
  * that one checks once and then waits for a *new block* event, so on a chain
- * that only produces blocks on demand (anvil automine, an idle PoA network) a
+ * that only produces blocks on demand (for example an idle PoA network) a
  * transaction mined between the check and the subscription is never seen.
  */
 export async function waitForReceipt(

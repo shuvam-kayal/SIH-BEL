@@ -4,7 +4,7 @@ import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { HDNodeWallet, Wallet } from "ethers";
+import { Wallet } from "ethers";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const nodeModule = (path) => resolve(root, "node_modules", path);
@@ -27,24 +27,30 @@ await new Promise((resolve, reject) => {
   socket.once("timeout", () => { socket.destroy(); reject(new Error("timeout")); });
   socket.once("error", reject);
 }).catch((error) => fail(`PostgreSQL is unreachable at ${database.hostname}:${database.port || 5432} (${error.message})`));
-const rpc = env.BEL_E2E_RPC_URL || env.BEL_CHAIN_RPC_URL || "http://127.0.0.1:8545";
-const expectedChainId = BigInt(env.BEL_E2E_CHAIN_ID || env.BEL_CHAIN_ID || "31337");
+const rpc = env.BEL_E2E_RPC_URL || env.BEL_CHAIN_RPC_URL;
+if (!rpc) fail("BEL_E2E_RPC_URL/BEL_CHAIN_RPC_URL must explicitly identify the Besu RPC endpoint");
+let actualChainId;
 try {
   const response = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }) });
   const body = await response.json();
-  if (BigInt(body.result) !== expectedChainId) throw new Error(body.error?.message || `chain id is ${body.result}, expected ${expectedChainId}`);
+  if (body.error || !body.result) throw new Error(body.error?.message || "eth_chainId returned no result");
+  actualChainId = BigInt(body.result);
+  if (env.BEL_E2E_CHAIN_ID && actualChainId !== BigInt(env.BEL_E2E_CHAIN_ID)) throw new Error(`chain id is ${actualChainId}, expected ${env.BEL_E2E_CHAIN_ID}`);
 } catch (error) {
   fail(`EVM RPC is unreachable or has the wrong chain ID at ${rpc} (${error.message})`);
 }
-if ((env.BEL_E2E_RESET || "true").toLowerCase() === "true") try {
-  const response = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_reset", params: [] }) });
+async function rpcCall(method, params = []) {
+  const response = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }) });
   const body = await response.json();
-  if (body.error) throw new Error(body.error.message);
-  const feeResponse = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "anvil_setNextBlockBaseFeePerGas", params: ["0x0"] }) });
-  const feeBody = await feeResponse.json();
-  if (feeBody.error) throw new Error(feeBody.error.message);
+  if (!response.ok || body.error) throw new Error(body.error?.message || `HTTP ${response.status}`);
+  return body.result;
+}
+try {
+  const [client, block, peers] = await Promise.all([rpcCall("web3_clientVersion"), rpcCall("eth_blockNumber"), rpcCall("net_peerCount")]);
+  if (!String(client).toLowerCase().includes("besu")) fail(`Configured RPC is not the customized Besu client (client=${client})`);
+  console.log(`[E2E] Besu RPC=${rpc} chainId=${actualChainId} client=${client} block=${BigInt(block)} peers=${BigInt(peers)}`);
 } catch (error) {
-  fail(`Unable to reset the configured local EVM chain at ${rpc} (${error.message})`);
+  fail(`Besu diagnostics failed at ${rpc}: ${error.message}`);
 }
 try {
   const response = await fetch(`${ipfs.replace(/\/$/, "")}/api/v0/id`, { method: "POST" });
@@ -121,11 +127,13 @@ function runForge(args, extraEnv = {}) {
 
 run(process.execPath, [nodeModule("prisma/build/index.js"), "generate", "--schema", resolve(root, "backend/prisma/schema.prisma")]);
 run(process.execPath, [nodeModule("prisma/build/index.js"), "migrate", "deploy", "--schema", resolve(root, "backend/prisma/schema.prisma")]);
-const mnemonic = "test test test test test test test test test test test junk";
-const wallets = [HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0"), ...Array.from({ length: 5 }, () => Wallet.createRandom())];
+const configuredKeys = (env.BEL_E2E_PRIVATE_KEYS || (env.BEL_E2E_PRIVATE_KEYS_FILE ? readFileSync(env.BEL_E2E_PRIVATE_KEYS_FILE, "utf8") : "")).split(",").flatMap((value) => value.split(/\r?\n/)).map((key) => key.trim()).filter(Boolean);
+if (configuredKeys.length < 19) fail("BEL_E2E_PRIVATE_KEYS must contain at least nineteen ephemeral Besu-funded test keys");
+const wallets = configuredKeys.map((privateKey) => new Wallet(privateKey));
 const admin = wallets[0];
 const publicKey = `0x${admin.signingKey.publicKey.slice(4)}`;
 const e2eKeys = wallets.map((wallet) => wallet.privateKey);
+const deploymentNetwork = env.BEL_CHAIN_DEPLOYMENT || "besu-prototype";
 const reuseDeployment = (env.BEL_E2E_DEPLOYED || "false").toLowerCase() === "true";
 const validatorEnv = Object.fromEntries(
   Array.from({ length: Number(env.BEL_BOOTSTRAP_VALIDATOR_COUNT || 70) }, (_, index) => [`BEL_BOOTSTRAP_VALIDATOR_${index}`, env[`BEL_BOOTSTRAP_VALIDATOR_${index}`]])
@@ -133,19 +141,24 @@ const validatorEnv = Object.fromEntries(
 );
 if (!reuseDeployment) {
   runForge(["script", "script/Deploy.s.sol:DeployScript", "--rpc-url", rpc, "--broadcast", "--private-key", admin.privateKey], {
-    BEL_NETWORK: env.BEL_NETWORK || "local",
+    BEL_NETWORK: env.BEL_NETWORK || deploymentNetwork,
     BEL_EXECUTION_PROFILE: env.BEL_EXECUTION_PROFILE || "production",
     BEL_BOOTSTRAP_VALIDATOR_COUNT: env.BEL_BOOTSTRAP_VALIDATOR_COUNT || "70",
     BEL_BOOTSTRAP_ADMIN_WALLET: admin.address,
     BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",
     ...validatorEnv,
   });
-  for (const wallet of wallets.slice(1)) {
-    const funding = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "anvil_setBalance", params: [wallet.address, "0x56BC75E2D63100000"] }) });
-    const fundingBody = await funding.json();
-    if (fundingBody.error && (env.BEL_ALLOW_UNFUNDED_EVM || "false").toLowerCase() !== "true") fail(`Unable to fund E2E account ${wallet.address}: ${fundingBody.error.message}`);
-  }
 }
+const deploymentPath = resolve(root, "contracts", "deployments", `${deploymentNetwork}.json`);
+if (!existsSync(deploymentPath)) fail(`Deployment file was not produced: ${deploymentPath}`);
+let deployment;
+try { deployment = JSON.parse(readFileSync(deploymentPath, "utf8")); } catch (error) { fail(`Deployment file is invalid: ${deploymentPath} (${error.message})`); }
+if (BigInt(deployment.chainId) !== actualChainId) fail(`Deployment ${deployment.network} chain ${deployment.chainId} does not match live Besu chain ${actualChainId}`);
+for (const [name, address] of Object.entries(deployment.contracts || {})) {
+  const code = await rpcCall("eth_getCode", [address, "latest"]);
+  if (!code || code === "0x") fail(`Deployment contract ${name} has no bytecode at ${address} on ${rpc}`);
+}
+console.log(`[E2E] deployment=${deploymentNetwork} chainId=${deployment.chainId} block=${deployment.blockNumber ?? "unknown"}`);
 // Node 24 can fail os.userInfo() in constrained Windows CI containers. tsx
 // only needs the username to name its temporary directory, so provide the
 // equivalent POSIX hook before loading its CLI when it is unavailable.
@@ -158,7 +171,7 @@ run(process.execPath, ["--import", "data:text/javascript,process.geteuid=()=>0",
   BEL_DEV_BOOTSTRAP: "true",
   BEL_BLOCKCHAIN: "evm",
   BEL_CHAIN_RPC_URL: rpc,
-  BEL_CHAIN_DEPLOYMENT: env.BEL_CHAIN_DEPLOYMENT || "local",
+  BEL_CHAIN_DEPLOYMENT: deploymentNetwork,
   BEL_CHAIN_DEV_SIGNER_KEYS: e2eKeys.join(","),
   BEL_BOOTSTRAP_ADMIN_DID: "DID:BEL:ADMIN",
   BEL_BOOTSTRAP_WALLET_ADDRESS: admin.address,
@@ -169,7 +182,7 @@ run(process.execPath, ["--import", "data:text/javascript,process.geteuid=()=>0",
 const result = spawnSync(process.execPath, [nodeModule("vitest/vitest.mjs"), "run", resolve(root, "backend/test/workflow.e2e.test.ts")], {
   cwd: process.cwd(),
   stdio: "inherit",
-  env: { ...env, BEL_BLOCKCHAIN: "evm", BEL_E2E_PRIVATE_KEYS: e2eKeys.join(","), BEL_E2E_RPC_URL: rpc, BEL_CHAIN_RPC_URL: rpc, BEL_E2E_CHAIN_ID: env.BEL_E2E_CHAIN_ID || env.BEL_CHAIN_ID || "31337", BEL_RUN_E2E: "true", BEL_RUN_INTEGRATION: "true" },
+  env: { ...env, BEL_BLOCKCHAIN: "evm", BEL_E2E_PRIVATE_KEYS: e2eKeys.join(","), BEL_E2E_RPC_URL: rpc, BEL_CHAIN_RPC_URL: rpc, BEL_E2E_CHAIN_ID: String(actualChainId), BEL_CHAIN_DEPLOYMENT: deploymentNetwork, BEL_RUN_E2E: "true", BEL_RUN_INTEGRATION: "true" },
 });
 if (result.error) {
   console.error(`Unable to start the E2E runner: ${result.error.message}`);

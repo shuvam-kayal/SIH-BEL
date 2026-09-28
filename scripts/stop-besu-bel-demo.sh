@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUN_ROOT="${1:?usage: stop-besu-bel-demo.sh <run-root>}"
+RUN_ROOT="${1:-}"
+if [[ -z "${RUN_ROOT}" ]]; then
+  echo "No Besu run root was established; nothing to stop." >&2
+  exit 1
+fi
 if [[ ! -d "${RUN_ROOT}" ]]; then
   echo "Run root does not exist: ${RUN_ROOT}" >&2
-  exit 1
+  exit 0
 fi
 
 if [[ -f "${RUN_ROOT}/pids" ]]; then

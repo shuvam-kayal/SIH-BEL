@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { Contract, HDNodeWallet, JsonRpcProvider, Wallet, hashMessage, toBeHex } from "ethers";
+import { Contract, JsonRpcProvider, Wallet, hashMessage, toBeHex } from "ethers";
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { createApp } from "../src/app";
@@ -8,15 +8,19 @@ import { createContainer, type Container } from "../src/container";
 import { EvmBlockchainAdapter, loadChainConfigFromEnv } from "../src/blockchain";
 import { MockDeviceAttestationAdapter } from "../src/devices/device-attestation";
 
-const MNEMONIC = "test test test test test test test test test test test junk";
-const configuredKeys = process.env.BEL_E2E_PRIVATE_KEYS?.split(",").map((value) => value.trim()).filter(Boolean);
-const key = (index: number) => configuredKeys?.[index]
-  ? new Wallet(configuredKeys[index])
-  : HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${index}`);
-const rpcUrl = process.env.BEL_E2E_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim() || "http://127.0.0.1:8545";
-const expectedChainId = Number(process.env.BEL_E2E_CHAIN_ID ?? process.env.BEL_CHAIN_ID ?? 31337);
+const configuredKeys = process.env.BEL_E2E_PRIVATE_KEYS?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
+if (configuredKeys.length < 19) throw new Error("BEL_E2E_PRIVATE_KEYS must contain at least nineteen ephemeral Besu-funded keys");
+const key = (index: number) => new Wallet(configuredKeys[index]);
+const rpcUrl = process.env.BEL_E2E_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim();
+if (!rpcUrl) throw new Error("BEL_E2E_RPC_URL or BEL_CHAIN_RPC_URL is required; E2E never defaults to Anvil");
+const expectedChainId = Number(process.env.BEL_E2E_CHAIN_ID ?? process.env.BEL_CHAIN_ID);
+if (!Number.isInteger(expectedChainId) || expectedChainId <= 0) throw new Error("BEL_E2E_CHAIN_ID must be supplied by the live Besu environment");
 const adminEmployeeId = process.env.BEL_E2E_ADMIN_EMPLOYEE_ID?.trim() || "ADMIN-001";
 const adminDeviceId = process.env.BEL_E2E_ADMIN_DEVICE_ID?.trim() || "BEL-DEV-ADMIN-001";
+
+// The real Besu prototype confirms every state-changing request through QBFT;
+// the default Vitest limits are sized for unit tests, not this workflow.
+vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
 
 type Actor = { identityId: string; employeeId: string; walletAddress: string; token: string };
 
@@ -34,7 +38,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
   let engineer: Actor;
   let verifier: Actor;
 
-  async function login(deviceId: string, wallet: Wallet | HDNodeWallet): Promise<Actor> {
+  async function login(deviceId: string, wallet: Wallet): Promise<Actor> {
     const challengeResponse = await request(app).post("/auth/login-challenge").send({ deviceId });
     expect(challengeResponse.status).toBe(201);
     const challenge = challengeResponse.body;
@@ -86,7 +90,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
 
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required; start Docker PostgreSQL first");
-    const keys = [0, 1, 2, 3, 4, 5].map((i) => key(i).privateKey);
+    const keys = [0, 15, 16, 17, 18].map((i) => key(i).privateKey);
     provider = new JsonRpcProvider(rpcUrl, expectedChainId, { staticNetwork: true, pollingInterval: 50 });
     expect(BigInt(await provider.send("eth_chainId", []))).toBe(BigInt(expectedChainId));
     const config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEV_SIGNER_KEYS: keys.join(",") });
@@ -113,11 +117,14 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(adminUser.identityId).toBe((await chain.getIdentity(adminUser.identityId))?.identityId);
     admin = await login(adminDeviceId, adminWallet);
     expect(admin).toMatchObject({ employeeId: adminEmployeeId, identityId: adminUser.identityId, role: "ADMIN", walletAddress: adminWallet.address });
-    technician = await provisionActor("TECHNICIAN", 1, "TECHNICIAN");
-    technician2 = await provisionActor("TECHNICIAN-2", 4, "TECHNICIAN");
-    engineer = await provisionActor("ENGINEER", 2, "ENGINEER");
-    verifier = await provisionActor("VERIFIER", 3, "VERIFIER");
-  }, 120_000);
+    technician = await provisionActor("TECHNICIAN", 15, "TECHNICIAN");
+    technician2 = await provisionActor("TECHNICIAN-2", 16, "TECHNICIAN");
+    engineer = await provisionActor("ENGINEER", 17, "ENGINEER");
+    verifier = await provisionActor("VERIFIER", 18, "VERIFIER");
+  // A real four-validator QBFT prototype needs several confirmed Besu
+  // transactions per actor. Keep the suite timeout separate from individual
+  // request assertions so slow consensus does not abort setup prematurely.
+  }, 300_000);
 
   afterAll(async () => { await prisma?.$disconnect(); });
 

@@ -103,9 +103,8 @@ function waitForTcp(host, port, timeoutMs = 10000) {
 }
 
 async function checkEvmRpc() {
-  const rpcUrl =
-    process.env.BEL_EVM_RPC_URL ||
-    "http://127.0.0.1:8545";
+  const rpcUrl = process.env.BEL_EVM_RPC_URL || process.env.BEL_CHAIN_RPC_URL;
+  if (!rpcUrl) fail("BEL_EVM_RPC_URL or BEL_CHAIN_RPC_URL must identify a live Besu endpoint; verify never defaults to Anvil");
 
   const url = new URL(rpcUrl);
 
@@ -132,14 +131,22 @@ async function checkEvmRpc() {
     }
 
     const body = await response.json();
-
-    if (body.result !== "0x7a69") {
-      throw new Error(
-        `Expected chain ID 31337 (0x7a69), got ${body.result}`
-      );
-    }
-
-    console.log(`✓ EVM reachable, chain 31337 (${rpcUrl})`);
+    if (body.error || !body.result) throw new Error(body.error?.message || "eth_chainId returned no result");
+    const chainId = BigInt(body.result);
+    const deploymentName = process.env.BEL_CHAIN_DEPLOYMENT || "besu-prototype";
+    const deploymentPath = path.join(root, "contracts", "deployments", `${deploymentName}.json`);
+    if (!fs.existsSync(deploymentPath)) throw new Error(`deployment file is missing: ${deploymentPath}`);
+    const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
+    if (BigInt(deployment.chainId) !== chainId) throw new Error(`Besu chain ${chainId} does not match ${deploymentName} deployment chain ${deployment.chainId}`);
+    const call = async (method) => {
+      const result = await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: method, method, params: [] }) });
+      const value = await result.json();
+      if (value.error) throw new Error(value.error.message);
+      return value.result;
+    };
+    const [client, block, peers] = await Promise.all([call("web3_clientVersion"), call("eth_blockNumber"), call("net_peerCount")]);
+    if (!String(client).toLowerCase().includes("besu")) throw new Error(`expected Besu client metadata, got ${client}`);
+    console.log(`✓ Besu reachable: rpc=${rpcUrl} chainId=${chainId} client=${client} block=${BigInt(block)} peers=${BigInt(peers)} deployment=${deploymentName}`);
   } catch (error) {
     fail(`EVM RPC check failed: ${error.message}`);
   }
@@ -188,13 +195,9 @@ async function main() {
     fail("DATABASE_URL is not set");
   }
 
-  if (!process.env.BEL_EVM_RPC_URL) {
-    process.env.BEL_EVM_RPC_URL = "http://127.0.0.1:8545";
-  }
-
   console.log(`Node: ${process.version}`);
   console.log(`Root: ${root}`);
-  console.log(`EVM: ${process.env.BEL_EVM_RPC_URL}`);
+  console.log(`EVM: ${process.env.BEL_EVM_RPC_URL || process.env.BEL_CHAIN_RPC_URL || "<unset>"}`);
 
   /*
    * ------------------------------------------------------------
@@ -395,10 +398,12 @@ await runChecked(
         BEL_RUN_INTEGRATION: "true",
         BEL_EXECUTION_PROFILE: "prototype",
         BEL_BOOTSTRAP_VALIDATOR_COUNT: "4",
-        BEL_BOOTSTRAP_VALIDATOR_0: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-        BEL_BOOTSTRAP_VALIDATOR_1: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-        BEL_BOOTSTRAP_VALIDATOR_2: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
-        BEL_BOOTSTRAP_VALIDATOR_3: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+        BEL_BLOCKCHAIN: "evm",
+        BEL_CHAIN_RPC_URL: process.env.BEL_CHAIN_RPC_URL || process.env.BEL_EVM_RPC_URL,
+        BEL_E2E_RPC_URL: process.env.BEL_E2E_RPC_URL || process.env.BEL_CHAIN_RPC_URL || process.env.BEL_EVM_RPC_URL,
+        BEL_CHAIN_DEPLOYMENT: process.env.BEL_CHAIN_DEPLOYMENT || "besu-prototype",
+        BEL_E2E_PRIVATE_KEYS: process.env.BEL_E2E_PRIVATE_KEYS,
+        BEL_E2E_CHAIN_ID: process.env.BEL_E2E_CHAIN_ID,
       },
     }
   );

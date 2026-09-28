@@ -2,7 +2,7 @@
 
 ## Pinned toolchain
 
-- Besu source tag: `24.8.0`
+- Besu source: submodule commit `6880538b71b100824894abe0d3c605438b5b9e2a` (`feat/poa`)
 - JDK: Eclipse Temurin `21.0.12.1` (LTS)
 - Java runtime: `21.0.12.1`
 - Java compiler: `javac 21.0.12.1`
@@ -120,8 +120,11 @@ cd besu
 cd ..
 ```
 
-The 4-node launcher generates a 70-validator configuration, starts four active
-QBFT nodes on RPC ports 8645-8648, and is explicitly infrastructure-only:
+The prototype launcher generates a four-validator QBFT configuration and starts
+four active customized Besu nodes on RPC ports 8645-8648. The four validators
+are the explicitly permitted prototype reduction; the process, BEL consensus
+integration, QBFT, RPC, transaction execution, and contract path are still the
+real implementation under test:
 
 ```bash
 ./scripts/run-besu-smoke.sh
@@ -129,36 +132,71 @@ QBFT nodes on RPC ports 8645-8648, and is explicitly infrastructure-only:
 ./scripts/stop-besu-bel-demo.sh .bel-demo/smoke-<timestamp>
 ```
 
-The 70-validator launcher is available on Windows and Linux. It generates
-private keys and runtime data below ignored `.bel-demo/`; do not copy those
-files into Git. The generated network is a reproducibility/configuration demo,
-not a claim of live 70-validator BEL finality.
-## Pinned Besu integration map
+For the complete local deployment-realism gate in Linux/WSL:
 
-## Hackathon runtime limitation
-
-The Besu source and BEL integration compile on the configured JDK 21 toolchain.
-The provided Windows distribution cannot currently start a live node because
-Besu's `gnark-0.9.4` artifact contains Linux and macOS native libraries but no
-Windows `gnark_eip_196.dll`; startup therefore fails while loading the native
-EIP-196 library. A historical WSL run is documented, but it is not reproducible
-in the current checkout because the external Besu runtime is absent. This remains
-a platform/runtime packaging limitation, not a BEL consensus result,
-and the smoke test does not prove BEL finality or permit a live multi-node Besu
-finality claim.
-
-The reproducible local launcher is:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-besu-bel-demo.ps1 -ValidatorCount 70
+```bash
+npm ci
+npm run besu:build
+docker run -d --name bel-postgres -p 5432:5432 -e POSTGRES_USER=bel -e POSTGRES_PASSWORD=bel -e POSTGRES_DB=bel postgres:16-alpine
+docker run -d --name bel-ipfs -p 5001:5001 ipfs/kubo:v0.30.0
+run_output="$(bash scripts/start-besu-prototype.sh)"
+run_root="$(printf '%s\n' "$run_output" | sed -n 's/^Besu smoke network started: //p' | tail -n 1)"
+source <(bash scripts/export-besu-test-env.sh "$run_root")
+export DATABASE_URL=postgresql://bel:bel@127.0.0.1:5432/bel
+export IPFS_API_URL=http://127.0.0.1:5001
+export BEL_E2E_DEPLOYED=true
+npm run prisma:generate
+npm run db:migrate
+bash scripts/deploy-besu-prototype.sh "$run_root"
+npm run test:evm
+npx vitest run backend/test/users.evm.integration.test.ts --testTimeout=120000
+BEL_EVM_RPC_URL="$BEL_CHAIN_RPC_URL" npm run verify
+bash scripts/stop-besu-bel-demo.sh "$run_root"
+docker rm -f bel-ipfs bel-postgres
 ```
 
-It generates all validator keys and node data below `.bel-demo/`, which is
-ignored by Git. The launcher uses the test-only deterministic VRF provider
-through the Java integration and never places generated private keys in source
-control.
+The exported variables make all three application names (`BEL_EVM_RPC_URL`,
+`BEL_CHAIN_RPC_URL`, and `BEL_E2E_RPC_URL`) resolve to the same Besu RPC. The
+exported validator addresses are derived from the generated Besu node keys.
 
-The pinned source is Besu `24.8.0`, commit `ac9f8bbd9`. The existing QBFT path
+The launcher also creates ephemeral funded application test accounts in the
+ignored `.bel-demo/` runtime directory. Contract deployment derives validator
+bootstrap addresses from the generated Besu node keys and writes a fresh
+`contracts/deployments/besu-prototype.json` for that chain. Private keys,
+Besu data, and logs must never be copied into Git.
+
+The full production baseline remains N >= 70 validators. This prototype is not
+production-ready and does not claim production-scale performance or finality.
+
+## Test architecture
+
+- Unit and contract tests validate individual components and Solidity behavior.
+- The Python consensus suite validates the model/simulator only; it is not the
+  Besu integration gate.
+- The real integration gate builds the checked-in Besu submodule at the exact
+  recorded commit, starts the prototype nodes, verifies client identity,
+  chain ID, peers, block production, and synchronized height, then deploys the
+  contracts to that same RPC endpoint.
+- The full E2E uses that deployment with real PostgreSQL, a disposable Kubo
+  service, the backend EVM adapter, authentication/RBAC, jobs/assets/evidence,
+  audit, and validator/application state transitions.
+
+Production uses the same application/Besu architecture. CI and local
+development use the reduced prototype network only because a live 70-validator
+deployment is computationally impractical in the current environment.
+## Pinned Besu integration map
+
+## Runtime limitation
+
+The Besu source and BEL integration compile on the configured JDK 21 toolchain.
+The supported real integration launcher is the Linux/WSL `run-besu-smoke.sh`
+path because the current Besu native `gnark` packaging does not provide the
+required Windows native library. A Windows developer should run the same
+prototype workflow under WSL; this is a runtime packaging limitation, not a
+permission to substitute Anvil.
+
+The SIH-BEL submodule is pinned to commit `6880538b71b100824894abe0d3c605438b5b9e2a` on `feat/poa`.
+The existing QBFT path
 already provides the transport and execution hooks required by the BEL demo:
 
 | BEL responsibility | Existing Besu integration point |
@@ -186,22 +224,15 @@ signing, transport, timeout and round-change events, block execution, commit
 seal attachment, and canonical block import. BEL supplies the consensus-facing
 validator set, leader, and quorum inputs through the existing interfaces.
 
-The end-to-end demonstration profile defaults to 70 logical validators. This keeps
-the frozen normal rule `N >= 70` and permits the minimum-70 committee fallback.
-It must not be reduced to four validators without changing the protocol profile.
+The production protocol baseline remains `N >= 70`. The checked-in prototype
+execution profile intentionally uses four active QBFT validators and a matching
+prototype contract minimum; this is the only CI/local simplification.
 ## Repository boundary
 
-The custom Besu Java implementation referenced below is not present in this
-repository. The launcher and `validatorcontractaddress` configuration are
-available, but `BelValidatorProvider`, proposer selection, evidence, and the
-custom QBFT controller cannot be verified here. Contract/EVM tests therefore
-prove application transaction mapping only; they do not prove live dynamic
-Besu validator membership or consensus finality.
-
-The checked-in `scripts/run-besu-smoke.sh` is a four-node execution fixture:
-it generates the unchanged 70-key protocol fixture and starts four logical
-nodes. It verifies RPC reachability, peer count, block production, and height
-convergence. It accepts `NODE_IP`, `P2P_HOST`, `P2P_PORT`, `RPC_HOST`,
-`RPC_PORT`, `BOOTNODE_HOST`, and `BOOTNODE_PORT` for VPN/private-network use.
-It is not a four-validator consensus profile and does not claim the 4→5→4
-lifecycle without the external Besu artifact.
+The customized Besu implementation is the `besu` Git submodule. CI checks out
+the exact gitlink recorded by SIH-BEL, builds it with JDK 21, runs the BEL and
+QBFT Java tests, and starts that resulting distribution. The smoke launcher
+verifies RPC reachability, Besu client metadata, peer count, block production,
+and height convergence. It accepts `NODE_IP`, `P2P_HOST`, `P2P_PORT`,
+`RPC_HOST`, `RPC_PORT`, `BOOTNODE_HOST`, and `BOOTNODE_PORT` for
+VPN/private-network use.

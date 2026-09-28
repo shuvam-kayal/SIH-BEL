@@ -1,44 +1,20 @@
-// Person 5: EvmBlockchainAdapter against real contracts on a local anvil
-// chain. Skips (with a reason) when Foundry's `anvil` or the compiled
-// artifacts in contracts/out are unavailable — run `npm run test:contracts`
-// (or `forge build` in contracts/) first. Never silently "passes" without a chain.
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ContractFactory, HDNodeWallet, JsonRpcProvider, Wallet as EvmWallet, NonceManager, id as keccakText } from "ethers";
+// Person 5: EvmBlockchainAdapter against contracts deployed on the customized
+// Besu process owned by the integration workflow. This suite is skipped by
+// ordinary unit runs and fails on the mandatory path when Besu is absent.
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { JsonRpcProvider, Wallet as EvmWallet, id as keccakText } from "ethers";
 import type { Transaction } from "../../shared/types";
-import { BlockchainError, EvmBlockchainAdapter, loadAbis, type EvmChainConfig } from "../src/blockchain";
-import { waitForReceipt } from "../src/blockchain/evm-adapter";
+import { BlockchainError, EvmBlockchainAdapter, loadChainConfigFromEnv, type EvmChainConfig } from "../src/blockchain";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const OUT = resolve(ROOT, "contracts/out");
-const MNEMONIC = "test test test test test test test test test test test junk"; // anvil's public dev mnemonic
 const configuredRpcUrl = process.env.BEL_EVM_RPC_URL?.trim() || process.env.BEL_CHAIN_RPC_URL?.trim();
-const useExternalNode = Boolean(configuredRpcUrl);
+const configuredKeys = (process.env.BEL_E2E_PRIVATE_KEYS ?? process.env.BEL_CHAIN_DEV_SIGNER_KEYS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+const integrationRun = process.env.BEL_RUN_INTEGRATION === "true";
 
-function findAnvil(): string | null {
-  const candidates = [process.env.ANVIL_BIN, resolve(homedir(), ".foundry/bin/anvil"), "anvil"].filter(Boolean) as string[];
-  for (const c of candidates) {
-    if (spawnSync(c, ["--version"], { stdio: "ignore" }).status === 0) return c;
-  }
-  return null;
-}
-const anvilBin = findAnvil();
-const haveArtifacts = existsSync(resolve(OUT, "JobManager.sol/JobManager.json"));
-const skipReason = !useExternalNode && !anvilBin
-  ? "no configured EVM RPC endpoint and local anvil is not installed"
-  : !haveArtifacts ? "contracts/out missing (run forge build)" : null;
-if (skipReason) console.warn(`[blockchain.evm.integration] SKIPPED: ${skipReason}`);
-
-const key = (i: number) => HDNodeWallet.fromPhrase(MNEMONIC, undefined, `m/44'/60'/0'/0/${i}`).privateKey;
-const addr = (i: number) => new EvmWallet(key(i)).address;
-const [ADMIN, MANAGER, ENGINEER, TECH, AUDITOR, VERIFIER, ISSUER, TECH2, DEVICE] = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(addr);
-
-describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
-  let anvil: ChildProcess;
+describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () => {
+  vi.setConfig({ testTimeout: 180_000, hookTimeout: 240_000 });
+  const key = (i: number) => configuredKeys[i];
+  const addr = (i: number) => new EvmWallet(key(i)).address;
+  const [ADMIN, MANAGER, ENGINEER, TECH, AUDITOR, VERIFIER, ISSUER, TECH2, DEVICE, NONCE_GAP] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(addr);
   let provider: JsonRpcProvider;
   let adapter: EvmBlockchainAdapter;
   let config: EvmChainConfig;
@@ -60,14 +36,17 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
   }
 
   beforeAll(async () => {
-    const port = 18545 + Math.floor(Math.random() * 1000);
-    const rpcUrl = configuredRpcUrl ?? `http://127.0.0.1:${port}`;
-    if (!useExternalNode) anvil = spawn(anvilBin!, ["--port", String(port), "--silent"], { stdio: "ignore" });
-    provider = new JsonRpcProvider(rpcUrl, 31337, { staticNetwork: true, pollingInterval: 50 });
+    if (!configuredRpcUrl) throw new Error("BEL_EVM_RPC_URL/BEL_CHAIN_RPC_URL is required for the Besu integration suite");
+    if (configuredKeys.length < 10) throw new Error("BEL_E2E_PRIVATE_KEYS/BEL_CHAIN_DEV_SIGNER_KEYS must contain at least ten Besu-funded keys");
+    const rpcUrl = configuredRpcUrl;
+    config = loadChainConfigFromEnv({ ...process.env, BEL_BLOCKCHAIN: "evm", BEL_CHAIN_RPC_URL: rpcUrl, BEL_CHAIN_DEPLOYMENT: process.env.BEL_CHAIN_DEPLOYMENT || "besu-prototype", BEL_CHAIN_DEV_SIGNER_KEYS: configuredKeys.join(",") });
+    provider = new JsonRpcProvider(rpcUrl, config.deployment.chainId, { staticNetwork: true, pollingInterval: 50 });
     for (let i = 0; ; i++) {
       try {
         const chainId = await provider.send("eth_chainId", []);
-        if (BigInt(chainId) !== 31337n) throw new Error(`expected chain id 31337, got ${chainId}`);
+        if (BigInt(chainId) !== BigInt(config.deployment.chainId)) throw new Error(`RPC chain id ${chainId} does not match deployment ${config.deployment.chainId}`);
+        const client = await provider.send("web3_clientVersion", []);
+        if (!String(client).toLowerCase().includes("besu")) throw new Error(`expected Besu RPC client, got ${client}`);
         break;
       } catch (error) {
         if (i > 50) throw new Error(`configured EVM endpoint did not become reachable: ${String(error)}`);
@@ -75,41 +54,7 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
       }
     }
 
-    // Same sequence as contracts/script/Deploy.s.sol.
-    const deployer = new NonceManager(new EvmWallet(key(0), provider));
-    const art = (name: string) => JSON.parse(readFileSync(resolve(OUT, `${name}.sol/${name}.json`), "utf8"));
-    const mined = async (hash: string) => {
-      if (!(await waitForReceipt(provider, hash, 1, 20_000, 25))) throw new Error(`deploy tx ${hash} not mined`);
-    };
-    const deploy = async (name: string, ...args: unknown[]) => {
-      const a = art(name);
-      const c = await new ContractFactory(a.abi, a.bytecode.object, deployer).deploy(...args);
-      await mined(c.deploymentTransaction()!.hash);
-      return c;
-    };
-    const identity = await deploy("IdentityRegistry", ADMIN, "DID:BEL:ADMIN");
-    const roles = await deploy("RoleRegistry", await identity.getAddress(), ADMIN);
-    const assets = await deploy("AssetRegistry");
-    const jobs = await deploy("JobManager", await assets.getAddress());
-    const addrs = await Promise.all([identity, roles, assets, jobs].map((c) => c.getAddress()));
-    const audit = await deploy("AuditRegistry", addrs[0], addrs[1], addrs);
-    const auditAddr = await audit.getAddress();
-    for (const c of [identity, roles, assets, jobs]) {
-      await mined((await c.getFunction("wire")(addrs[0], addrs[1], auditAddr)).hash);
-    }
-
-    config = {
-      rpcUrl,
-      deployment: {
-        network: "vitest", chainId: 31337,
-        contracts: { IdentityRegistry: addrs[0], RoleRegistry: addrs[1], AssetRegistry: addrs[2], JobManager: addrs[3], AuditRegistry: auditAddr, ValidatorRegistry: auditAddr },
-      },
-      abis: loadAbis(),
-      confirmations: 1,
-      txTimeoutMs: 20_000,
-      pollingIntervalMs: 25,
-      devSignerKeys: [0, 1, 2, 3, 4, 5, 6, 7].map(key), // DEVICE (8) deliberately absent: it must use the signed-tx path
-    };
+    config.devSignerKeys = configuredKeys.slice(0, 8); // DEVICE (8) deliberately uses the signed-tx path.
     adapter = new EvmBlockchainAdapter(config, { provider });
 
     await onboard("DID:BEL:MANAGER", MANAGER, "MANAGER");
@@ -118,9 +63,7 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
     await onboard("DID:BEL:AUDITOR", AUDITOR, "AUDITOR");
     await onboard("DID:BEL:VERIFIER", VERIFIER, "VERIFIER");
     await onboard("DID:BEL:ISSUER", ISSUER, "ISSUER");
-  }, 60_000);
-
-  afterAll(() => { if (!useExternalNode) anvil?.kill(); });
+  }, 300_000);
 
   it("identity and wallet reads reflect on-chain state", async () => {
     expect(await adapter.getWallet(TECH)).toMatchObject({ address: TECH, identityId: "DID:BEL:TECH", status: "ACTIVE", revokedAt: null });
@@ -262,9 +205,12 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
   });
 
   it("explains a stuck transaction on timeout (nonce gap) instead of just 'timed out'", async () => {
-    const device = new EvmWallet(key(8), provider);
+    // Keep the deliberately pending nonce-gap transaction off every wallet
+    // used by the later PostgreSQL and cross-person integration suites.
+    await onboard("DID:BEL:NONCE-GAP", NONCE_GAP, "MANAGER");
+    const device = new EvmWallet(key(9), provider);
     const quick = new EvmBlockchainAdapter({ ...config, txTimeoutMs: 400 }, { provider });
-    const envelope = env("JOB_CREATE", DEVICE, "DID:BEL:DEVICE-USER", { jobId: "J-GAP", assetId: "PUMP-1" });
+    const envelope = env("JOB_CREATE", NONCE_GAP, "DID:BEL:NONCE-GAP", { jobId: "J-GAP", assetId: "PUMP-1" });
     const p = await quick.prepareTransaction(envelope);
     const populated = await device.populateTransaction({ to: p.to, data: p.data, chainId: p.chainId });
     const skipped = await device.signTransaction({ ...populated, nonce: Number(populated.nonce) + 5 });
@@ -279,8 +225,18 @@ describe.skipIf(skipReason !== null)("EvmBlockchainAdapter on anvil", () => {
     const status = await adapter.getStatus();
     expect(status.healthy).toBe(true);
     expect(status.height).toBeGreaterThan(10);
-    const block = await adapter.getBlock(status.height);
-    expect(block).toMatchObject({ height: status.height, committee: [] });
+    // QBFT continues producing empty blocks after transactions. Find a recent
+    // transaction-bearing block instead of assuming the chain tip has one.
+    let block = null;
+    for (let height = status.height; height >= Math.max(0, status.height - 100); height -= 1) {
+      const candidate = await adapter.getBlock(height);
+      if (candidate?.transactions.length) {
+        block = candidate;
+        break;
+      }
+    }
+    expect(block).not.toBeNull();
+    expect(block).toMatchObject({ committee: [] });
     expect(block!.transactions.length).toBeGreaterThan(0);
     expect(await adapter.getBlock(status.height + 1000)).toBeNull();
   });

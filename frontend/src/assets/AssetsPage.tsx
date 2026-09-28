@@ -1,30 +1,12 @@
-// Owner: Person 6. Backs GET /assets, POST /assets, and links out to
-// AssetDetailPage for GET /assets/:id + POST /assets/:id/transfer.
-
 import { useEffect, useState } from "react";
-import { mockApi } from "../api/mockApi";
-import { Asset } from "../../../shared/types";
-
-export function AssetsPage({ onSelect }: { onSelect?: (assetId: string) => void }) {
-  const [assets, setAssets] = useState<Asset[]>([]);
-
-  useEffect(() => {
-    mockApi.getAssets().then(setAssets);
-  }, []);
-
-  return (
-    <div>
-      <h2>Assets</h2>
-      <ul>
-        {assets.map((a) => (
-          <li key={a.assetId}>
-            <button onClick={() => onSelect?.(a.assetId)}>
-              {a.assetId} — {a.assetType} — {a.status}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {/* TODO: create-asset form (RBAC: Admin/Manager/Engineer/Issuer only) */}
-    </div>
-  );
+import { can } from "../../../shared/rbac";
+import type { Asset, User } from "../../../shared/types";
+import { apiClient, HttpApiError } from "../api/client";
+import { Badge, Button, Card, Empty, ErrorNotice, Loading, PageHead, short } from "../ui";
+export function AssetsPage({ user, onSelect }: { user: User; onSelect?: (assetId: string) => void }) {
+  const [assets, setAssets] = useState<Asset[]>([]); const [showCreate, setShowCreate] = useState(false); const [form, setForm] = useState({ assetId: "", assetType: "", ownerId: user.identityId, custodianId: user.identityId }); const [error, setError] = useState("");
+  const load = () => apiClient.getAssets().then(setAssets).catch((e) => setError(e instanceof HttpApiError && e.status === 501 ? "Asset registry is not implemented by the backend yet." : e instanceof Error ? e.message : "Unable to load assets.")); useEffect(() => { void load(); }, []);
+  async function create() { if (!form.assetType.trim()) return setError("Asset type is required."); try { await apiClient.createAsset({ ...form, assetId: form.assetId || undefined }); setShowCreate(false); setForm({ ...form, assetId: "", assetType: "" }); void load(); } catch (e) { setError(e instanceof HttpApiError && e.status === 501 ? "Asset registration is not implemented by the backend yet." : e instanceof Error ? e.message : "Asset creation failed."); } }
+  if (!assets.length && !error) return <Loading />;
+  return <><PageHead eyebrow="Asset registry" title="Assets" description="Track registered equipment and controlled components across the BEL lifecycle." action={can(user.role, "REGISTER_ASSET") ? <Button onClick={() => setShowCreate(!showCreate)}>+ Register asset</Button> : undefined} />{error && <ErrorNotice message={error} />}{showCreate && <Card className="form-card"><h2>Register an asset</h2><div className="form-row"><div className="field"><label>Asset ID <span className="muted">(optional)</span></label><input value={form.assetId} onChange={(e) => setForm({ ...form, assetId: e.target.value })} placeholder="AST-002" /></div><div className="field"><label>Asset type</label><input value={form.assetType} onChange={(e) => setForm({ ...form, assetType: e.target.value })} placeholder="RADAR_MODULE" /></div></div><div className="actions"><Button onClick={create}>Create asset</Button><Button variant="secondary" onClick={() => setShowCreate(false)}>Cancel</Button></div></Card>}<Card><div className="table-wrap"><table><thead><tr><th>Asset</th><th>Type</th><th>Owner</th><th>Custodian</th><th>Status</th><th /></tr></thead><tbody>{assets.map((asset) => <tr key={asset.assetId}><td><button className="action-link" onClick={() => onSelect?.(asset.assetId)}>{asset.assetId}</button><div className="small">NFT #{asset.nftId}</div></td><td>{asset.assetType}</td><td className="mono">{short(asset.ownerId)}</td><td className="mono">{short(asset.custodianId)}</td><td><Badge tone={asset.status === "ACTIVE" ? "active" : "pending"}>{asset.status.replace("_", " ")}</Badge></td><td><button className="action-link" onClick={() => onSelect?.(asset.assetId)}>Open →</button></td></tr>)}</tbody></table>{!assets.length && <Empty>No assets have been registered.</Empty>}</div></Card></>;
 }

@@ -85,6 +85,17 @@ The authentication contract has two trust boundaries: the managed device authent
 
 For the implemented EVM scheme, the backend derives the wallet address from the canonical secp256k1 public key and rejects malformed or mismatched pairs before activation and relevant authentication flows. Other wallet/signature schemes require their own binding rules.
 
+## Integration verification boundary
+
+Unit tests and the consensus simulator answer component/model questions. The
+mandatory integration workflow builds the exact `besu` submodule gitlink,
+starts the four-node BEL prototype, verifies the live Besu RPC and network,
+deploys fresh contracts, and runs the backend against real PostgreSQL and Kubo
+alongside the authentication, RBAC, asset, job, evidence, audit, and validator
+workflow. The four-node profile is a computational prototype only; production
+retains the frozen 70-validator baseline and this workflow does not claim
+production-scale performance or readiness.
+
 ## Dependency installation
 
 Direct JavaScript dependencies are pinned in the package manifests, and the repository now contains a committed `package-lock.json`. For a clean clone, use `npm ci` so the installed dependency tree is exactly the committed lockfile. Use `npm install` only when intentionally changing dependencies or regenerating the lockfile.
