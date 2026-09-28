@@ -1,174 +1,187 @@
-# BEL Decentralized Platform
+# SIH-BEL decentralized platform
 
-Monorepo for the permissioned-blockchain asset and maintenance platform.
-Six workstreams develop in parallel against frozen interfaces and mock
-adapters, then integrate in the order set out in the project plan's
-Phase 12.
+SIH-BEL is a permissioned-blockchain asset and maintenance platform. The
+repository contains the React operator console, Node/Express backend,
+PostgreSQL persistence, Kubo evidence storage, Solidity contracts, and the
+customized Besu/QBFT implementation used by the real integration workflow.
 
-## Read this first
-
-Before writing any code, read `docs/SYSTEM_SPEC.md`. Then the document
-for your area. These are frozen contracts — changing one is a team
-decision, not an individual one:
-
-| Document | What it fixes |
-| :--- | :--- |
-| `docs/SYSTEM_SPEC.md` | Actors, core objects, workflows, security assumptions |
-| `docs/DATA_MODEL.md` | Every shared entity's fields |
-| `docs/RBAC_MATRIX.md` | Who may do what |
-| `docs/API_SPEC.yaml` | The REST surface |
-| `docs/CONTRACT_SPEC.md` | Transaction types and contract interfaces |
-| `docs/CONSENSUS_SPEC.md` | Frozen BEL committee/QBFT consensus protocol |
-| `docs/DECISIONS.md` | Why things are the way they are |
-| `docs/THREAT_MODEL.md` | Including dev shortcuts that must not ship |
-
-## Quickstart
-
-Requires Node 20+. The BEL consensus prototype is implemented in the nested Besu repository and uses JDK 21. Foundry is optional for
-contracts — both optional depending on what you own.
-
-```bash
-npm ci                      # installs every workspace from the lockfile
-npm run verify              # Prisma, typechecks, PostgreSQL, EVM, Solidity
-npm run dev                # backend on :4000, frontend on :3000
-```
-| Command                            | What it does                                                          |
-| :--------------------------------- | :-------------------------------------------------------------------- |
-| `npm run dev`                      | Backend and frontend together                                         |
-| `npm test`                         | All TypeScript tests                                                  |
-| `npm run typecheck`                | All workspaces                                                        |
-| `npm run test:contracts:validator` | Validator management / `bel-contracts` tests                          |
-| `npm run test:contracts:workflow`  | Existing contract workflow tests                                      |
-| `npm run test:contracts`           | Runs both contract test suites                                        |
-| `npm run test:consensus`           | Person 4's simulator tests (pytest)                                   |
-| `npm run verify`                   | Checks PostgreSQL and Anvil, then runs the complete integration suite |
-| `docker compose up`                | Everything behind nginx on `:8080`                                    |
-
-The frontend renders from `mocks/mock-api` and needs no backend. The
-backend runs against `mocks/mock-blockchain` and needs no chain. Both
-are real, working programs today.
-
-### Calling the API before authentication exists
-
-Dev sessions are header-based until Person 1 replaces them:
-
-```bash
-curl localhost:4000/users/me \
-  -H 'x-bel-employee-id: EMP001' -H 'x-bel-role: ENGINEER'
-```
-
-Endpoints whose owning module is unfinished return **501
-NOT_IMPLEMENTED** with the method name — that is expected, not a bug.
-
-## Layout
+## Current architecture
 
 ```text
-docs/        Frozen specifications. Start here.
-shared/      Types, enums, validators, RBAC matrix. Imported by everyone.
-contracts/   Solidity interfaces, tests, deploy script (Foundry).
-blockchain/  BEL consensus landing page and protocol-owned support material.
-besu/        Nested Besu repository containing the BEL QBFT integration.
-backend/     REST API implementing docs/API_SPEC.yaml.
-frontend/    Role-based operator console.
-mocks/       mock-api (for the frontend), mock-blockchain (for the backend).
-infra/       Dockerfiles and nginx config.
-scripts/     bootstrap, contract setup, ABI generation, and Besu demo launchers.
+React frontend
+    ↓ HTTP/REST (Bearer session)
+BEL backend API
+    ├── PostgreSQL (identities, devices, sessions, jobs, assets, metadata)
+    ├── Kubo/IPFS (private evidence bytes)
+    └── EVM blockchain adapter
+            ↓ JSON-RPC
+        customized Besu, 4-node prototype QBFT network
+            ↓
+        deployed BEL contracts
 ```
 
-## BEL consensus demo
+The frontend does not talk directly to Besu, contracts, PostgreSQL, or the
+IPFS API. It calls the backend. Device private keys stay in the device-side
+wallet/authenticator boundary; they are never sent to the backend or browser
+API as private key material.
 
-The submitted consensus implementation is the Java/Besu integration in the
-nested `besu/` repository. The default launcher generates 70 validators and
-stores generated keys, configuration, logs, and runtime data only under the
-ignored `.bel-demo/` directory. The four-node launcher is an infrastructure
-smoke test with a 70-validator generated configuration; it does not prove BEL
-committee finality or Byzantine behavior.
+The mandatory integration path uses the real customized Besu submodule,
+real contracts, real PostgreSQL, real Kubo, and the real backend adapter. The
+four-validator `prototype` profile is the permitted local/CI reduction from
+the production-scale validator population. It is not production-ready and
+does not demonstrate production-scale performance.
 
-```bash
-cd besu
-./gradlew :consensus:bel:test :consensus:qbft:test :besu:compileJava installDist
-cd ..
-./scripts/run-besu-smoke.sh
-# In another shell, use the printed run root:
-./scripts/check-besu-bel-demo.sh .bel-demo/smoke-<timestamp> 4 8645
-./scripts/stop-besu-bel-demo.sh .bel-demo/smoke-<timestamp>
-```
+## Read before changing interfaces
 
-For the lightweight four-validator application prototype (using the already
-installed Besu distribution), run from WSL/Linux:
+These documents define the frozen contracts and system boundaries:
 
-```bash
-./scripts/start-besu-prototype.sh
-./scripts/deploy-besu-prototype.sh .bel-demo/smoke-<timestamp>
-npm run db:migrate
-npm run test:e2e:besu --workspace=bel-backend
-./scripts/stop-besu-bel-demo.sh .bel-demo/smoke-<timestamp>
-```
+| Document | Scope |
+| --- | --- |
+| [SYSTEM_SPEC.md](docs/SYSTEM_SPEC.md) | Actors, objects, workflows, security assumptions |
+| [API_SPEC.yaml](docs/API_SPEC.yaml) | HTTP API surface |
+| [IDENTITY_AUTH_SPEC.md](docs/IDENTITY_AUTH_SPEC.md) | Identity, device, wallet, and authentication lifecycle |
+| [RBAC_MATRIX.md](docs/RBAC_MATRIX.md) | Roles and permissions |
+| [DATA_MODEL.md](docs/DATA_MODEL.md) | Shared data model |
+| [CONTRACT_SPEC.md](docs/CONTRACT_SPEC.md) | Contract interfaces and transaction types |
+| [BESU_IMPLEMENTATION.md](docs/BESU_IMPLEMENTATION.md) | Customized Besu build and real integration workflow |
+| [FRONTEND_AUTH_FLOW.md](docs/FRONTEND_AUTH_FLOW.md) | Frontend/device authentication boundary |
+| [DOCUMENTATION_CONSISTENCY.md](docs/DOCUMENTATION_CONSISTENCY.md) | Audit evidence and known boundaries |
 
-The prototype deployment is written to `contracts/deployments/besu-prototype.json`.
-It uses the isolated `prototype` profile and a four-validator application
-registry minimum; the normal deployment path and production validator rule
-remain 70 validators.
+## Development modes
 
-For the 70-validator generator on Windows:
+There are two intentionally different modes:
 
-```powershell
-$env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot'
-cd besu
-.\gradlew.bat :consensus:bel:test :consensus:qbft:test :besu:compileJava installDist
-cd ..
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-besu-bel-demo.ps1 -ValidatorCount 70
-```
+1. **Unit/mock mode.** Ordinary backend unit tests inject
+   `mocks/mock-blockchain` and in-memory repositories. The frontend test
+   harness may use `mocks/mock-api`. These modes are for isolated component
+   development; they are not evidence that the deployed workflow works.
+2. **Real Besu integration mode.** `BEL_BLOCKCHAIN=evm` points the backend at
+   the Besu JSON-RPC endpoint and loads addresses from the deployment file.
+   This is the canonical EVM integration and E2E path.
 
-Resolved protocol decisions implemented/documented here are: an initial active validator population of N >= 70; per-block VRF-based committee selection with p_N = min(1, max(70/N, 0.0132)) and a deterministic 70-ticket minimum fallback; a committee fixed for all rounds of a block; deterministic hash-based randomized leader selection per round; QBFT PREPARE/COMMIT finality with Q = floor(2K/3)+1; round-change with the committee unchanged; and safety-first handling of invalid, conflicting, offline, or failed validators. The previous finalized block hash is the public selection input, but is explicitly not claimed to be a bias-resistant randomness beacon. The production RFC 9381 VRF backend, validator admission/removal, large-scale evaluation, and live Byzantine/finality demonstrations remain open production items.
-## Ownership
+`docker-compose.yml` is a lightweight legacy development stack. Its
+`evm-node` service is Anvil on chain 31337 and its deployment is named
+`local`; it is not the canonical Besu integration environment. Replacing
+that stack requires a separate infrastructure decision. Use the Besu workflow
+below when validating the real application.
 
-| Person | Area | Primary directories |
-| :--- | :--- | :--- |
-| 1 | Identity, auth, RBAC | `backend/src/{auth,users,middleware}`, `shared/rbac` |
-| 2 | Assets, NFT lifecycle | `backend/src/assets`, `contracts/src/IAssetRegistry.sol` |
-| 3 | Jobs, maintenance | `backend/src/jobs`, `contracts/src/IJobManager.sol` |
-| 4 | Consensus | `blockchain/`, `docs/CONSENSUS_SPEC.md` |
-| 5 | Smart contracts | `contracts/` |
-| 6 | Frontend | `frontend/`, `mocks/mock-api` |
+## Install and fast checks
 
-`.github/CODEOWNERS` routes reviews accordingly — replace the
-placeholder handles with real ones.
-
-## How the plug-and-play swap works
-
-Backend services depend on the `BlockchainService` interface, never on a
-concrete chain. `backend/src/container.ts` is the only file that names an
-implementation. At Phase 12, one line there changes from
-`MockBlockchainAdapter` to the real adapter, and nothing else moves.
-
-The frontend has the same arrangement: every page imports from
-`src/api/mockApi.ts`, and only that file changes when the real HTTP
-client arrives.
-
-## Contributing
-
-Branch from `dev`, never push to `main`. One teammate review, CI green,
-then merge. `.github/pull_request_template.md` has the checklist. If a PR
-touches `shared/` or any frozen document, say so explicitly and add an
-ADR to `docs/DECISIONS.md`.
-
-## Base-v1 team workflow
-
-Clone the repository, create your own feature branch, and install dependencies from the root:
+Requirements: Node 20+, Docker, a Linux/WSL shell for Besu, JDK 21 for the
+Besu build, and Foundry for Solidity deployment/tests.
 
 ```bash
 npm ci
+npm run typecheck
+npm test
+npm run test:contracts:validator
+npm run test:contracts:workflow
+npm run test:consensus       # Python model/simulator coverage only
 ```
 
-Then run the workstream-appropriate checks:
+The backend unit suite intentionally does not require Besu or EVM credentials.
+The Python consensus suite is model-level coverage and is not a substitute for
+the Java consensus code running inside Besu.
+
+## Real Besu prototype workflow
+
+Run this from Linux or WSL. The submodule must be initialized recursively and
+must remain at the gitlink commit recorded by this repository.
 
 ```bash
-npm run typecheck
-npm test --workspace=bel-backend
-npm run test --workspace=bel-frontend
-npm run test:contracts
-npm run verify
+git submodule update --init --recursive
+npm ci
+npm run besu:build
 ```
 
-See `docs/BASELINE_FREEZE.md` before changing shared contracts. No teammate should require another teammate's feature branch to start work.
+Start the real four-node prototype and capture the printed run root:
+
+```bash
+run_output="$(BEL_EXECUTION_PROFILE=prototype BEL_REQUIRE_TEST_ACCOUNTS=true bash scripts/start-besu-prototype.sh)"
+printf '%s\n' "$run_output"
+run_root="$(printf '%s\n' "$run_output" | sed -n 's/^Besu smoke network started: //p' | tail -n 1)"
+source <(bash scripts/export-besu-test-env.sh "$run_root")
+```
+
+The launcher generates four Besu validator nodes on RPC ports 8645–8648,
+generates ephemeral funded application test accounts, and records runtime data
+under the ignored `.bel-demo/` directory. It does not print or commit private
+keys.
+
+Start PostgreSQL and Kubo, then deploy and test against the same Besu RPC:
+
+```bash
+docker compose up -d postgres ipfs
+export DATABASE_URL=postgresql://bel:bel@127.0.0.1:5432/bel
+export IPFS_API_URL=http://127.0.0.1:5001
+npm run db:migrate
+bash scripts/deploy-besu-prototype.sh "$run_root"
+npm run test:evm
+npx vitest run backend/test/users.evm.integration.test.ts --testTimeout=180000
+npm run test:e2e:workflow
+```
+
+The environment export sets the three application RPC names,
+`BEL_EVM_RPC_URL`, `BEL_CHAIN_RPC_URL`, and `BEL_E2E_RPC_URL`, to the same
+Besu endpoint and supplies the actual chain ID, deployment name, validator
+addresses, and ephemeral test keys. The deployment file is regenerated for
+the current chain; do not reuse one from another RPC.
+
+Always stop the network and remove disposable services:
+
+```bash
+bash scripts/check-besu-bel-demo.sh "$run_root" 4 8645
+bash scripts/stop-besu-bel-demo.sh "$run_root"
+docker compose rm -sf postgres ipfs
+```
+
+For the CI-equivalent sequence, see
+[docs/BESU_IMPLEMENTATION.md](docs/BESU_IMPLEMENTATION.md). CI checks out the
+submodule, builds Besu with JDK 21, starts the same prototype profile, starts
+PostgreSQL and Kubo, deploys contracts, runs EVM integration tests, bootstraps
+the PostgreSQL admin, and runs the complete cross-person E2E.
+
+## Frontend handoff
+
+The Vite frontend uses `VITE_API_BASE_URL` and the HTTP client in
+`frontend/src/api/client.ts`; a local backend normally listens on
+`http://localhost:4000`. In the Compose/nginx stack the configured base is
+`http://localhost:8080/api`.
+
+The normal authentication flow is:
+
+```text
+/auth/provisioning-challenge → /auth/initialize-account
+administrator verifies/assigns role/activates
+/auth/login-challenge → local device signature → /auth/login
+Bearer session → protected API operations
+```
+
+High-impact operations obtain `/auth/fresh-challenge` and send the resulting
+device proof in `X-BEL-Fresh-Auth`. Consult [docs/API_SPEC.yaml](docs/API_SPEC.yaml),
+[docs/FRONTEND_AUTH_FLOW.md](docs/FRONTEND_AUTH_FLOW.md),
+[docs/TEAM_INTEGRATION_CONTRACT.md](docs/TEAM_INTEGRATION_CONTRACT.md), and
+[docs/RBAC_MATRIX.md](docs/RBAC_MATRIX.md) before integrating a page.
+
+## Repository layout
+
+```text
+backend/    Express API, services, EVM adapter, Prisma repositories
+frontend/   React/Vite operator console and API client
+contracts/  Solidity contracts, ABIs, deployment script, tests
+besu/       customized Besu Git submodule
+shared/     shared types, schemas, enums, and RBAC data
+mocks/      isolated mock API and mock blockchain packages
+scripts/    Besu, deployment, bootstrap, verification, and test orchestration
+docs/       frozen specifications and implementation/setup documentation
+```
+
+## Verification terminology
+
+`npm test` and contract/Python tests answer component or model-level questions.
+The Besu integration workflow answers the deployment-realism question. A green
+unit or simulator test must not be presented as proof that the backend works
+against a real chain.
+
+Do not commit generated validator keys, application test keys, Besu data,
+runtime logs, deployment secrets, or wallet private keys.
