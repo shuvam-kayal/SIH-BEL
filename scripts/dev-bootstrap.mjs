@@ -45,6 +45,14 @@ function waitFor(label, check, timeoutMs = 60_000) {
   })();
 }
 async function probe(url) { try { return await (await fetch(url)).ok; } catch { return false; } }
+async function probeIpfs() {
+  try {
+    const response = await fetch("http://127.0.0.1:5001/api/v0/id", { method: "POST" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 async function jsonRpc(method, params = [], port = 8645) {
   const response = await fetch(`http://127.0.0.1:${port}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -172,7 +180,7 @@ async function main() {
     run("docker", ["compose", "up", "-d", "postgres", "ipfs"]);
     activeState.started.push({ name: "postgres", pid: null, logPath: "docker compose" }, { name: "ipfs", pid: null, logPath: "docker compose" }); persistState(activeState);
     await waitFor("PostgreSQL", async () => spawnSync("docker", ["compose", "exec", "-T", "postgres", "pg_isready", "-U", "bel", "-d", "bel"], { cwd: root, stdio: "ignore", shell: process.platform === "win32" }).status === 0);
-    await waitFor("IPFS", async () => probe("http://127.0.0.1:5001/api/v0/id"));
+    await waitFor("IPFS", probeIpfs);
   }
   const runRoot = join(root, ".bel-demo", `orchestrated-${new Date().toISOString().replace(/[:.]/g, "-")}`); invocationRunRoot = runRoot;
   let besuInputs = null;
