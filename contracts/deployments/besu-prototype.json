@@ -1,14 +1,14 @@
 {
-  "blockNumber": 136,
+  "blockNumber": 6424,
   "bootstrapAdminWallet": "0x03a26D4e898C987b98bBE3df6C88ca9f2dAB3572",
   "chainId": 20260920,
   "contracts": {
-    "AssetRegistry": "0x6bc45bC94Fa2CE8aFF2ac1f8305E836f15B259C6",
-    "AuditRegistry": "0x982269DBC5D59973537320D00F8399739Ca878C3",
-    "IdentityRegistry": "0x7550B2dee6a9A8b635A37d0B55fd76f8DAb0fDD0",
-    "JobManager": "0x067cAc72Bed202b1d7fE8aF2a219f5e10542C0a3",
-    "RoleRegistry": "0x2240cDccD0585cf3Cca98CF8489b6449D4DDa80c",
-    "ValidatorRegistry": "0x825a42df468d9e157856c203ac7ea915bF498F78"
+    "AssetRegistry": "0x63b12947427772C924eC660E2B4026D3cf76FBCf",
+    "AuditRegistry": "0x687baE2a4617FB83271574a6a1820B54cC02c8A2",
+    "IdentityRegistry": "0xB401DeD819BB8C87D052c49d976668C8F818EF89",
+    "JobManager": "0x2c882428Fd2D5D9B215a33EBe10FB0A61cAaCEAF",
+    "RoleRegistry": "0xE1D37617e1d91b6ab4FC4811c984D4f09251D8A7",
+    "ValidatorRegistry": "0x615023C0480B6a03832172ed0A6ef20445a6562F"
   },
   "deployer": "0x03a26D4e898C987b98bBE3df6C88ca9f2dAB3572",
   "network": "besu-prototype"
