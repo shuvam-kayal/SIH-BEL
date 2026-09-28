@@ -199,6 +199,8 @@ cat > "${RUN_ROOT}/run.json" <<EOF
   "baseP2pPort": ${BASE_P2P},
   "baseRpcPort": ${BASE_RPC},
   "profile": "${PROFILE}",
+  "owner": "${BEL_RUN_OWNER:-manual}",
+  "orchestrator": "${BEL_ORCHESTRATOR_NAME:-}",
   "chainId": 20260920,
   "testAccountKeys": "${TEST_ACCOUNT_KEYS_FILE}",
   "pids": [$(IFS=,; echo "${PIDS[*]}")]

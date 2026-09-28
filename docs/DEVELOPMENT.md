@@ -13,6 +13,8 @@ npm run dev:bootstrap
 
 The orchestrator starts/reuses PostgreSQL and Kubo through the existing `docker-compose.yml`, starts the existing four-validator Besu prototype in a fresh `.bel-demo/orchestrated-*` directory, checks RPC health/chain ID/block production, uses the existing deployment/bootstrap mechanisms, starts the encrypted development wallet, backend, and frontend, and waits for HTTP readiness. It never sources `scripts/export-besu-test-env.sh`.
 
+Each run is explicitly marked `bel-dev-bootstrap` in `run.json`. A later `npm run dev:bootstrap` stops only live Besu processes positively matched to that metadata and their run directory, waits for shutdown, checks ports `8645`–`8648`, and then starts exactly one fresh network. If a later stage fails, the invocation-owned Besu run is stopped while its logs and diagnostic metadata remain available.
+
 The orchestrator keeps its wallet keystores under `.bel-demo/orchestrator/devices` by default, separate from manually started wallet services. Set `BEL_DEV_WALLET_DIR` explicitly when you intentionally want to reuse another development wallet store.
 
 Use `npm run dev:stop` to stop recorded processes. It does not delete database volumes, wallet keystores, Besu run directories, deployments, or logs. Reset state only after an explicit decision: stop services, remove the disposable `.bel-demo/orchestrated-*` directory and/or Docker volumes, then recreate the environment.
