@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
-const root = fileURLToPath(new URL("../..", import.meta.url));
-const serverPath = fileURLToPath(new URL("../dev-wallet/server.mjs", import.meta.url));
+const root = resolve(process.cwd(), "..");
+const serverPath = resolve(process.cwd(), "dev-wallet", "server.mjs");
 const waitForWallet = (port) => new Promise((resolve, reject) => {
   const deadline = Date.now() + 10_000;
   const poll = async () => {
