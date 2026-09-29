@@ -14,6 +14,7 @@ const skipBesu = args.has("--skip-besu");
 const RPC_PORTS = [8645, 8646, 8647, 8648];
 const OWNER = "bel-dev-bootstrap";
 let activeState;
+let previousState;
 let invocationRunRoot;
 let invocationAdminKeyFile;
 
@@ -189,6 +190,7 @@ async function main() {
   if (!skipInfra && !commandExists("docker")) fail("Docker is required unless --skip-infra is supplied.");
   if (!skipBesu && !commandExists("bash") && !commandExists("wsl.exe")) fail("Besu requires bash or WSL.");
   if (existsSync(stateFile)) { try { activeState = JSON.parse(readFileSync(stateFile, "utf8")); } catch { activeState = undefined; } }
+  previousState = activeState;
   await stopOwnedStaleServices();
   await stopOwnedStaleBesu();
   activeState = { owner: OWNER, started: [], logs: logDir, runRoot: null };
@@ -217,10 +219,28 @@ async function main() {
     runBesuScript("deploy-besu-prototype.sh", runRoot);
     await verifyDeployment();
   }
-  const wallet = readAdminIdentity(); const walletEnv = { BEL_DEV_WALLET_SECRET: wallet.secret, BEL_DEV_DEVICE_ID: wallet.deviceId, BEL_DEV_WALLET_PORT: wallet.port, BEL_DEV_WALLET_DIR: process.env.BEL_DEV_WALLET_DIR ?? join(stateDir, "devices"), ...(invocationAdminKeyFile ? { BEL_DEV_DEVICE_IMPORT_KEY_FILE: invocationAdminKeyFile } : {}) };
+  const wallet = readAdminIdentity();
+  const walletDir = process.env.BEL_DEV_WALLET_DIR ?? (expectedAdmin ? join(stateDir, "devices", runRoot.split(/[\\/]/).at(-1)) : join(stateDir, "devices"));
+  const walletEnv = { BEL_DEV_WALLET_SECRET: wallet.secret, BEL_DEV_DEVICE_ID: wallet.deviceId, BEL_DEV_WALLET_PORT: wallet.port, BEL_DEV_WALLET_DIR: walletDir, ...(invocationAdminKeyFile ? { BEL_DEV_DEVICE_IMPORT_KEY_FILE: invocationAdminKeyFile } : {}) };
   const walletUrl = `http://127.0.0.1:${wallet.port}/identity?deviceId=${encodeURIComponent(wallet.deviceId)}`;
-  if (!(await probe(walletUrl))) { const walletProcess = spawnLogged("dev-wallet", process.execPath, [join(root, "frontend", "dev-wallet", "server.mjs")], walletEnv); activeState.started.push(walletProcess); persistState(activeState); await waitFor("development wallet", async () => { if (walletProcess.exited) fail(`wallet exited with code ${walletProcess.exitCode}; see ${walletProcess.logPath}`); return probe(walletUrl); }); } else console.log(`[dev-bootstrap] reusing development wallet at http://127.0.0.1:${wallet.port}`);
-  const identity = await (await fetch(walletUrl)).json();
+  const priorWallet = previousState?.started?.find((service) => service.name === "dev-wallet");
+  let identity;
+  if (await probe(walletUrl)) {
+    identity = await (await fetch(walletUrl)).json();
+    const conflicts = expectedAdmin && (identity.walletAddress?.toLowerCase() !== expectedAdmin.walletAddress.toLowerCase() || identity.publicKey?.toLowerCase() !== expectedAdmin.publicKey.toLowerCase());
+    if (conflicts) {
+      if (!priorWallet || !serviceOwned(priorWallet)) fail(`A non-orchestrator development wallet already owns port ${wallet.port} with an identity that conflicts with the fresh Besu bootstrap admin. Stop it manually or choose another BEL_DEV_WALLET_PORT.`);
+      if (!stopOwnedService(priorWallet)) fail("The orchestrator-owned development wallet could not be stopped safely.");
+      await waitFor("stale development wallet shutdown", () => !pidAlive(priorWallet.pid), 15_000);
+      identity = undefined;
+    } else console.log(`[dev-bootstrap] reusing development wallet at http://127.0.0.1:${wallet.port}`);
+  }
+  if (!identity) {
+    const walletProcess = spawnLogged("dev-wallet", process.execPath, [join(root, "frontend", "dev-wallet", "server.mjs")], walletEnv);
+    activeState.started.push(walletProcess); persistState(activeState);
+    await waitFor("development wallet", async () => { if (walletProcess.exited) fail(`wallet exited with code ${walletProcess.exitCode}; see ${walletProcess.logPath}`); return probe(walletUrl); });
+    identity = await (await fetch(walletUrl)).json();
+  }
   if (expectedAdmin && identity.walletAddress?.toLowerCase() !== expectedAdmin.walletAddress.toLowerCase()) fail(`Development wallet address does not match the fresh Besu bootstrap admin address. Expected ${expectedAdmin.walletAddress}, got ${identity.walletAddress ?? "missing"}.`);
   if (expectedAdmin && identity.publicKey?.toLowerCase() !== expectedAdmin.publicKey.toLowerCase()) fail("Development wallet public key does not match the fresh Besu bootstrap admin key.");
   if (invocationAdminKeyFile) { try { unlinkSync(invocationAdminKeyFile); } catch { /* cleanup is best effort */ } invocationAdminKeyFile = undefined; }
