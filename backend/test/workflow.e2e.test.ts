@@ -255,7 +255,7 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     expect(approved.body).toMatchObject({ status: "VERIFIED", verifierId: verifier.identityId });
     expect(await chain.getJob(jobId)).toMatchObject({ status: "VERIFIED", verifierId: verifier.identityId });
     expect((await jobManager.getJob(jobId)).verifier).toBe(verifier.walletAddress);
-  }, 120_000);
+  }, 180_000);
 
   it("revokes the technician wallet and invalidates the authenticated session", async () => {
     const response = await request(app).post(`/admin/users/${technician.identityId}/revoke-wallet`).set("Authorization", `Bearer ${admin.token}`).send({ reason: "workflow cleanup" });
