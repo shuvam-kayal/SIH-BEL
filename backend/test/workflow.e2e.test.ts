@@ -61,7 +61,8 @@ describe("Person 1 -> Person 2 -> Person 3 -> Person 5 real workflow", () => {
     const proof = wallet.signingKey.sign(hashMessage(challenge.challenge));
     const signature = `0x${toBeHex(proof.yParity, 1).slice(2)}${proof.r.slice(2)}${proof.s.slice(2)}`;
 
-    const invalid = await request(app).post("/auth/initialize-account").send({ fullName: `Invalid ${label}`, deviceId, publicKey, walletAddress: wallet.address, challengeId: challenge.challengeId, signature: `${signature.slice(0, -2)}00`, deviceMetadata: { test: "workflow" } });
+    const invalidSignature = `${signature.slice(0, -2)}${signature.endsWith("00") ? "01" : "00"}`;
+    const invalid = await request(app).post("/auth/initialize-account").send({ fullName: `Invalid ${label}`, deviceId, publicKey, walletAddress: wallet.address, challengeId: challenge.challengeId, signature: invalidSignature, deviceMetadata: { test: "workflow" } });
     expect(invalid.status).toBe(403);
 
     const initialized = await request(app).post("/auth/initialize-account").send({ fullName: `E2E ${label}`, employeeId: `E2E-${label}`, department: "TEST", deviceId, publicKey, walletAddress: wallet.address, challengeId: challenge.challengeId, signature, deviceMetadata: { test: "workflow" } });
