@@ -15,7 +15,7 @@ describe("ValidatorStatusPage network capability states", () => {
     vi.spyOn(apiClient, "getCommittee").mockResolvedValue({ height: 7037, validatorIds: [validator.validatorId] });
     render(<ValidatorStatusPage />);
     await waitFor(() => expect(screen.getAllByText("HEALTHY").length).toBeGreaterThanOrEqual(5));
-    expect(screen.getByText(validator.validatorId)).toBeTruthy();
+    expect(screen.getAllByText(validator.validatorId)).toHaveLength(2);
   });
 
   it("does not claim overall health or invent validators when consensus RPCs fail", async () => {
@@ -23,8 +23,10 @@ describe("ValidatorStatusPage network capability states", () => {
     vi.spyOn(apiClient, "getValidators").mockRejectedValue(new Error("bel_getValidators RPC request failed"));
     vi.spyOn(apiClient, "getCommittee").mockRejectedValue(new Error("bel_getCommittee RPC request failed"));
     render(<ValidatorStatusPage />);
-    await waitFor(() => expect(screen.getAllByText("UNAVAILABLE").length).toBe(2));
-    expect(screen.queryByText("HEALTHY", { selector: ".badge" })).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByText("DEGRADED", { selector: ".badge" })).toHaveLength(3));
+    const pageHeading = screen.getByRole("heading", { name: "Network health" });
+    expect(pageHeading.parentElement?.parentElement?.querySelector(".badge")?.textContent).toBe("DEGRADED");
+    expect(screen.getAllByText("HEALTHY", { selector: ".badge" })).toHaveLength(3);
     expect(screen.queryByText(/0x1111/)).toBeNull();
     expect(screen.getByText("Committee data is unavailable from the configured network RPC.")).toBeTruthy();
     expect(screen.getByText("Validator data is unavailable from the configured network RPC.")).toBeTruthy();

@@ -50,7 +50,8 @@ export function loadOrCreateDevice(deviceId) {
   let record;
   if (existsSync(path)) record = JSON.parse(readFileSync(path, "utf8"));
   else {
-    const wallet = new Wallet(importKeyIfConfigured() || Wallet.createRandom().privateKey);
+    const generatedKey = `0x${randomBytes(32).toString("hex")}`;
+    const wallet = new Wallet(importKeyIfConfigured() || generatedKey);
     record = { version: 1, deviceId, publicKey: publicKeyWire(wallet), walletAddress: wallet.address, privateKey: encryptPrivateKey(wallet.privateKey) };
     writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
     try { chmodSync(path, 0o600); } catch { /* Windows ACLs are deployment-owned. */ }
