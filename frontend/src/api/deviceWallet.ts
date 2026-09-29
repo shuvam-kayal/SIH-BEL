@@ -15,21 +15,21 @@ export class DeviceWalletError extends Error {
 }
 
 const devWalletBase = (import.meta.env.DEV ? (import.meta.env.VITE_BEL_DEV_WALLET_URL as string | undefined)?.trim().replace(/\/$/, "") : undefined);
-const devDeviceId = import.meta.env.DEV ? (import.meta.env.VITE_BEL_DEV_DEVICE_ID as string | undefined)?.trim() : undefined;
-export const isDevelopmentWalletEnabled = Boolean(devWalletBase && devDeviceId);
+export const isDevelopmentWalletEnabled = Boolean(devWalletBase);
 
 async function unavailable(): Promise<never> { throw new DeviceWalletError("UNAVAILABLE", "Secure device authentication is unavailable on this workstation."); }
 function bridge(): DeviceWalletBridge {
   if (window.belDeviceWallet) return window.belDeviceWallet;
-  if (!devWalletBase || !devDeviceId) return { getIdentity: unavailable, sign: unavailable };
+  if (!devWalletBase) return { getIdentity: unavailable, sign: unavailable };
   return {
     async getIdentity() {
-      const response = await fetch(`${devWalletBase}/identity?deviceId=${encodeURIComponent(devDeviceId)}`);
+      const response = await fetch(`${devWalletBase}/identity`);
       if (!response.ok) throw new DeviceWalletError("UNAVAILABLE", "The development device-wallet service is unavailable.");
       return await response.json() as DeviceWalletIdentity;
     },
     async sign(challenge, options) {
-      const response = await fetch(`${devWalletBase}/sign`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId: devDeviceId, challenge, options }) });
+      const identity = await this.getIdentity();
+      const response = await fetch(`${devWalletBase}/sign`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId: identity.deviceId, challenge, options }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new DeviceWalletError("FAILED", typeof body.message === "string" ? body.message : "Development device-wallet signing failed.");
       return body as DeviceWalletSignature;

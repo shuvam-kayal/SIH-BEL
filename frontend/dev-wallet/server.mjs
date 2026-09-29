@@ -16,7 +16,11 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") { res.writeHead(204, { "access-control-allow-origin": corsOrigin(req), "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type" }); return res.end(); }
   try {
     const url = new URL(req.url || "/", `http://${host}:${port}`);
-    if (req.method === "GET" && url.pathname === "/identity") return send(req, res, 200, loadOrCreateDevice(url.searchParams.get("deviceId") || deviceId).identity);
+    if (req.method === "GET" && url.pathname === "/identity") {
+      const requestedDeviceId = url.searchParams.get("deviceId");
+      if (requestedDeviceId && requestedDeviceId !== deviceId) throw new Error("Active development device mismatch");
+      return send(req, res, 200, loadOrCreateDevice(deviceId).identity);
+    }
     if (req.method === "POST" && url.pathname === "/sign") { const body = await readBody(req); if (body.deviceId !== deviceId) throw new Error("Active development device mismatch"); return send(req, res, 200, await signChallenge(deviceId, body.challenge, body.options)); }
     return send(req, res, 404, { message: "Not found" });
   } catch (error) { return send(req, res, 400, { message: error instanceof Error ? error.message : "Development wallet request failed" }); }
