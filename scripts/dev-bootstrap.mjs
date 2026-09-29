@@ -243,7 +243,7 @@ async function main() {
   if (expectedAdmin) run("npm", ["exec", "--", "prisma", "migrate", "reset", "--force", "--skip-seed", "--schema", "backend/prisma/schema.prisma"], { env: backendEnv });
   run("npm", ["run", "db:migrate"], { env: backendEnv }); if (backendEnv.BEL_BLOCKCHAIN === "evm") run("npm", ["run", "bootstrap:dev"], { env: backendEnv });
   if (!(await probe("http://127.0.0.1:4000/health"))) { const backend = spawnLogged("backend", process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev:backend"], backendEnv); activeState.started.push(backend); persistState(activeState); await waitFor("backend", async () => { if (backend.exited) fail(`backend exited with code ${backend.exitCode}; see ${backend.logPath}`); return probe("http://127.0.0.1:4000/health"); }); } else console.log("[dev-bootstrap] reusing backend at http://127.0.0.1:4000");
-  const frontendEnv = { VITE_API_BASE_URL: "http://127.0.0.1:4000", VITE_BEL_DEV_WALLET_URL: `http://127.0.0.1:${wallet.port}`, VITE_BEL_DEV_DEVICE_ID: wallet.deviceId, BEL_VITE_ALLOWED_HOSTS: process.env.BEL_VITE_ALLOWED_HOSTS ?? "localhost,127.0.0.1" };
+  const frontendEnv = { VITE_API_BASE_URL: "http://localhost:4000", VITE_BEL_DEV_WALLET_URL: `http://127.0.0.1:${wallet.port}`, VITE_BEL_DEV_DEVICE_ID: wallet.deviceId, BEL_VITE_ALLOWED_HOSTS: process.env.BEL_VITE_ALLOWED_HOSTS ?? "localhost,127.0.0.1" };
   const frontendUrl = "http://127.0.0.1:3000";
   if (await probe(frontendUrl)) {
     const priorFrontend = previousState?.started?.find((service) => service.name === "frontend");
