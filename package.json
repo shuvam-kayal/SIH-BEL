@@ -19,6 +19,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "bootstrap:dev": "tsx scripts/bootstrap-dev.ts",
+    "dev:bootstrap": "node scripts/dev-bootstrap.mjs",
+    "dev:stop": "node scripts/dev-stop.mjs",
     "db:migrate": "prisma migrate deploy --schema backend/prisma/schema.prisma",
     "db:seed": "tsx scripts/bootstrap-dev.ts",
     "test:integration": "node scripts/run-integration.mjs",

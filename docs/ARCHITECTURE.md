@@ -19,8 +19,8 @@ CONSENSUS_SPEC.md, DATA_MODEL.md) — this file is the map connecting them.
 │ Frontend (React)                                         │
 │  - Talks ONLY to the backend API, never to smart          │
 │    contracts or the chain directly.                       │
-│  - Built against mocks/mock-api during development        │
-│    (see docs/API_SPEC.yaml for the frozen surface).        │
+│  - Uses the HTTP client and API contract; mock-api is      │
+│    reserved for isolated frontend tests/development.       │
 └───────────────────────┬─────────────────────────────────┘
                          │ REST (docs/API_SPEC.yaml)
 ┌───────────────────────▼─────────────────────────────────┐
@@ -28,9 +28,9 @@ CONSENSUS_SPEC.md, DATA_MODEL.md) — this file is the map connecting them.
 │  - auth/, users/, assets/, jobs/, audit/, blockchain/      │
 │  - Owns business logic + RBAC enforcement                  │
 │    (docs/RBAC_MATRIX.md).                                  │
-│  - Talks to the chain ONLY through the BlockchainService    │
-│    interface (backend/src/adapters) — mock during dev,      │
-│    real node after Phase 12 integration.                   │
+│  - Talks to the chain ONLY through BlockchainService.       │
+│    Unit mode injects the mock adapter; the real integration  │
+│    mode selects EvmBlockchainAdapter and customized Besu.   │
 └───────────────────────┬─────────────────────────────────┘
                          │ BlockchainService interface
 ┌───────────────────────▼─────────────────────────────────┐
@@ -118,12 +118,13 @@ PostgreSQL is mutable operational state. The blockchain is the tamper-evident hi
   integration surface remains the REST contract, not a chain client version.
 - **Backend depends on an interface, not an implementation.** The
   `BlockchainService` interface (`backend/src/adapters`) is the seam
-  that lets Persons 1–3 build and test against a mock chain
+  that lets unit tests build against a mock chain
   (`mocks/mock-blockchain`). With `BEL_BLOCKCHAIN=evm`, the factory creates
   one EVM JSON-RPC provider, shares it with `EvmBlockchainAdapter` and
   `BesuConsensusSource`, and delegates validator/committee reads to Besu's
-  `bel_getValidators` and `bel_getCommittee` methods. Swapping between mock
-  and EVM implementations requires no domain-service changes.
+  `bel_getValidators` and `bel_getCommittee` methods. The CI/local deployment
+  realism gate uses this EVM path against the customized Besu submodule; the
+  mock path is not evidence of chain integration.
 - **RBAC is enforced twice, deliberately.** Once in the backend
   (fast rejection, good UX) and once in the smart contracts (the actual
   trust boundary — a compromised or buggy backend must not be able to

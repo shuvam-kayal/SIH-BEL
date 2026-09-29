@@ -1,13 +1,57 @@
 export type DeviceWalletIdentity = { deviceId: string; publicKey: string; walletAddress: string };
+export type DeviceSigningOptions = { operation: string; requireUserVerification: true };
+export type DeviceWalletSignature = { signature: string; userVerified?: boolean; developmentUserVerification?: true };
+
 export interface DeviceWalletBridge {
   getIdentity(): Promise<DeviceWalletIdentity>;
-  sign(challenge: string): Promise<string>;
+  /** Production bridges perform local user verification before returning. */
+  sign(challenge: string, options: DeviceSigningOptions): Promise<DeviceWalletSignature>;
 }
 
-declare global { interface Window { belDeviceWallet?: DeviceWalletBridge; } }
+declare global { interface Window { belDeviceWallet?: DeviceWalletBridge } }
 
+export class DeviceWalletError extends Error {
+  constructor(readonly reason: "CANCELLED" | "UNAVAILABLE" | "FAILED" | "UNVERIFIED", message: string) { super(message); this.name = "DeviceWalletError"; }
+}
+
+const devWalletBase = (import.meta.env.DEV ? (import.meta.env.VITE_BEL_DEV_WALLET_URL as string | undefined)?.trim().replace(/\/$/, "") : undefined);
+const devDeviceId = import.meta.env.DEV ? (import.meta.env.VITE_BEL_DEV_DEVICE_ID as string | undefined)?.trim() : undefined;
+export const isDevelopmentWalletEnabled = Boolean(devWalletBase && devDeviceId);
+
+async function unavailable(): Promise<never> { throw new DeviceWalletError("UNAVAILABLE", "Secure device authentication is unavailable on this workstation."); }
 function bridge(): DeviceWalletBridge {
-  if (!window.belDeviceWallet) throw new Error("BEL device-wallet integration is unavailable on this workstation.");
-  return window.belDeviceWallet;
+  if (window.belDeviceWallet) return window.belDeviceWallet;
+  if (!devWalletBase || !devDeviceId) return { getIdentity: unavailable, sign: unavailable };
+  return {
+    async getIdentity() {
+      const response = await fetch(`${devWalletBase}/identity?deviceId=${encodeURIComponent(devDeviceId)}`);
+      if (!response.ok) throw new DeviceWalletError("UNAVAILABLE", "The development device-wallet service is unavailable.");
+      return await response.json() as DeviceWalletIdentity;
+    },
+    async sign(challenge, options) {
+      const response = await fetch(`${devWalletBase}/sign`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId: devDeviceId, challenge, options }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new DeviceWalletError("FAILED", typeof body.message === "string" ? body.message : "Development device-wallet signing failed.");
+      return body as DeviceWalletSignature;
+    },
+  };
 }
-export const deviceWallet: DeviceWalletBridge = { getIdentity: () => bridge().getIdentity(), sign: (challenge) => bridge().sign(challenge) };
+
+function mapSigningError(error: unknown): DeviceWalletError {
+  if (error instanceof DeviceWalletError) return error;
+  if (error instanceof DOMException && (error.name === "AbortError" || error.name === "NotAllowedError")) return new DeviceWalletError("CANCELLED", "Device verification was cancelled. The operation was not performed.");
+  if (error instanceof Error && /cancel|abort|not allowed/i.test(error.message)) return new DeviceWalletError("CANCELLED", "Device verification was cancelled. The operation was not performed.");
+  return new DeviceWalletError("FAILED", "Device verification failed. The operation was not performed.");
+}
+
+async function sign(challenge: string, options: DeviceSigningOptions): Promise<string> {
+  if (!options.requireUserVerification) throw new DeviceWalletError("UNVERIFIED", "Secure device verification is required for this operation.");
+  let result: DeviceWalletSignature;
+  try { result = await bridge().sign(challenge, options); } catch (error) { throw mapSigningError(error); }
+  const productionVerified = result?.userVerified === true;
+  const explicitDevelopmentSigning = import.meta.env.DEV && result?.developmentUserVerification === true;
+  if (!result || typeof result.signature !== "string" || result.signature.length === 0 || (!productionVerified && !explicitDevelopmentSigning)) throw new DeviceWalletError("UNVERIFIED", "Secure device verification was not completed. The operation was not performed.");
+  return result.signature;
+}
+
+export const deviceWallet = { getIdentity: () => bridge().getIdentity(), sign };

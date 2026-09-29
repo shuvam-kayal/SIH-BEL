@@ -10,9 +10,9 @@ Run `npm test`. These tests inject the in-memory repository implementations and 
 
 Start the BEL-controlled database with `docker compose up -d postgres`, set
 `DATABASE_URL`, run `npm run db:migrate`, then run `npm run test:integration`.
-For EVM integration, use the real Besu prototype workflow documented in
-`docs/BESU_IMPLEMENTATION.md`; `verify` requires a live Besu RPC and never
-falls back to Anvil or an in-memory chain.
+For EVM integration, use the real customized Besu prototype workflow
+documented in `docs/BESU_IMPLEMENTATION.md`; `verify` requires a live Besu
+RPC and never falls back to a simulated chain.
 
 The integration test proves:
 

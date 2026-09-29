@@ -102,6 +102,21 @@ if (( ${#KEYS[@]} != VALIDATOR_COUNT )); then
   echo "Expected ${VALIDATOR_COUNT} generated Besu validator keys, found ${#KEYS[@]}" >&2
   exit 1
 fi
+VALIDATOR_METADATA_FILE="${CONFIG}/validator-public-keys.json"
+PUB_FILES=()
+for key in "${KEYS[@]}"; do PUB_FILES+=("$(dirname "${key}")/key.pub"); done
+node -e '
+  const fs = require("node:fs");
+  const { computeAddress } = require("ethers");
+  const output = process.argv[1];
+  const keyFiles = process.argv.slice(2);
+  const validators = Object.fromEntries(keyFiles.map((file) => {
+    const publicKey = fs.readFileSync(file, "utf8").trim();
+    return [computeAddress(`0x04${publicKey.replace(/^0x/, "")}`), publicKey];
+  }));
+  fs.writeFileSync(output, `${JSON.stringify({ validators }, null, 2)}\n`);
+' "${VALIDATOR_METADATA_FILE}" "${PUB_FILES[@]}"
+export BEL_VALIDATOR_PUBLIC_KEYS_FILE="${VALIDATOR_METADATA_FILE}"
 PUB="$(tr -d '\r\n' < "$(dirname "${KEYS[0]}")/key.pub" | sed 's/^0x//')"
 BOOTNODE="enode://${PUB}@${BOOTNODE_HOST}:${BOOTNODE_PORT}"
 PIDS=()
@@ -123,7 +138,7 @@ for ((i=0; i<ACTIVE_COUNT; i++)); do
     --nat-method=NONE --bootnodes="${BOOTNODE}" --sync-mode=FAST --sync-min-peers=0 \
     --rpc-http-enabled --rpc-http-host="${RPC_HOST}" \
     --rpc-http-port=$((BASE_RPC + i)) \
-    --rpc-http-api=ETH,NET,WEB3,ADMIN --host-allowlist='*' \
+    --rpc-http-api=ETH,NET,WEB3,ADMIN,QBFT --host-allowlist='*' \
     --min-gas-price=0 --miner-enabled --miner-coinbase="${MINER_COINBASE}" \
     --logging=INFO > "${node}/besu.log" 2>&1 < /dev/null &
   PIDS+=("$!")
@@ -199,6 +214,8 @@ cat > "${RUN_ROOT}/run.json" <<EOF
   "baseP2pPort": ${BASE_P2P},
   "baseRpcPort": ${BASE_RPC},
   "profile": "${PROFILE}",
+  "owner": "${BEL_RUN_OWNER:-manual}",
+  "orchestrator": "${BEL_ORCHESTRATOR_NAME:-}",
   "chainId": 20260920,
   "testAccountKeys": "${TEST_ACCOUNT_KEYS_FILE}",
   "pids": [$(IFS=,; echo "${PIDS[*]}")]

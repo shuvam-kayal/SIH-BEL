@@ -15,7 +15,14 @@ import { evidenceRouter } from "./routes/evidence.routes";
 export function createApp(container: Container = createContainer()): Express {
   const app = express();
 
-  app.use(cors());
+  const origins = (process.env.BEL_CORS_ORIGINS ?? (process.env.BEL_ENV === "production" ? "" : "http://localhost:3000,http://127.0.0.1:3000"))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.use(cors({
+    origin: origins.length ? origins : false,
+    credentials: true,
+  }));
   app.use(express.json());
   app.use(attachSession(container.auth));
 
