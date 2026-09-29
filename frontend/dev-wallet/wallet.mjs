@@ -37,9 +37,10 @@ function decryptPrivateKey(record) {
 function publicKeyWire(wallet) { return `0x${wallet.signingKey.publicKey.slice(4)}`; }
 
 function importKeyIfConfigured() {
+  const direct = process.env.BEL_DEV_DEVICE_IMPORT_KEY?.trim();
   const path = process.env.BEL_DEV_DEVICE_IMPORT_KEY_FILE;
-  if (!path) return undefined;
-  const value = readFileSync(resolve(path), "utf8").trim();
+  const value = direct ?? (path ? readFileSync(resolve(path), "utf8").trim() : undefined);
+  if (value === undefined) return undefined;
   if (!/^0x[0-9a-fA-F]{64}$/.test(value)) throw new Error("Imported development private key must be a 32-byte hex key");
   return value;
 }
