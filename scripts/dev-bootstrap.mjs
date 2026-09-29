@@ -10,7 +10,6 @@ const logDir = join(stateDir, "logs");
 const args = new Set(process.argv.slice(2));
 const skipInfra = args.has("--skip-infra");
 const skipBesu = args.has("--skip-besu");
-const explicitDeploy = args.has("--deploy");
 const RPC_PORTS = [8645, 8646, 8647, 8648];
 const OWNER = "bel-dev-bootstrap";
 let activeState;
@@ -159,6 +158,18 @@ function besuRunInputs(runRoot) {
   if (!keys.length) fail(`Besu run has no development test account keys: ${keyFile}`);
   return { keyFile, keys };
 }
+async function verifyDeployment() {
+  const deploymentPath = join(root, "contracts", "deployments", "besu-prototype.json");
+  let deployment;
+  try { deployment = JSON.parse(readFileSync(deploymentPath, "utf8")); } catch { fail(`Deployment metadata could not be read: ${deploymentPath}`); }
+  if (Number(deployment.chainId) !== 20260920) fail(`Deployment chain ID must be 20260920, got ${deployment.chainId ?? "missing"}.`);
+  if (!deployment.contracts || typeof deployment.contracts !== "object") fail("Deployment metadata has no contract address map.");
+  for (const [name, address] of Object.entries(deployment.contracts)) {
+    if (typeof address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(address)) fail(`Deployment address for ${name} is invalid.`);
+    const code = await jsonRpc("eth_getCode", [address, "latest"]);
+    if (typeof code !== "string" || !/^0x[0-9a-fA-F]+$/.test(code) || code === "0x") fail(`Deployment contract ${name} has no bytecode at ${address}.`);
+  }
+}
 async function cleanupAfterFailure() {
   if (invocationAdminKeyFile) { try { unlinkSync(invocationAdminKeyFile); } catch { /* cleanup is best effort */ } }
   if (!invocationRunRoot || !runMetadata(invocationRunRoot)) return;
@@ -196,7 +207,9 @@ async function main() {
     invocationAdminKeyFile = join(stateDir, "admin-device-private-key");
     writeFileSync(invocationAdminKeyFile, `${besuInputs.keys[0]}\n`, { mode: 0o600 });
     try { chmodSync(invocationAdminKeyFile, 0o600); } catch { /* Windows ACLs are deployment-owned. */ }
-    if (!existsSync(join(root, "contracts", "deployments", "besu-prototype.json")) || explicitDeploy) { if (!commandExists("forge")) fail("Forge is required to deploy contracts."); runBesuScript("deploy-besu-prototype.sh", runRoot); }
+    if (!commandExists("forge")) fail("Forge is required to deploy contracts.");
+    runBesuScript("deploy-besu-prototype.sh", runRoot);
+    await verifyDeployment();
   }
   const wallet = readAdminIdentity(); const walletEnv = { BEL_DEV_WALLET_SECRET: wallet.secret, BEL_DEV_DEVICE_ID: wallet.deviceId, BEL_DEV_WALLET_PORT: wallet.port, BEL_DEV_WALLET_DIR: process.env.BEL_DEV_WALLET_DIR ?? join(stateDir, "devices"), ...(invocationAdminKeyFile ? { BEL_DEV_DEVICE_IMPORT_KEY_FILE: invocationAdminKeyFile } : {}) };
   const walletUrl = `http://127.0.0.1:${wallet.port}/identity?deviceId=${encodeURIComponent(wallet.deviceId)}`;

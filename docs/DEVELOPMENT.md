@@ -19,7 +19,7 @@ The orchestrator keeps its wallet keystores under `.bel-demo/orchestrator/device
 
 Use `npm run dev:stop` to stop recorded processes. It does not delete database volumes, wallet keystores, Besu run directories, deployments, or logs. Reset state only after an explicit decision: stop services, remove the disposable `.bel-demo/orchestrated-*` directory and/or Docker volumes, then recreate the environment.
 
-If a committed deployment already exists, bootstrap reuses it. Pass `node scripts/dev-bootstrap.mjs --deploy` only when you intentionally want the existing deployment script to redeploy contracts.
+Every fresh Besu run deploys contracts against that exact run before admin bootstrap. The deployment metadata is then checked for chain ID `20260920` and non-empty bytecode at every configured contract address. The existing `--deploy` flag remains accepted for compatibility but is no longer needed to force deployment.
 
 ## Development devices
 
