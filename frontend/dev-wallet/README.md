@@ -2,9 +2,9 @@
 
 This is a development-only local wallet service for exercising the existing BEL challenge protocol on one computer. It is not Windows Hello, a TPM, a secure enclave, a managed-device attestation provider, or production key storage.
 
-## Start three isolated devices
+## Start a local device wallet
 
-From the repository root, set a development keystore secret and run one service process at a time with a different device selector:
+From the repository root, set a development keystore secret and run one local service process with its device selector:
 
 ```powershell
 $env:BEL_DEV_WALLET_SECRET = "use-a-local-development-secret-of-16-or-more-characters"
@@ -12,14 +12,25 @@ $env:BEL_DEV_DEVICE_ID = "admin-device"
 node frontend/dev-wallet/server.mjs
 ```
 
-Use `employee-001-device` and `employee-002-device` in separate runs when provisioning the two employees. The browser selects the active service through Vite-only variables:
+The shared frontend needs only the local wallet URL. The wallet service is authoritative for the device ID; do not set `VITE_BEL_DEV_DEVICE_ID`:
 
 ```text
 VITE_BEL_DEV_WALLET_URL=http://127.0.0.1:8787
-VITE_BEL_DEV_DEVICE_ID=admin-device
 ```
 
-Restart the service and Vite dev server when switching devices. The service creates one encrypted keystore per device under `frontend/dev-wallet/.bel-dev/devices/<device-id>/wallet.json` (or `BEL_DEV_WALLET_DIR`). That directory is ignored by the dev-wallet package. Each device has an independent secp256k1 key, public key, and wallet address.
+The browser calls `/identity` without a device selector and uses the returned device ID for `/sign`. The service rejects a mismatched explicit selector, so it cannot be used to enumerate arbitrary local wallet identities. It creates one encrypted keystore per device under `frontend/dev-wallet/.bel-dev/devices/<device-id>/wallet.json` (or `BEL_DEV_WALLET_DIR`). That directory is ignored by the dev-wallet package. Each device has an independent secp256k1 key, public key, and wallet address.
+
+For remote employee testing, Developer A shares only the frontend and backend through their chosen tunnels. Developer B does not run the frontend and runs only a local wallet:
+
+```text
+BEL_DEV_WALLET_SECRET=<local secret of >=16 chars>
+BEL_DEV_DEVICE_ID=BEL-DEV-EMPLOYEE-001
+BEL_DEV_WALLET_PORT=8787
+BEL_DEV_WALLET_ALLOWED_ORIGIN=https://<frontend-tunnel>.trycloudflare.com
+node frontend/dev-wallet/server.mjs
+```
+
+The wallet remains bound to `127.0.0.1` and must never be tunneled or exposed publicly. Developer B opens Developer A's frontend tunnel; the browser reaches Developer A's backend tunnel and Developer B's own `http://127.0.0.1:8787` wallet.
 
 To make the development admin wallet correspond to the Besu/bootstrap wallet, set `BEL_DEV_DEVICE_IMPORT_KEY_FILE` once when creating `admin-device`, pointing to the ephemeral Besu test-account key file. The key is read by the local service only and is never sent to the browser or backend. Do not place it in `.env` or source control.
 

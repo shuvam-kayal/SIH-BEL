@@ -31,13 +31,13 @@ $env:BEL_DEV_DEVICE_ID = "BEL-DEV-ADMIN-001"
 node frontend/dev-wallet/server.mjs
 ```
 
-For an employee, use a separate service process, wallet directory, port, and ID, for example `BEL-DEV-EMPLOYEE-001` on port `8788`. Each ID gets a separate encrypted keypair. The browser receives only the ID, public key, address, and signed challenge. Private keys never enter React, API payloads, browser storage, logs, or Git. See `frontend/dev-wallet/README.md` for the keystore and import details.
+For an employee, use a separate local service process, wallet directory, port, and ID, for example `BEL-DEV-EMPLOYEE-001` on port `8788`. Each ID gets a separate encrypted keypair. The browser receives only the ID, public key, address, and signed challenge. Private keys never enter React, API payloads, browser storage, logs, or Git. The frontend needs only `VITE_BEL_DEV_WALLET_URL`; it calls `/identity` without a device selector and uses the wallet service's returned device ID for signing. See `frontend/dev-wallet/README.md` for the keystore and import details.
 
-Development attestation is explicit: configure `BEL_DEVICE_ATTESTATION=mock` and `BEL_MOCK_APPROVED_DEVICE_IDS` with only the local IDs being tested. Production rejects the mock adapter and requires the managed provider configuration.
+Development attestation is explicit: configure `BEL_DEVICE_ATTESTATION=mock` and `BEL_MOCK_APPROVED_DEVICE_IDS` with only the local IDs being tested, for example `BEL-DEV-ADMIN-001,BEL-DEV-EMPLOYEE-001`. The dev bootstrap preserves an explicitly supplied allowlist and otherwise approves only its admin wallet device. Production rejects the mock adapter and requires the managed provider configuration.
 
 ## Remote employee testing
 
-Developer A runs Besu, PostgreSQL, Kubo, the backend, and the admin frontend. Developer B runs only a frontend dev server and the employee's local dev-wallet service. Set Developer B's `VITE_API_BASE_URL` to Developer A's backend origin and `VITE_BEL_DEV_WALLET_URL` to the employee wallet service on Developer B's machine. The employee initializes a pending account; Developer A verifies, assigns a role, and activates it before employee login.
+Developer A runs Besu, PostgreSQL, Kubo, the backend, and the frontend, exposing only the frontend and backend through tunnels. Developer B does not run the frontend. Developer B runs only a local dev-wallet service configured with `BEL_DEV_DEVICE_ID=BEL-DEV-EMPLOYEE-001` and `BEL_DEV_WALLET_ALLOWED_ORIGIN=<exact frontend tunnel origin>`, then opens Developer A's frontend tunnel. The shared frontend uses its configured backend tunnel and local `http://127.0.0.1:<wallet-port>` wallet URL; it never embeds Developer B's device ID. The employee initializes a pending account; Developer A verifies, assigns a role, and activates it before employee login.
 
 The backend uses an explicit development allowlist, for example:
 
@@ -47,7 +47,7 @@ BEL_CORS_ORIGINS=http://192.168.1.10:3000,http://localhost:3000
 
 The Vite server binds to LAN interfaces, but host-header validation remains explicit. Set `BEL_VITE_ALLOWED_HOSTS=192.168.1.10,localhost` for the actual development host. Do not use `allowedHosts: true`. WSL2 may require a Windows port-forward/firewall rule; binding Vite to `0.0.0.0` alone does not guarantee reachability from another physical device.
 
-Never expose PostgreSQL, the Kubo API, Besu RPC, the wallet service, private keys, development secrets, or the mock-attestation configuration publicly. Restrict firewall rules to the intended LAN and use a real managed device-attestation deployment for anything beyond isolated development.
+Never expose PostgreSQL, the Kubo API, Besu RPC, the wallet service, private keys, development secrets, or the mock-attestation configuration publicly. The wallet stays bound to `127.0.0.1`; `BEL_DEV_WALLET_ALLOWED_ORIGIN` is an explicit browser-origin allowlist, not a tunnel or public bind. Restrict firewall rules to the intended LAN and use a real managed device-attestation deployment for anything beyond isolated development.
 
 ## Network status and Besu boundary
 
