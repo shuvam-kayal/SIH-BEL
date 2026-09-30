@@ -102,5 +102,59 @@ export function assetsRouter(c: Container): Router {
     }
   );
 
+  router.post(
+    "/assets/:id/state",
+    requireSession,
+    requireFreshAuthentication(c.auth, "ASSET_STATE_CHANGE", (req) => req.params.id),
+    requirePermission("REGISTER_ASSET"),
+    async (req, res, next) => {
+      try {
+        const newState = req.body?.newState ?? req.body?.status;
+        if (typeof newState !== "string") throw new ValidationError(["newState is required"]);
+        res.json(await c.assets.changeAssetState(req.params.id, newState as Parameters<typeof c.assets.changeAssetState>[1], {
+          identityId: req.user!.identityId,
+          walletAddress: req.user!.walletAddress,
+        }));
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.post(
+    "/assets/:id/components",
+    requireSession,
+    requireFreshAuthentication(c.auth, "COMPONENT_ATTACH", (req) => req.params.id),
+    requirePermission("REGISTER_ASSET"),
+    async (req, res, next) => {
+      try {
+        if (typeof req.body?.componentId !== "string") throw new ValidationError(["componentId is required"]);
+        res.json(await c.assets.attachComponent(req.params.id, req.body.componentId, {
+          identityId: req.user!.identityId,
+          walletAddress: req.user!.walletAddress,
+        }));
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.delete(
+    "/assets/:id/components/:componentId",
+    requireSession,
+    requireFreshAuthentication(c.auth, "COMPONENT_REMOVE", (req) => req.params.componentId),
+    requirePermission("REGISTER_ASSET"),
+    async (req, res, next) => {
+      try {
+        res.json(await c.assets.removeComponent(req.params.id, req.params.componentId, {
+          identityId: req.user!.identityId,
+          walletAddress: req.user!.walletAddress,
+        }));
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   return router;
 }

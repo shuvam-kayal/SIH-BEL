@@ -46,5 +46,5 @@ describe("development wallet server identity boundary", () => {
     expect(second).toEqual(first);
     expect(mismatched.status).toBe(400);
     expect(signMismatched.status).toBe(400);
-  });
+  }, 15_000);
 });

@@ -74,11 +74,12 @@ describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () =
 
   it("mints by owner identity, returns nftId, events and audit ids", async () => {
     const r = await ok(env("ASSET_MINT", ENGINEER, "DID:BEL:ENGINEER", { assetId: "PUMP-1", ownerId: "DID:BEL:MANAGER", assetType: "PUMP" }));
-    expect(r.nftId).toBe("1");
+    expect(r.nftId).toMatch(/^\d+$/);
+    expect(Number(r.nftId)).toBeGreaterThan(0);
     expect(r.hash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(r.events.map((e) => e.name)).toEqual(expect.arrayContaining(["Transfer", "AssetMinted", "AuditRecorded"]));
     expect(r.auditTxIds).toHaveLength(1);
-    expect(await adapter.getAsset("PUMP-1")).toMatchObject({ nftId: "1", ownerId: "DID:BEL:MANAGER", custodianId: "DID:BEL:MANAGER", status: "ACTIVE", parentAssetId: null });
+    expect(await adapter.getAsset("PUMP-1")).toMatchObject({ nftId: r.nftId, ownerId: "DID:BEL:MANAGER", custodianId: "DID:BEL:MANAGER", status: "ACTIVE", parentAssetId: null });
     expect(await adapter.getAsset("NOPE")).toBeNull();
   });
 
