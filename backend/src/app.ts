@@ -90,7 +90,7 @@ export function createApp(container: Container = createContainer()): Express {
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     // Persist diagnostics for all HttpErrors (including 502/504) as well as
     // unexpected 500s. Raw device signatures are intentionally never stored.
-    if (err instanceof HttpError || !(err instanceof HttpError)) void writeBackendErrorLog(req as RequestDiagnostics, err);
+    void writeBackendErrorLog(req as RequestDiagnostics, err);
     if (err instanceof HttpError) {
       return res.status(err.status).json({ code: err.code, message: err.message });
     }
