@@ -15,6 +15,7 @@ import { chainRouter } from "./routes/chain.routes";
 import { jobsRouter } from "./routes/jobs.routes";
 import { usersRouter } from "./routes/users.routes";
 import { evidenceRouter } from "./routes/evidence.routes";
+import { BlockchainError } from "./blockchain/errors";
 
 type RequestDiagnostics = Request & { requestId?: string };
 
@@ -36,6 +37,8 @@ export async function writeBackendErrorLog(req: RequestDiagnostics, err: unknown
     signaturePresent: Boolean(signature),
     signatureLength: signature?.length ?? 0,
     transactionType: req.path === "/assets" ? "ASSET_MINT" : req.path === "/jobs" ? "JOB_CREATE" : undefined,
+    blockchainKind: err instanceof BlockchainError ? err.kind : undefined,
+    blockchainDetails: err instanceof BlockchainError ? err.details : undefined,
   };
   const path = process.env.BEL_BACKEND_ERROR_LOG?.trim() || fileURLToPath(new URL("../logs/backend-errors.log", import.meta.url));
   try {
@@ -85,7 +88,9 @@ export function createApp(container: Container = createContainer()): Express {
   // unfinished module is visible in the response rather than hidden
   // behind a generic 500.
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
-    if ((err instanceof HttpError ? err.status : 500) === 500) void writeBackendErrorLog(req as RequestDiagnostics, err);
+    // Persist diagnostics for all HttpErrors (including 502/504) as well as
+    // unexpected 500s. Raw device signatures are intentionally never stored.
+    if (err instanceof HttpError || !(err instanceof HttpError)) void writeBackendErrorLog(req as RequestDiagnostics, err);
     if (err instanceof HttpError) {
       return res.status(err.status).json({ code: err.code, message: err.message });
     }
