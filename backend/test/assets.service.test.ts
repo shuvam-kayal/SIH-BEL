@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import request from "supertest";
+import { Wallet as EthersWallet } from "ethers";
 import type { BlockchainService } from "../src/adapters/BlockchainService";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
@@ -85,14 +86,19 @@ describe("AssetsServiceImpl", () => {
     const previous = process.env.BEL_BLOCKCHAIN;
     process.env.BEL_BLOCKCHAIN = "evm";
     try {
-      const chain = new FakeBlockchain();
+      const captured: Transaction[] = [];
+      const chain = Object.assign(new FakeBlockchain(), {
+        submitTransactionDetailed: async (tx: Transaction) => { captured.push(tx); return { txId: tx.txId, status: "SUCCESS" as const, nftId: "701" }; },
+      });
       const service = new AssetsServiceImpl(chain);
       const input = { assetId: "AST-EVM-SIGNATURE", assetType: "TOOL", ownerId: "DID:BEL:1", custodianId: "DID:BEL:1" };
       await expect(service.create(input, actor)).rejects.toMatchObject({ kind: "SIGNER" });
       await expect(service.create(input, { ...actor, signature: "development" })).rejects.toMatchObject({ kind: "SIGNER" });
-      const raw = "0x02f864" + "ab".repeat(100);
-      await service.create(input, { ...actor, signature: raw });
-      expect(chain.transactions[0].signature).toBe(raw);
+      const device = EthersWallet.createRandom();
+      const raw = await device.signTransaction({ to: "0x1111111111111111111111111111111111111111", data: "0x1234", chainId: 31337, nonce: 7, value: 0 });
+      await service.create(input, { identityId: actor.identityId, walletAddress: device.address, signature: raw });
+      expect(captured[0].signature).toBe(raw);
+      expect(captured[0].signature).not.toBe("development");
     } finally {
       if (previous === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previous;
     }

@@ -291,7 +291,8 @@ export class AssetsServiceImpl implements AssetsService {
   private requireActor(actor?: AssetActor): AssetActor {
     const identityId = this.requiredString(actor?.identityId, "actorIdentity");
     const walletAddress = this.requiredString(actor?.walletAddress, "actorWallet");
-    return { identityId, walletAddress };
+    const signature = typeof actor?.signature === "string" ? actor.signature.trim() : undefined;
+    return { identityId, walletAddress, signature };
   }
 
   private transaction(

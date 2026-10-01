@@ -6,12 +6,15 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
-import { createApp } from "../src/app";
+import { createApp, writeBackendErrorLog } from "../src/app";
 import { createContainer } from "../src/container";
 import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
 import { MemoryAssetRepository } from "../src/domain/repositories";
 import { createMemoryRepositories } from "../src/users/repository-implementations";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const container = createContainer(new MockBlockchainAdapter(), { repositories: createMemoryRepositories(), assets: new MemoryAssetRepository() });
@@ -34,6 +37,26 @@ beforeAll(async () => {
 });
 
 describe("infrastructure", () => {
+  it("writes safe structured diagnostics without persisting a raw signature", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bel-backend-errors-"));
+    const previous = process.env.BEL_BACKEND_ERROR_LOG;
+    const rawSignature = "0x" + "ab".repeat(120);
+    const logPath = join(directory, "backend-errors.log");
+    process.env.BEL_BACKEND_ERROR_LOG = logPath;
+    try {
+      await writeBackendErrorLog({ method: "POST", originalUrl: "/assets", path: "/assets", requestId: "request-test-1", body: { signature: rawSignature }, user: { identityId: "DID:ACTOR", walletAddress: "0xACTOR" } } as never, new Error("intentional diagnostic failure"));
+      const text = await readFile(logPath, "utf8");
+      expect(text).toContain("request-test-1");
+      expect(text).toContain("/assets");
+      expect(text).toContain("intentional diagnostic failure");
+      expect(text).toContain(`\"signatureLength\":${rawSignature.length}`);
+      expect(text).not.toContain(rawSignature);
+    } finally {
+      if (previous === undefined) delete process.env.BEL_BACKEND_ERROR_LOG; else process.env.BEL_BACKEND_ERROR_LOG = previous;
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reports health", async () => {
     const res = await request(app).get("/health");
     expect(res.status).toBe(200);

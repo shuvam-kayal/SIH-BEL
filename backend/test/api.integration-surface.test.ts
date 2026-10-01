@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
+import { Wallet } from "ethers";
 import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
@@ -101,7 +102,7 @@ describe("backend HTTP integration surface", () => {
     const technician = users.TECHNICIAN;
     const verifier = users.VERIFIER;
     const assetId = "SURFACE-ASSET";
-    const deviceSignature = "0xdevice-signed-asset-job-test";
+    const deviceSignature = await Wallet.createRandom().signTransaction({ to: "0x1111111111111111111111111111111111111111", data: "0x1234", chainId: 31337, nonce: 7, value: 0 });
     const asset = await request(app).post("/assets").set(auth("ENGINEER")).send({ assetId, assetType: "PUMP", ownerId: technician.identityId, custodianId: technician.identityId, signature: deviceSignature });
     expect(asset.status).toBe(201);
     expect(asset.body).toMatchObject({ assetId, assetType: "PUMP", ownerId: technician.identityId, custodianId: technician.identityId, status: "ACTIVE" });
