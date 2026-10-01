@@ -8,6 +8,7 @@ import { BlockchainService } from "../adapters/BlockchainService";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { randomUUID } from "node:crypto";
 import { MemoryJobRepository, type AssetRepository, type JobRepository } from "../domain/repositories";
+import { BlockchainError } from "../blockchain/errors";
 
 type JobActor = {
   identityId: string;
@@ -227,6 +228,10 @@ export class JobsServiceImpl implements JobsService {
     actor: JobActor,
     payload: Record<string, unknown>
   ): Promise<void> {
+    const signature = actor.signature?.trim();
+    if (type === "JOB_CREATE" && process.env.BEL_BLOCKCHAIN?.trim().toLowerCase() === "evm" && (!signature || signature === "development")) {
+      throw new BlockchainError("SIGNER", "A device-signed raw transaction is required for EVM job creation");
+    }
     const result = await this.chain.submitTransaction({
       txId: randomUUID(),
       type,
@@ -234,7 +239,7 @@ export class JobsServiceImpl implements JobsService {
       actorWallet: actor.walletAddress,
       payload,
       timestamp: new Date().toISOString(),
-      signature: actor.signature ?? "development",
+      signature: signature || "development",
     });
 
     if (result.status !== "SUCCESS") {

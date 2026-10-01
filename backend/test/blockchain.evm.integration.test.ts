@@ -174,6 +174,11 @@ describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () =
       return device.signTransaction(await device.populateTransaction({ to: p.to, data: p.data, chainId: p.chainId }));
     };
 
+    const assetCreate = env("ASSET_MINT", DEVICE, "DID:BEL:DEVICE-USER", { assetId: "ASSET-DEV", ownerId: "DID:BEL:DEVICE-USER", assetType: "DEVICE-OWNED" });
+    const assetResult = await adapter.submitTransactionDetailed({ ...assetCreate, signature: await sign(assetCreate) });
+    expect(assetResult.status).toBe("SUCCESS");
+    expect(await adapter.getAsset("ASSET-DEV")).toMatchObject({ ownerId: "DID:BEL:DEVICE-USER", status: "ACTIVE" });
+
     const create = env("JOB_CREATE", DEVICE, "DID:BEL:DEVICE-USER", { jobId: "J-DEV", assetId: "PUMP-1" });
     const r = await adapter.submitTransactionDetailed({ ...create, signature: await sign(create) });
     expect(r.status).toBe("SUCCESS");

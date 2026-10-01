@@ -101,7 +101,8 @@ describe("backend HTTP integration surface", () => {
     const technician = users.TECHNICIAN;
     const verifier = users.VERIFIER;
     const assetId = "SURFACE-ASSET";
-    const asset = await request(app).post("/assets").set(auth("ENGINEER")).send({ assetId, assetType: "PUMP", ownerId: technician.identityId, custodianId: technician.identityId });
+    const deviceSignature = "0xdevice-signed-asset-job-test";
+    const asset = await request(app).post("/assets").set(auth("ENGINEER")).send({ assetId, assetType: "PUMP", ownerId: technician.identityId, custodianId: technician.identityId, signature: deviceSignature });
     expect(asset.status).toBe(201);
     expect(asset.body).toMatchObject({ assetId, assetType: "PUMP", ownerId: technician.identityId, custodianId: technician.identityId, status: "ACTIVE" });
     expect((await request(app).get("/assets").set(auth("ENGINEER"))).body).toEqual(expect.arrayContaining([expect.objectContaining({ assetId })]));
@@ -114,9 +115,10 @@ describe("backend HTTP integration surface", () => {
     expect(transfer.body).toMatchObject({ assetId, ownerId: engineer.identityId, custodianId: engineer.identityId });
 
     const jobId = "SURFACE-JOB";
-    const created = await request(app).post("/jobs").set(auth("ENGINEER")).send({ jobId, assetId, priority: "HIGH" });
+    const created = await request(app).post("/jobs").set(auth("ENGINEER")).send({ jobId, assetId, priority: "HIGH", signature: deviceSignature });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ jobId, assetId, status: "CREATED" });
+    expect(chain.submitted.filter((tx) => tx.type === "ASSET_MINT" || tx.type === "JOB_CREATE").map((tx) => tx.signature)).toEqual(expect.arrayContaining([deviceSignature, deviceSignature]));
     expect((await request(app).get("/jobs").set(auth("ENGINEER"))).body).toEqual(expect.arrayContaining([expect.objectContaining({ jobId })]));
     expect((await request(app).get(`/jobs/${jobId}`).set(auth("ENGINEER"))).body).toMatchObject({ jobId });
     expect((await request(app).post(`/jobs/${jobId}/assign`).set(auth("ENGINEER")).send({ technicianId: technician.identityId })).body.status).toBe("ASSIGNED");

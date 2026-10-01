@@ -8,6 +8,7 @@ import type { Asset, Transaction } from "../../../shared/types";
 import type { MockBlockchainResult } from "../../../shared/api";
 import { ASSET_STATUSES, type AssetStatus } from "../../../shared/enums";
 import { MemoryAssetRepository, type AssetRepository } from "../domain/repositories";
+import { BlockchainError } from "../blockchain/errors";
 
 /** The authenticated identity and wallet that sign a transaction envelope. */
 export type AssetActor = {
@@ -299,6 +300,10 @@ export class AssetsServiceImpl implements AssetsService {
     payload: Record<string, unknown>
   ): Transaction {
     const signer = this.requireActor(actor);
+    const signature = signer.signature?.trim();
+    if (type === "ASSET_MINT" && process.env.BEL_BLOCKCHAIN?.trim().toLowerCase() === "evm" && (!signature || signature === "development")) {
+      throw new BlockchainError("SIGNER", "A device-signed raw transaction is required for EVM asset creation");
+    }
     return {
       txId: randomUUID(),
       type,
@@ -308,7 +313,7 @@ export class AssetsServiceImpl implements AssetsService {
       timestamp: new Date().toISOString(),
       // The production adapter replaces this with a device-signed payload;
       // this matches the development transaction path used by user writes.
-      signature: signer.signature ?? "development",
+      signature: signature || "development",
     };
   }
 

@@ -81,6 +81,23 @@ async function createSession(container: ReturnType<typeof createContainer>, empl
 }
 
 describe("AssetsServiceImpl", () => {
+  it("requires and preserves the raw device signature for EVM asset creation", async () => {
+    const previous = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      const chain = new FakeBlockchain();
+      const service = new AssetsServiceImpl(chain);
+      const input = { assetId: "AST-EVM-SIGNATURE", assetType: "TOOL", ownerId: "DID:BEL:1", custodianId: "DID:BEL:1" };
+      await expect(service.create(input, actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await expect(service.create(input, { ...actor, signature: "development" })).rejects.toMatchObject({ kind: "SIGNER" });
+      const raw = "0x02f864" + "ab".repeat(100);
+      await service.create(input, { ...actor, signature: raw });
+      expect(chain.transactions[0].signature).toBe(raw);
+    } finally {
+      if (previous === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previous;
+    }
+  });
+
   it("round-trips a created asset through list and getById", async () => {
     const chain = new FakeBlockchain();
     const service = new AssetsServiceImpl(chain);

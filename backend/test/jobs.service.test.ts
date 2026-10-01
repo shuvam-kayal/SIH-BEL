@@ -41,6 +41,24 @@ const mockChain: BlockchainService = {
 };
 
 describe("JobsService", () => {
+  it("requires and preserves the raw device signature for EVM job creation", async () => {
+    const previous = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      let submitted: any;
+      const chain: BlockchainService = { ...mockChain, submitTransaction: async (tx) => { submitted = tx; return { txId: "TX-DEVICE", status: "SUCCESS" }; } };
+      const service = new JobsServiceImpl(chain);
+      const input = { assetId: "ASSET-001", createdBy: "IDENTITY-001", priority: "HIGH" as const };
+      await expect(service.create(input, actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await expect(service.create(input, { ...actor, signature: "development" })).rejects.toMatchObject({ kind: "SIGNER" });
+      const raw = "0x02f864" + "cd".repeat(100);
+      await service.create(input, { ...actor, signature: raw });
+      expect(submitted.signature).toBe(raw);
+    } finally {
+      if (previous === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previous;
+    }
+  });
+
   it("list() initially returns an empty array", async () => {
     const service = new JobsServiceImpl(mockChain);
 
