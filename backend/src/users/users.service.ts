@@ -391,9 +391,9 @@ export class UsersServiceImpl implements UsersService {
         if (existingWallet.identityId !== identity.identityId) {
           throw new ConflictError(`Wallet ${walletAddress} is already bound to ${existingWallet.identityId} on-chain`);
         }
-        if (!(await this.chain.getIdentity(identity.identityId))) {
-          throw new ConflictError(`Wallet ${walletAddress} has an inconsistent on-chain identity record`);
-        }
+        // A wallet can already be registered for this DID while ROLE_ASSIGN
+        // is still pending. getIdentity() intentionally returns null until a
+        // role exists, so this is a valid, retryable activation checkpoint.
         return;
       }
     }

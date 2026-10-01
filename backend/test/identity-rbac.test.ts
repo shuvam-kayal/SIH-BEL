@@ -50,6 +50,34 @@ describe("identity, authentication, and wallet lifecycle", () => {
     expect((await users.listActiveEmployees()).some((entry) => entry.user.employeeId === "EMP-DIRECTORY")).toBe(false);
   });
 
+  it("resumes activation when the wallet exists for the same DID but role assignment is incomplete", async () => {
+    const previousMode = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      let submitted = 0;
+      const chain = {
+        getWallet: async () => ({ address: "0xWALLET", identityId: "DID:TARGET", deviceId: "D", status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null, publicKey: null }),
+        getIdentity: async () => null,
+        submitTransaction: async () => { submitted++; return { txId: "tx", status: "SUCCESS" as const }; },
+      } as unknown as BlockchainService;
+      const service = new UsersServiceImpl(chain, createMemoryRepositories(identityStore));
+      await (service as any).ensureIdentityCreated(
+        { identityId: "DID:ADMIN", employeeId: "A", fullName: "Admin", role: "ADMIN", department: "IT", status: "ACTIVE", createdAt: new Date().toISOString() },
+        { identityId: "DID:TARGET", employeeId: "E", fullName: "Employee", role: "ENGINEER", department: "OPS", status: "PENDING", createdAt: new Date().toISOString() },
+        "0xWALLET",
+      );
+      expect(submitted).toBe(0);
+      await (service as any).ensureRoleAssigned(
+        { identityId: "DID:ADMIN", employeeId: "A", fullName: "Admin", role: "ADMIN", department: "IT", status: "ACTIVE", createdAt: new Date().toISOString() },
+        { identityId: "DID:TARGET", employeeId: "E", fullName: "Employee", role: "ENGINEER", department: "OPS", status: "PENDING", createdAt: new Date().toISOString() },
+        "0xWALLET",
+      );
+      expect(submitted).toBe(1);
+    } finally {
+      if (previousMode === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previousMode;
+    }
+  });
+
   it("rejects invalid, suspended, and revoked-wallet logins", async () => {
     await provision("EMP002");
     const existingSession = await auth.login("EMP002-CREDENTIAL");
