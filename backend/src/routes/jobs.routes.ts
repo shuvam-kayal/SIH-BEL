@@ -10,12 +10,19 @@ import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
 import { requireFreshAuthentication } from "../auth/fresh-auth.middleware";
 import { NotFoundError, ValidationError } from "../errors";
+import { randomUUID } from "node:crypto";
+import type { Transaction } from "../../../shared/types";
 
 function actor(req: Express.Request) {
   return {
     identityId: req.user!.identityId,
     walletAddress: req.user!.walletAddress,
   };
+}
+
+function jobTransaction(req: Express.Request, jobId: string, assetId: string): Transaction {
+  return { txId: randomUUID(), type: "JOB_CREATE", actorIdentity: req.user!.identityId, actorWallet: req.user!.walletAddress,
+    payload: { jobId, assetId }, timestamp: new Date().toISOString(), signature: "development" };
 }
 
 export function jobsRouter(c: Container): Router {
@@ -45,10 +52,20 @@ export function jobsRouter(c: Container): Router {
       if (typeof req.body?.assetId !== "string") {
         throw new ValidationError(["assetId is required"]);
       }
-      res.status(201).json(await c.jobs.create({ ...req.body, createdBy: req.user!.identityId }, actor(req)));
+      res.status(201).json(await c.jobs.create({ ...req.body, createdBy: req.user!.identityId }, { ...actor(req), signature: typeof req.body?.signature === "string" ? req.body.signature : undefined }));
     } catch (err) {
       next(err);
     }
+  });
+
+  router.post("/jobs/prepare", requireSession, requirePermission("CREATE_JOB"), async (req, res, next) => {
+    try {
+      if (typeof req.body?.assetId !== "string") throw new ValidationError(["assetId is required"]);
+      const prepare = c.chain.prepareTransaction;
+      if (!prepare) return res.status(501).json({ code: "NOT_IMPLEMENTED", message: "Device transaction preparation is unavailable" });
+      const jobId = typeof req.body.jobId === "string" && req.body.jobId.trim() ? req.body.jobId.trim() : `JOB-${(await c.jobs.list()).length + 1}`;
+      res.json({ intent: { ...req.body, jobId }, transaction: await prepare.call(c.chain, jobTransaction(req, jobId, req.body.assetId)) });
+    } catch (err) { next(err); }
   });
 
   router.post(

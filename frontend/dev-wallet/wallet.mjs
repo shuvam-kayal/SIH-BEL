@@ -71,3 +71,9 @@ export async function signChallenge(deviceId, challenge, options) {
   const compact = `0x${Number(parsed.yParity).toString(16).padStart(2, "0")}${parsed.r.slice(2)}${parsed.s.slice(2)}`;
   return { ...device.identity, signature: compact, developmentUserVerification: true };
 }
+
+export async function signTransaction(deviceId, transaction, options) {
+  if (!options || options.requireUserVerification !== true || !OPERATION_PATTERN.test(options.operation)) throw new Error("Development wallet requires an explicit operation and requireUserVerification=true");
+  const device = loadOrCreateDevice(deviceId);
+  return { ...device.identity, signature: await device.wallet.signTransaction({ ...transaction, value: transaction.value ?? 0 }), developmentUserVerification: true };
+}

@@ -7,6 +7,7 @@ import { requireSession } from "../middleware/session";
 import { requireFreshAuthentication } from "../auth/fresh-auth.middleware";
 import { NotFoundError, ValidationError } from "../errors";
 import type { AuthorizationGrant } from "../../../shared/types";
+import { randomUUID } from "node:crypto";
 
 export function assetsRouter(c: Container): Router {
   const router = Router();
@@ -42,6 +43,7 @@ export function assetsRouter(c: Container): Router {
           await c.assets.create(req.body, {
             identityId: req.user!.identityId,
             walletAddress: req.user!.walletAddress,
+            signature: typeof req.body?.signature === "string" ? req.body.signature : undefined,
           })
         );
       } catch (err) {
@@ -49,6 +51,19 @@ export function assetsRouter(c: Container): Router {
       }
     }
   );
+
+  router.post("/assets/prepare", requireSession, requirePermission("REGISTER_ASSET"), async (req, res, next) => {
+    try {
+      if (typeof req.body?.assetType !== "string") throw new ValidationError(["assetType is required"]);
+      const prepare = c.chain.prepareTransaction;
+      if (!prepare) return res.status(501).json({ code: "NOT_IMPLEMENTED", message: "Device transaction preparation is unavailable" });
+      const assetId = typeof req.body.assetId === "string" && req.body.assetId.trim() ? req.body.assetId.trim() : `AST-${randomUUID()}`;
+      const tx = { txId: randomUUID(), type: "ASSET_MINT" as const, actorIdentity: req.user!.identityId, actorWallet: req.user!.walletAddress,
+        payload: { assetId, assetType: req.body.assetType, ownerId: req.body.ownerId, custodianId: req.body.custodianId, parentAssetId: req.body.parentAssetId ?? null },
+        timestamp: new Date().toISOString(), signature: "development" };
+      res.json({ intent: { ...req.body, assetId }, transaction: await prepare.call(c.chain, tx) });
+    } catch (err) { next(err); }
+  });
 
   // TRANSFER_ASSET is an AUTH cell for ENGINEER. Grants are resolved through
   // the repository-backed grant port wired by the main container.

@@ -29,6 +29,7 @@ import {
   type TransactionReceipt,
 } from "ethers";
 import type { BlockchainService, BlockchainStatus, MockBlockchainResult } from "../../../shared/api";
+import type { PreparedTransaction as SharedPreparedTransaction } from "../../../shared/types";
 import type { Asset, AuditEvent, Block, Identity, Job, Transaction, Validator, Wallet } from "../../../shared/types";
 import { ROLES, type AssetStatus, type AuditEntityType, type JobStatus, type Role, type WalletStatus } from "../../../shared/enums";
 import { NotImplementedError } from "../errors";
@@ -60,7 +61,7 @@ export type EvmAdapterOptions = {
 
 export type ChainEvent = { contract: ContractName; name: string; args: Record<string, string | string[]>; logIndex: number };
 
-export type PreparedTransaction = { from: string; to: string; data: string; chainId: number; contract: ContractName; method: string };
+export type PreparedTransaction = SharedPreparedTransaction & { contract: ContractName; method: string };
 
 export type SubmitResult = MockBlockchainResult & {
   /** EVM transaction hash (absent when rejected in simulation). */
@@ -188,11 +189,14 @@ export class EvmBlockchainAdapter implements BlockchainService {
     const from = this.actorWallet(tx); // validate the envelope before any I/O
     await this.ensureNetwork();
     const plan = await this.plan(tx);
+    const nonce = await this.provider.getTransactionCount(from, "pending");
     return {
       from,
       to: this.config.deployment.contracts[plan.contract],
       data: this.interfaces[plan.contract].encodeFunctionData(plan.method, plan.args),
       chainId: this.config.deployment.chainId,
+      nonce,
+      value: "0",
       contract: plan.contract,
       method: plan.method,
     };
@@ -452,6 +456,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
     if (!raw.to || raw.to.toLowerCase() !== prepared.to.toLowerCase()) problems.push(`target is not ${prepared.contract}`);
     if (raw.data.toLowerCase() !== prepared.data.toLowerCase()) problems.push(`calldata does not match ${prepared.method}(payload)`);
     if (raw.chainId !== BigInt(prepared.chainId)) problems.push("wrong chainId");
+    if (prepared.nonce !== undefined && raw.nonce !== prepared.nonce) problems.push("nonce does not match prepared transaction");
     if (raw.value !== 0n) problems.push("value must be 0");
     if (problems.length) {
       throw new BlockchainError("SIGNER", `Signed transaction rejected: ${problems.join("; ")}`, { problems });

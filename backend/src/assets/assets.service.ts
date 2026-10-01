@@ -13,6 +13,7 @@ import { MemoryAssetRepository, type AssetRepository } from "../domain/repositor
 export type AssetActor = {
   identityId: string;
   walletAddress: string;
+  signature?: string;
 };
 
 /** A chain submission that did not reach the success state. */
@@ -307,7 +308,7 @@ export class AssetsServiceImpl implements AssetsService {
       timestamp: new Date().toISOString(),
       // The production adapter replaces this with a device-signed payload;
       // this matches the development transaction path used by user writes.
-      signature: "development",
+      signature: signer.signature ?? "development",
     };
   }
 

@@ -1,6 +1,6 @@
 // Frozen application API and blockchain adapter contracts.
 // All six workstreams consume these types. Change only through an ADR + spec update.
-import type { Asset, AuditEvent, Block, Identity, Job, PendingIdentity, Transaction, User, Validator, Wallet, Device, ProvisioningChallenge, ValidatorRegistration, ValidatorHistoryRecord } from "./types";
+import type { Asset, AuditEvent, Block, Identity, Job, PendingIdentity, PreparedTransaction, Transaction, User, Validator, Wallet, Device, ProvisioningChallenge, ValidatorRegistration, ValidatorHistoryRecord } from "./types";
 import type { JobPriority, Role } from "./enums";
 
 export type ApiErrorCode = "VALIDATION_FAILED" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "NOT_IMPLEMENTED" | "INTERNAL_ERROR";
@@ -108,6 +108,8 @@ export type MockBlockchainResult = {
 };
 export interface BlockchainService {
   submitTransaction(tx: Transaction): Promise<MockBlockchainResult>;
+  /** Optional raw-device signing seam implemented by the EVM adapter. */
+  prepareTransaction?(tx: Transaction): Promise<PreparedTransaction>;
   getIdentity(identityId: string): Promise<Identity | null>;
   getWallet(address: string): Promise<Wallet | null>;
   getAsset(id: string): Promise<Asset | null>;

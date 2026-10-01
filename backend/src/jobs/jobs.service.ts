@@ -12,6 +12,7 @@ import { MemoryJobRepository, type AssetRepository, type JobRepository } from ".
 type JobActor = {
   identityId: string;
   walletAddress: string;
+  signature?: string;
 };
 
 export const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
@@ -233,7 +234,7 @@ export class JobsServiceImpl implements JobsService {
       actorWallet: actor.walletAddress,
       payload,
       timestamp: new Date().toISOString(),
-      signature: "development",
+      signature: actor.signature ?? "development",
     });
 
     if (result.status !== "SUCCESS") {

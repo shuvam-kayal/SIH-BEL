@@ -10,7 +10,7 @@ import type {
   ValidatorRestoreInput, ValidatorRemoveCancelInput,
 } from "../../../shared/api";
 import type { Asset, AuditEvent, Device, Identity, Job, ProvisioningChallenge, User, Validator, ValidatorHistoryRecord, ValidatorRegistration, Wallet } from "../../../shared/types";
-import { deviceWallet } from "./deviceWallet";
+import { deviceWallet, signDeviceTransaction } from "./deviceWallet";
 
 export type EvidenceRecord = {
   id: string;
@@ -34,6 +34,12 @@ type FrontendApiClient = ApiClient & {
   getEvidence(jobId: string): Promise<EvidenceRecord[]>;
   downloadEvidence(jobId: string, evidenceId: string): Promise<Blob>;
 };
+
+async function deviceSignedWrite<T>(path: string, input: Record<string, unknown>): Promise<T> {
+  const prepared = await json<{ intent: Record<string, unknown>; transaction: { to: string; data: string; chainId: number; nonce?: number; value?: string } }>(`${path}/prepare`, input, true);
+  const signature = await signDeviceTransaction(prepared.transaction);
+  return json<T>(path, { ...prepared.intent, signature }, true);
+}
 
 const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || "/api";
 const API_BASE_URL = configuredBase.replace(/\/$/, "");
@@ -113,7 +119,7 @@ export const apiClient: FrontendApiClient = {
   async getUser(id: string) { try { return await get<User>(`/users/${encodeURIComponent(id)}`); } catch (error) { if (error instanceof HttpApiError && error.status === 404) return null; throw error; } },
   async getAssets() { return get<Asset[]>("/assets"); },
   async getAsset(id: string) { try { return await get<Asset>(`/assets/${encodeURIComponent(id)}`); } catch (error) { if (error instanceof HttpApiError && error.status === 404) return null; throw error; } },
-  async createAsset(input: CreateAssetRequest) { return json<Asset>("/assets", input, true); },
+  async createAsset(input: CreateAssetRequest) { return deviceSignedWrite<Asset>("/assets", input as unknown as Record<string, unknown>); },
   async transferAsset(id: string, input: TransferAssetRequest) { return freshJson<Asset>(`/assets/${encodeURIComponent(id)}/transfer`, input, "ASSET_TRANSFER", id); },
   async changeAssetState(id: string, input: ChangeAssetStateRequest) { return freshJson<Asset>(`/assets/${encodeURIComponent(id)}/state`, input, "ASSET_STATE_CHANGE", id); },
   async attachComponent(id: string, input: AttachComponentRequest) { return freshJson<Asset>(`/assets/${encodeURIComponent(id)}/components`, input, "COMPONENT_ATTACH", id); },
@@ -123,7 +129,7 @@ export const apiClient: FrontendApiClient = {
   async revokeGrant(userId: string, grantId: string) { return freshJson<import("../../../shared/types").AuthorizationGrant>(`/admin/users/${encodeURIComponent(userId)}/grants/${encodeURIComponent(grantId)}/revoke`, undefined, "GRANT_REVOKE", grantId); },
   async getJobs() { return get<Job[]>("/jobs"); },
   async getJob(id: string) { try { return await get<Job>(`/jobs/${encodeURIComponent(id)}`); } catch (error) { if (error instanceof HttpApiError && error.status === 404) return null; throw error; } },
-  async createJob(input: CreateJobRequest) { return json<Job>("/jobs", input, true); },
+  async createJob(input: CreateJobRequest) { return deviceSignedWrite<Job>("/jobs", input as unknown as Record<string, unknown>); },
   async assignJob(id: string, input: AssignJobRequest) { return json<Job>(`/jobs/${encodeURIComponent(id)}/assign`, input, true); },
   async startJob(id: string) { return post<Job>(`/jobs/${encodeURIComponent(id)}/start`, true); },
   async completeJob(id: string, input: CompleteJobRequest) { return json<Job>(`/jobs/${encodeURIComponent(id)}/complete`, input, true); },
