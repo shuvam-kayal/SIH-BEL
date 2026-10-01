@@ -4,7 +4,7 @@
 // Both must pass — a Manager still can't approve a job that is not yet
 // COMPLETED.
 
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import type { Container } from "../container";
 import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
@@ -13,14 +13,15 @@ import { NotFoundError, ValidationError } from "../errors";
 import { randomUUID } from "node:crypto";
 import type { Transaction } from "../../../shared/types";
 
-function actor(req: Express.Request) {
+function actor(req: Request) {
   return {
     identityId: req.user!.identityId,
     walletAddress: req.user!.walletAddress,
+    signature: typeof req.body?.signature === "string" ? req.body.signature : undefined,
   };
 }
 
-function jobTransaction(req: Express.Request, jobId: string, assetId: string): Transaction {
+function jobTransaction(req: Request, jobId: string, assetId: string): Transaction {
   return { txId: randomUUID(), type: "JOB_CREATE", actorIdentity: req.user!.identityId, actorWallet: req.user!.walletAddress,
     payload: { jobId, assetId }, timestamp: new Date().toISOString(), signature: "development" };
 }
@@ -68,6 +69,11 @@ export function jobsRouter(c: Container): Router {
     } catch (err) { next(err); }
   });
 
+  async function prepareMutation(req: Request, res: Response, type: Parameters<Container["jobs"]["prepare"]>[0], payload: Record<string, unknown>) {
+    const prepared = await c.jobs.prepare(type, req.params.id, payload, actor(req));
+    res.json({ transaction: prepared });
+  }
+
   router.post(
     "/jobs/:id/assign",
     requireSession,
@@ -84,6 +90,10 @@ export function jobsRouter(c: Container): Router {
     }
   );
 
+  router.post("/jobs/:id/assign/prepare", requireSession, requirePermission("ASSIGN_TECHNICIAN"), async (req, res, next) => {
+    try { await prepareMutation(req, res, "JOB_ASSIGN", { technicianId: req.body?.technicianId }); } catch (err) { next(err); }
+  });
+
   router.post(
     "/jobs/:id/start",
     requireSession,
@@ -96,6 +106,10 @@ export function jobsRouter(c: Container): Router {
       }
     }
   );
+
+  router.post("/jobs/:id/start/prepare", requireSession, requirePermission("PERFORM_MAINTENANCE"), async (req, res, next) => {
+    try { await prepareMutation(req, res, "JOB_START", {}); } catch (err) { next(err); }
+  });
 
   router.post(
     "/jobs/:id/complete",
@@ -126,6 +140,21 @@ export function jobsRouter(c: Container): Router {
     }
   );
 
+  router.post("/jobs/:id/complete/prepare", requireSession, requirePermission("PERFORM_MAINTENANCE"), async (req, res, next) => {
+    try {
+      let evidenceHash = req.body?.evidenceHash;
+      const evidenceId = req.body?.evidenceId;
+      if (typeof evidenceId === "string" && evidenceId.trim()) {
+        evidenceHash = await c.evidence.getHash(req.params.id, evidenceId, {
+          identityId: req.user!.identityId,
+          walletAddress: req.user!.walletAddress,
+          role: req.user!.role,
+        });
+      }
+      await prepareMutation(req, res, "JOB_COMPLETE", { evidenceHash });
+    } catch (err) { next(err); }
+  });
+
   router.post(
     "/jobs/:id/approve",
     requireSession,
@@ -139,6 +168,10 @@ export function jobsRouter(c: Container): Router {
       }
     }
   );
+
+  router.post("/jobs/:id/approve/prepare", requireSession, requirePermission("VERIFY_MAINTENANCE"), async (req, res, next) => {
+    try { await prepareMutation(req, res, "JOB_APPROVE", {}); } catch (err) { next(err); }
+  });
 
   router.post(
     "/jobs/:id/reject",
@@ -157,6 +190,10 @@ export function jobsRouter(c: Container): Router {
       }
     }
   );
+
+  router.post("/jobs/:id/reject/prepare", requireSession, requirePermission("VERIFY_MAINTENANCE"), async (req, res, next) => {
+    try { await prepareMutation(req, res, "JOB_REJECT", { reason: req.body?.reason }); } catch (err) { next(err); }
+  });
 
   return router;
 }

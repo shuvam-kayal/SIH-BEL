@@ -38,7 +38,14 @@ type FrontendApiClient = ApiClient & {
 async function deviceSignedWrite<T>(path: string, input: Record<string, unknown>): Promise<T> {
   const prepared = await json<{ intent: Record<string, unknown>; transaction: { to: string; data: string; chainId: number; nonce?: number; gasLimit?: string; value?: string } }>(`${path}/prepare`, input, true);
   const signature = await signDeviceTransaction(prepared.transaction);
-  return json<T>(path, { ...prepared.intent, signature }, true);
+  return json<T>(path, { ...input, ...prepared.intent, signature }, true);
+}
+
+async function deviceSignedJobWrite<T>(path: string, input: Record<string, unknown>, freshOperation?: string, resourceId?: string): Promise<T> {
+  const headers = freshOperation ? await freshHeaders(freshOperation, resourceId) : undefined;
+  const prepared = await request<{ transaction: { to: string; data: string; chainId: number; nonce?: number; gasLimit?: string; value?: string } }>(`${path}/prepare`, { method: "POST", body: JSON.stringify(input), headers }, true);
+  const signature = await signDeviceTransaction(prepared.transaction);
+  return request<T>(path, { method: "POST", body: JSON.stringify({ ...input, signature }), headers }, true);
 }
 
 const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || "/api";
@@ -131,12 +138,12 @@ export const apiClient: FrontendApiClient = {
   async getJobs() { return get<Job[]>("/jobs"); },
   async getJob(id: string) { try { return await get<Job>(`/jobs/${encodeURIComponent(id)}`); } catch (error) { if (error instanceof HttpApiError && error.status === 404) return null; throw error; } },
   async createJob(input: CreateJobRequest) { return deviceSignedWrite<Job>("/jobs", input as unknown as Record<string, unknown>); },
-  async assignJob(id: string, input: AssignJobRequest) { return json<Job>(`/jobs/${encodeURIComponent(id)}/assign`, input, true); },
-  async startJob(id: string) { return post<Job>(`/jobs/${encodeURIComponent(id)}/start`, true); },
-  async completeJob(id: string, input: CompleteJobRequest) { return json<Job>(`/jobs/${encodeURIComponent(id)}/complete`, input, true); },
-  async completeJobWithEvidence(id: string, evidenceId: string) { return json<Job>(`/jobs/${encodeURIComponent(id)}/complete`, { evidenceId }, true); },
-  async approveJob(id: string) { return freshJson<Job>(`/jobs/${encodeURIComponent(id)}/approve`, undefined, "JOB_VERIFY", id); },
-  async rejectJob(id: string, input: RejectJobRequest) { return freshJson<Job>(`/jobs/${encodeURIComponent(id)}/reject`, input, "JOB_VERIFY", id); },
+  async assignJob(id: string, input: AssignJobRequest) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/assign`, input as unknown as Record<string, unknown>); },
+  async startJob(id: string) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/start`, {}); },
+  async completeJob(id: string, input: CompleteJobRequest) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/complete`, input as unknown as Record<string, unknown>); },
+  async completeJobWithEvidence(id: string, evidenceId: string) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/complete`, { evidenceId }); },
+  async approveJob(id: string) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/approve`, {}, "JOB_VERIFY", id); },
+  async rejectJob(id: string, input: RejectJobRequest) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/reject`, input as unknown as Record<string, unknown>, "JOB_VERIFY", id); },
   async getAssetAuditTrail(assetId: string) { return get<AuditEvent[]>(`/audit/assets/${encodeURIComponent(assetId)}`); },
   async getBlockchainStatus() { return get<BlockchainStatus>("/blockchain/status", false); },
   async getValidators() { return get<Validator[]>("/blockchain/validators"); },
