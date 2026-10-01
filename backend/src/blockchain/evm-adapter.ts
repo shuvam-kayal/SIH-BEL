@@ -208,10 +208,27 @@ export class EvmBlockchainAdapter implements BlockchainService {
     if (tx.signature !== "development" && !raw) {
       throw new BlockchainError("SIGNER", "Invalid device-signed raw transaction in tx.signature");
     }
-    if (raw) this.verifySignedTransaction(raw, prepared);
+    if (raw) {
+      try {
+        this.verifySignedTransaction(raw, prepared);
+      } catch (err) {
+        if (err instanceof BlockchainError) {
+          err.details = { ...(err.details ?? {}), txType: tx.type, prepared: this.safeTransactionSummary(prepared), signed: this.safeSignedTransactionSummary(raw) };
+        }
+        throw err;
+      }
+    }
     const signer = raw ? undefined : this.signerFor(prepared.from);
 
-    const revert = await this.simulate(prepared);
+    let revert: DecodedRevert | undefined;
+    try {
+      revert = await this.simulate(prepared);
+    } catch (err) {
+      if (err instanceof BlockchainError) {
+        err.details = { ...(err.details ?? {}), stage: "simulate", txType: tx.type, prepared: this.safeTransactionSummary(prepared) };
+      }
+      throw err;
+    }
     if (revert) return { txId: tx.txId, status: "REJECTED", events: [], revert, auditTxIds: [] };
 
     let hash: string;
@@ -224,9 +241,18 @@ export class EvmBlockchainAdapter implements BlockchainService {
     } catch (err) {
       const decoded = this.decodeRevertFrom(err);
       if (decoded) return { txId: tx.txId, status: "REJECTED", events: [], revert: decoded, auditTxIds: [] };
-      throw classifyError(err, `${tx.type} submission failed`);
+      const failure = classifyError(err, `${tx.type} submission failed`);
+      failure.details = { ...(failure.details ?? {}), stage: "broadcast", txType: tx.type, prepared: this.safeTransactionSummary(prepared), signed: raw ? this.safeSignedTransactionSummary(raw) : undefined };
+      throw failure;
     }
-    return this.awaitResult(tx, hash);
+    try {
+      return await this.awaitResult(tx, hash);
+    } catch (err) {
+      if (err instanceof BlockchainError) {
+        err.details = { ...(err.details ?? {}), stage: "receipt", txType: tx.type, hash, prepared: this.safeTransactionSummary(prepared) };
+      }
+      throw err;
+    }
   }
 
   // -------------------------------------------------------------- reads
@@ -451,6 +477,14 @@ export class EvmBlockchainAdapter implements BlockchainService {
     } catch {
       return null;
     }
+  }
+
+  private safeTransactionSummary(p: PreparedTransaction): Record<string, unknown> {
+    return { from: p.from, to: p.to, chainId: p.chainId, nonce: p.nonce, contract: p.contract, method: p.method, dataLength: p.data.length, value: p.value };
+  }
+
+  private safeSignedTransactionSummary(raw: EvmTransaction): Record<string, unknown> {
+    return { from: raw.from, to: raw.to, chainId: raw.chainId?.toString(), nonce: raw.nonce, type: raw.type, dataLength: raw.data.length, value: raw.value.toString() };
   }
 
   /** A relayed device-signed transaction must be exactly what the envelope claims. */
