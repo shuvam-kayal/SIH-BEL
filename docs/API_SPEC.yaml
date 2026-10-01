@@ -371,6 +371,12 @@ components:
         createdAt: { type: string, format: date-time }
         verifiedAt: { type: string, format: date-time, nullable: true }
         verifiedBy: { type: string, nullable: true }
+    EmployeeDirectoryEntry:
+      type: object
+      required: [user, fullName]
+      properties:
+        fullName: { type: string }
+        user: { $ref: '#/components/schemas/User' }
   parameters:
     id:
       name: id
@@ -615,6 +621,17 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/PendingRegistration' }
+  /admin/users/active:
+    get:
+      summary: List all active employee and administrator users
+      responses:
+        '200':
+          description: Active employee directory
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EmployeeDirectoryEntry' }
   /admin/users/{id}/verify:
     post:
       summary: Verify a pending employee and assign employee ID/department

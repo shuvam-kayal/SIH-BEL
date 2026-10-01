@@ -103,6 +103,7 @@ export const apiClient: FrontendApiClient = {
   async initializeAccount(input: InitializeAccountRequest) { return json<PendingRegistration>("/auth/initialize-account", input); },
   async requestAuthenticationChallenge(deviceId: string) { return json<ProvisioningChallenge>("/auth/login-challenge", { deviceId }); },
   async getPendingRegistrations() { return get<PendingRegistration[]>("/admin/registrations/pending"); },
+  async getActiveEmployees() { return get<import("../../../shared/api").EmployeeDirectoryEntry[]>("/admin/users/active"); },
   async verifyRegistration(id: string, input: VerifyRegistrationRequest) { return json<Identity>(`/admin/users/${encodeURIComponent(id)}/verify`, input, true); },
   async assignRole(id: string, input: AssignRoleRequest) { return freshJson<User>(`/admin/users/${encodeURIComponent(id)}/role`, input, "ROLE_ASSIGN", id); },
   async activateRegistration(id: string) { return post<PendingRegistration>(`/admin/users/${encodeURIComponent(id)}/activate`, true); },

@@ -1,5 +1,5 @@
 import { createPublicKey, randomBytes, randomUUID, verify } from "node:crypto";
-import type { CreateUserResponse, InitializeAccountRequest, PendingRegistration, ProvisioningChallengeRequest } from "../../../shared/api";
+import type { CreateUserResponse, EmployeeDirectoryEntry, InitializeAccountRequest, PendingRegistration, ProvisioningChallengeRequest } from "../../../shared/api";
 import type { AuthorizationGrant, Device, Identity, PendingIdentity, ProvisioningChallenge, Role, User, Wallet } from "../../../shared/types";
 import type { Action } from "../../../shared/rbac";
 import { ROLES } from "../../../shared/enums";
@@ -32,6 +32,7 @@ export interface UsersService {
   requestProvisioningChallenge(input: ProvisioningChallengeRequest): Promise<ProvisioningChallenge>;
   initializeAccount(input: InitializeAccountRequest): Promise<PendingRegistration>;
   listPendingRegistrations(): Promise<PendingRegistration[]>;
+  listActiveEmployees(): Promise<EmployeeDirectoryEntry[]>;
   verifyRegistration(actorId: string, userId: string, input: { employeeId: string; department: string }): Promise<Identity>;
   activateRegistration(actorId: string, userId: string): Promise<PendingRegistration>;
 }
@@ -164,6 +165,14 @@ export class UsersServiceImpl implements UsersService {
       if (device && wallet) result.push({ identity: identity as unknown as PendingIdentity, device, wallet });
     }
     return result;
+  }
+
+  async listActiveEmployees(): Promise<EmployeeDirectoryEntry[]> {
+    const identities = await this.repositories.identities.listByStatus("ACTIVE");
+    return Promise.all(identities.map(async (identity) => {
+      const wallet = (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "ACTIVE");
+      return { user: this.toUser(identity, wallet?.address ?? ""), fullName: identity.fullName };
+    }));
   }
 
   async verifyRegistration(actorId: string, userId: string, input: { employeeId: string; department: string }): Promise<Identity> {

@@ -204,7 +204,10 @@ export class EvmBlockchainAdapter implements BlockchainService {
 
   async submitTransactionDetailed(tx: Transaction): Promise<SubmitResult> {
     const prepared = await this.prepareTransaction(tx);
-    const raw = this.parseSignedTransaction(tx.signature);
+    const raw = tx.signature === "development" ? null : this.parseSignedTransaction(tx.signature);
+    if (tx.signature !== "development" && !raw) {
+      throw new BlockchainError("SIGNER", "Invalid device-signed raw transaction in tx.signature");
+    }
     if (raw) this.verifySignedTransaction(raw, prepared);
     const signer = raw ? undefined : this.signerFor(prepared.from);
 
@@ -214,7 +217,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
     let hash: string;
     try {
       if (raw) {
-        hash = (await this.provider.broadcastTransaction(tx.signature)).hash;
+        hash = (await this.provider.broadcastTransaction(tx.signature.trim())).hash;
       } else {
         hash = await this.sendAs(signer!, prepared.to, prepared.data);
       }
@@ -439,10 +442,11 @@ export class EvmBlockchainAdapter implements BlockchainService {
     return buildCallPlan(tx, lookups);
   }
 
-  private parseSignedTransaction(signature: string): EvmTransaction | null {
-    if (typeof signature !== "string" || !/^0x[0-9a-fA-F]{100,}$/.test(signature)) return null;
+  /** Parses the exact serialized transaction returned by the managed device. */
+  parseSignedTransaction(signature: string): EvmTransaction | null {
+    if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/i.test(signature.trim())) return null;
     try {
-      const parsed = EvmTransaction.from(signature);
+      const parsed = EvmTransaction.from(signature.trim());
       return parsed.signature ? parsed : null;
     } catch {
       return null;

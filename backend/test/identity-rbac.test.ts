@@ -40,6 +40,16 @@ describe("identity, authentication, and wallet lifecycle", () => {
     expect(await auth.validateSession(session.token)).toMatchObject({ employeeId: "EMP001" });
   });
 
+  it("lists active employees and admins without exposing credentials", async () => {
+    await provision("ADMIN-DIRECTORY", "ADMIN");
+    await provision("EMP-DIRECTORY", "ENGINEER");
+    const entries = await users.listActiveEmployees();
+    expect(entries.map((entry) => entry.fullName)).toEqual(expect.arrayContaining(["ADMIN-DIRECTORY", "EMP-DIRECTORY"]));
+    expect(entries.every((entry) => !Object.keys(entry).some((key) => /private|secret|credential/i.test(key)))).toBe(true);
+    identityStore.identities.get(entries.find((entry) => entry.user.employeeId === "EMP-DIRECTORY")!.user.identityId)!.status = "SUSPENDED";
+    expect((await users.listActiveEmployees()).some((entry) => entry.user.employeeId === "EMP-DIRECTORY")).toBe(false);
+  });
+
   it("rejects invalid, suspended, and revoked-wallet logins", async () => {
     await provision("EMP002");
     const existingSession = await auth.login("EMP002-CREDENTIAL");

@@ -105,6 +105,10 @@ export function usersRouter(c: Container): Router {
     try { res.json(await c.users.listPendingRegistrations()); } catch (err) { next(err); }
   });
 
+  router.get("/admin/users/active", requireSession, requirePermission("CREATE_EMPLOYEE"), async (_req, res, next) => {
+    try { res.json(await c.users.listActiveEmployees()); } catch (err) { next(err); }
+  });
+
   router.post("/admin/users/:id/verify", requireSession, requireRole("ADMIN"), async (req, res, next) => {
     try {
       res.json(await c.users.verifyRegistration(req.user!.identityId, req.params.id, { employeeId: req.body?.employeeId, department: req.body?.department }));
