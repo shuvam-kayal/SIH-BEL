@@ -36,7 +36,7 @@ type FrontendApiClient = ApiClient & {
 };
 
 async function deviceSignedWrite<T>(path: string, input: Record<string, unknown>): Promise<T> {
-  const prepared = await json<{ intent: Record<string, unknown>; transaction: { to: string; data: string; chainId: number; nonce?: number; value?: string } }>(`${path}/prepare`, input, true);
+  const prepared = await json<{ intent: Record<string, unknown>; transaction: { to: string; data: string; chainId: number; nonce?: number; gasLimit?: string; value?: string } }>(`${path}/prepare`, input, true);
   const signature = await signDeviceTransaction(prepared.transaction);
   return json<T>(path, { ...prepared.intent, signature }, true);
 }

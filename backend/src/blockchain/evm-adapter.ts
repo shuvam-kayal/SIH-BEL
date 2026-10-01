@@ -189,13 +189,17 @@ export class EvmBlockchainAdapter implements BlockchainService {
     const from = this.actorWallet(tx); // validate the envelope before any I/O
     await this.ensureNetwork();
     const plan = await this.plan(tx);
+    const to = this.config.deployment.contracts[plan.contract];
+    const data = this.interfaces[plan.contract].encodeFunctionData(plan.method, plan.args);
     const nonce = await this.provider.getTransactionCount(from, "pending");
+    const gasLimit = await this.provider.estimateGas({ from, to, data, value: 0 });
     return {
       from,
-      to: this.config.deployment.contracts[plan.contract],
-      data: this.interfaces[plan.contract].encodeFunctionData(plan.method, plan.args),
+      to,
+      data,
       chainId: this.config.deployment.chainId,
       nonce,
+      gasLimit: gasLimit.toString(),
       value: "0",
       contract: plan.contract,
       method: plan.method,
@@ -236,7 +240,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
       if (raw) {
         hash = (await this.provider.broadcastTransaction(tx.signature.trim())).hash;
       } else {
-        hash = await this.sendAs(signer!, prepared.to, prepared.data);
+        hash = await this.sendAs(signer!, prepared);
       }
     } catch (err) {
       const decoded = this.decodeRevertFrom(err);
@@ -480,11 +484,11 @@ export class EvmBlockchainAdapter implements BlockchainService {
   }
 
   private safeTransactionSummary(p: PreparedTransaction): Record<string, unknown> {
-    return { from: p.from, to: p.to, chainId: p.chainId, nonce: p.nonce, contract: p.contract, method: p.method, dataLength: p.data.length, value: p.value };
+    return { from: p.from, to: p.to, chainId: p.chainId, nonce: p.nonce, gasLimit: p.gasLimit, contract: p.contract, method: p.method, dataLength: p.data.length, value: p.value };
   }
 
   private safeSignedTransactionSummary(raw: EvmTransaction): Record<string, unknown> {
-    return { from: raw.from, to: raw.to, chainId: raw.chainId?.toString(), nonce: raw.nonce, type: raw.type, dataLength: raw.data.length, value: raw.value.toString() };
+    return { from: raw.from, to: raw.to, chainId: raw.chainId?.toString(), nonce: raw.nonce, gasLimit: raw.gasLimit.toString(), type: raw.type, dataLength: raw.data.length, value: raw.value.toString() };
   }
 
   /** A relayed device-signed transaction must be exactly what the envelope claims. */
@@ -495,6 +499,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
     if (raw.data.toLowerCase() !== prepared.data.toLowerCase()) problems.push(`calldata does not match ${prepared.method}(payload)`);
     if (raw.chainId !== BigInt(prepared.chainId)) problems.push("wrong chainId");
     if (prepared.nonce !== undefined && raw.nonce !== prepared.nonce) problems.push("nonce does not match prepared transaction");
+    if (prepared.gasLimit === undefined || raw.gasLimit !== BigInt(prepared.gasLimit)) problems.push("gasLimit does not match prepared transaction");
     if (raw.value !== 0n) problems.push("value must be 0");
     if (problems.length) {
       throw new BlockchainError("SIGNER", `Signed transaction rejected: ${problems.join("; ")}`, { problems });
@@ -507,7 +512,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
    * which can hand back a stale count), and sends from one wallet are queued so
    * two concurrent requests can never claim the same nonce.
    */
-  private async sendAs(wallet: EvmWallet, to: string, data: string): Promise<string> {
+  private async sendAs(wallet: EvmWallet, p: PreparedTransaction): Promise<string> {
     const key = wallet.address.toLowerCase();
     const previous = this.sendQueues.get(key) ?? Promise.resolve();
     let release!: () => void;
@@ -520,7 +525,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
       const nonce = typeof rpc.send === "function"
         ? Number(BigInt(await rpc.send("eth_getTransactionCount", [wallet.address, "pending"])))
         : await this.provider.getTransactionCount(wallet.address, "pending");
-      return (await wallet.sendTransaction({ to, data, nonce })).hash;
+      return (await wallet.sendTransaction({ to: p.to, data: p.data, nonce, gasLimit: p.gasLimit, value: p.value ?? "0" })).hash;
     } finally {
       release();
       if (this.sendQueues.get(key) === tail) this.sendQueues.delete(key); // nothing queued behind us

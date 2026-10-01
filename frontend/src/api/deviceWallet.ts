@@ -1,7 +1,7 @@
 export type DeviceWalletIdentity = { deviceId: string; publicKey: string; walletAddress: string };
 export type DeviceSigningOptions = { operation: string; requireUserVerification: true };
 export type DeviceWalletSignature = { signature: string; userVerified?: boolean; developmentUserVerification?: true };
-export type DeviceUnsignedTransaction = { to: string; data: string; chainId: number; nonce?: number; value?: string };
+export type DeviceUnsignedTransaction = { to: string; data: string; chainId: number; nonce?: number; gasLimit?: string; value?: string };
 
 export interface DeviceWalletBridge {
   getIdentity(): Promise<DeviceWalletIdentity>;

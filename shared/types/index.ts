@@ -183,6 +183,7 @@ export type PreparedTransaction = {
   data: string;
   chainId: number;
   nonce?: number;
+  gasLimit?: string;
   value?: string;
   contract: string;
   method: string;

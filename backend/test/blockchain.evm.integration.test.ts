@@ -2,7 +2,7 @@
 // Besu process owned by the integration workflow. This suite is skipped by
 // ordinary unit runs and fails on the mandatory path when Besu is absent.
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { JsonRpcProvider, Wallet as EvmWallet, id as keccakText } from "ethers";
+import { Transaction as EvmTransaction, JsonRpcProvider, Wallet as EvmWallet, id as keccakText } from "ethers";
 import type { Transaction } from "../../shared/types";
 import { BlockchainError, EvmBlockchainAdapter, loadChainConfigFromEnv, type EvmChainConfig } from "../src/blockchain";
 
@@ -171,7 +171,12 @@ describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () =
 
     const sign = async (tx: Transaction) => {
       const p = await adapter.prepareTransaction(tx);
-      return device.signTransaction(await device.populateTransaction({ to: p.to, data: p.data, chainId: p.chainId }));
+      expect(p.gasLimit).toMatch(/^\d+$/);
+      expect(BigInt(p.gasLimit!)).toBeGreaterThan(0n);
+      const raw = await device.signTransaction({ to: p.to, data: p.data, chainId: p.chainId, nonce: p.nonce, gasLimit: p.gasLimit, value: p.value });
+      const parsed = EvmTransaction.from(raw);
+      expect(parsed.gasLimit).toBe(BigInt(p.gasLimit!));
+      return raw;
     };
 
     const assetCreate = env("ASSET_MINT", DEVICE, "DID:BEL:DEVICE-USER", { assetId: "ASSET-DEV", ownerId: "DID:BEL:DEVICE-USER", assetType: "DEVICE-OWNED" });
