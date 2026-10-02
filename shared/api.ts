@@ -37,6 +37,7 @@ export type TransferAssetRequest = { newOwnerId: string; newCustodianId?: string
 export type ChangeAssetStateRequest = { newState: import("./enums").AssetStatus };
 export type AttachComponentRequest = { componentId: string };
 export type CreateTransferGrantRequest = { resourceType: "ASSET"; resourceId: string; action: "TRANSFER_ASSET"; expiresAt?: string | null };
+export type CurrentUserGrantResponse = { authorized: boolean; grant: { authorizationGrantId: string; resourceType: "ASSET"; resourceId: string; action: "TRANSFER_ASSET"; status: "ACTIVE"; expiresAt: string | null } | null };
 export type CreateJobRequest = { assetId: string; priority: JobPriority; verifierId?: string };
 export type AssignJobRequest = { technicianId: string };
 export type CompleteJobRequest = { evidenceHash: string };
@@ -69,6 +70,7 @@ export interface ApiClient {
   logout(): Promise<void>;
   getMe(): Promise<User>;
   getUser(id: string): Promise<User | null>;
+  getCurrentUserGrant(resourceId: string): Promise<CurrentUserGrantResponse>;
   getAssets(): Promise<Asset[]>;
   getAsset(id: string): Promise<Asset | null>;
   createAsset(input: CreateAssetRequest): Promise<Asset>;

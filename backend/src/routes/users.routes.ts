@@ -222,6 +222,29 @@ export function usersRouter(c: Container): Router {
     res.json(req.user);
   });
 
+  router.get("/users/me/grants", requireSession, async (req, res, next) => {
+    try {
+      const resourceType = req.query.resourceType;
+      const resourceId = req.query.resourceId;
+      const action = req.query.action;
+      if (resourceType !== "ASSET" || typeof resourceId !== "string" || !resourceId.trim() || action !== "TRANSFER_ASSET") {
+        throw new ValidationError(["resourceType=ASSET, resourceId, and action=TRANSFER_ASSET are required"]);
+      }
+      const grant = await c.users.findActiveGrant(req.user!.identityId, "ASSET", resourceId, "TRANSFER_ASSET");
+      res.json({
+        authorized: grant !== null,
+        grant: grant ? {
+          authorizationGrantId: grant.authorizationGrantId,
+          resourceType: grant.resourceType,
+          resourceId: grant.resourceId,
+          action: grant.action,
+          status: grant.status,
+          expiresAt: grant.expiresAt,
+        } : null,
+      });
+    } catch (err) { next(err); }
+  });
+
   // GET /users/:id
   router.get("/users/:id", requireSession, async (req, res, next) => {
     try {
