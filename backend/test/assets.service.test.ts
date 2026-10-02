@@ -104,6 +104,30 @@ describe("AssetsServiceImpl", () => {
     }
   });
 
+  it("requires a raw device signature for EVM asset mutations", async () => {
+    const previous = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      const chain = new FakeBlockchain();
+      const service = new AssetsServiceImpl(chain);
+      const device = EthersWallet.createRandom();
+      const raw = await device.signTransaction({ to: "0x1111111111111111111111111111111111111111", data: "0x1234", chainId: 31337, nonce: 7, value: 0 });
+      const signed = { identityId: actor.identityId, walletAddress: device.address, signature: raw };
+      await service.create({ assetId: "AST-MUTATION-PARENT", assetType: "TOOL", ownerId: "DID:BEL:1", custodianId: "DID:BEL:1" }, signed);
+      await service.create({ assetId: "AST-MUTATION-CHILD", assetType: "PART", ownerId: "DID:BEL:1", custodianId: "DID:BEL:1" }, signed);
+      await expect(service.attachComponent("AST-MUTATION-PARENT", "AST-MUTATION-CHILD", actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.attachComponent("AST-MUTATION-PARENT", "AST-MUTATION-CHILD", signed);
+      await expect(service.changeAssetState("AST-MUTATION-PARENT", "IN_MAINTENANCE", actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.changeAssetState("AST-MUTATION-PARENT", "IN_MAINTENANCE", signed);
+      await expect(service.removeComponent("AST-MUTATION-PARENT", "AST-MUTATION-CHILD", actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.removeComponent("AST-MUTATION-PARENT", "AST-MUTATION-CHILD", signed);
+      await expect(service.transfer("AST-MUTATION-PARENT", "DID:BEL:2", undefined, actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.transfer("AST-MUTATION-PARENT", "DID:BEL:2", undefined, signed);
+    } finally {
+      if (previous === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previous;
+    }
+  });
+
   it("round-trips a created asset through list and getById", async () => {
     const chain = new FakeBlockchain();
     const service = new AssetsServiceImpl(chain);

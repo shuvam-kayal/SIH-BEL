@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import type { BlockchainService } from "../adapters/BlockchainService";
 import { HttpError, NotFoundError, ValidationError } from "../errors";
-import type { Asset, Transaction } from "../../../shared/types";
+import type { Asset, PreparedTransaction, Transaction } from "../../../shared/types";
 import type { MockBlockchainResult } from "../../../shared/api";
 import { ASSET_STATUSES, type AssetStatus } from "../../../shared/enums";
 import { MemoryAssetRepository, type AssetRepository } from "../domain/repositories";
@@ -16,6 +16,8 @@ export type AssetActor = {
   walletAddress: string;
   signature?: string;
 };
+
+type AssetMutation = "ASSET_TRANSFER" | "ASSET_STATE_CHANGE" | "COMPONENT_ATTACH" | "COMPONENT_REMOVE";
 
 /** A chain submission that did not reach the success state. */
 export class TransactionRejectedError extends HttpError {
@@ -46,6 +48,7 @@ export interface AssetsService {
   changeAssetState(id: string, newState: AssetStatus, actor?: AssetActor): Promise<Asset>;
   attachComponent(parentAssetId: string, componentId: string, actor?: AssetActor): Promise<Asset>;
   removeComponent(parentAssetId: string, componentId: string, actor?: AssetActor): Promise<Asset>;
+  prepare(type: AssetMutation, input: Record<string, unknown>, actor: AssetActor): Promise<PreparedTransaction>;
 }
 
 type DetailedBlockchainService = BlockchainService & {
@@ -246,6 +249,50 @@ export class AssetsServiceImpl implements AssetsService {
     return { ...reconciled };
   }
 
+  async prepare(type: AssetMutation, input: Record<string, unknown>, actor: AssetActor): Promise<PreparedTransaction> {
+    let payload: Record<string, unknown>;
+    if (type === "ASSET_TRANSFER") {
+      const id = this.requiredString(input.assetId, "assetId");
+      const asset = await this.requireAsset(id);
+      const ownerId = this.requiredString(input.newOwnerId, "newOwnerId");
+      if (this.identityExists && !(await this.identityExists(ownerId))) throw new NotFoundError(`No identity ${ownerId}`);
+      const custodianId = input.newCustodianId === undefined ? ownerId : this.requiredString(input.newCustodianId, "newCustodianId");
+      if (custodianId !== ownerId) throw new ValidationError(["newCustodianId must equal newOwnerId because the frozen transferAsset interface moves custody with ownership"]);
+      if (asset.status === "DECOMMISSIONED") throw new ValidationError([`Asset ${id} is decommissioned and cannot be transferred`]);
+      if (asset.parentAssetId !== undefined && asset.parentAssetId !== null) throw new ValidationError([`Component ${id} must be detached before transfer`]);
+      if (asset.ownerId === ownerId) throw new ValidationError([`Asset ${id} is already owned by ${ownerId}`]);
+      payload = { assetId: asset.assetId, nftId: asset.nftId, newOwnerId: ownerId, newCustodianId: custodianId };
+    } else if (type === "ASSET_STATE_CHANGE") {
+      const id = this.requiredString(input.assetId, "assetId");
+      const newState = input.newState;
+      if (!ASSET_STATUSES.includes(newState as AssetStatus)) throw new ValidationError([`newState must be one of ${ASSET_STATUSES.join(", ")}`]);
+      const asset = await this.requireAsset(id);
+      this.assertStateTransition(asset.status, newState as AssetStatus);
+      payload = { assetId: asset.assetId, nftId: asset.nftId, previousState: asset.status, newState };
+    } else {
+      const parentAssetId = this.requiredString(input.parentAssetId, "parentAssetId");
+      const componentId = this.requiredString(input.componentId, "componentId");
+      const parent = await this.requireAsset(parentAssetId, "parentAssetId");
+      const component = await this.requireAsset(componentId, "componentId");
+      if (type === "COMPONENT_ATTACH") {
+        if (parentAssetId === componentId) throw new ValidationError(["An asset cannot be attached to itself"]);
+        if (parent.status === "DECOMMISSIONED" || component.status === "DECOMMISSIONED") throw new ValidationError(["Decommissioned assets cannot be attached"]);
+        if (component.parentAssetId !== undefined && component.parentAssetId !== null) throw new ValidationError([`Component ${componentId} is already attached`]);
+        await this.assertNoCycle(parentAssetId, componentId);
+      } else if (component.parentAssetId !== parentAssetId) {
+        throw new ValidationError([`Component ${componentId} is not attached to ${parentAssetId}`]);
+      }
+      payload = { parentAssetId, parentNftId: parent.nftId, componentId, componentNftId: component.nftId };
+    }
+
+    const prepareTransaction = this.chain.prepareTransaction;
+    if (!prepareTransaction) throw new HttpError(501, "Device transaction preparation is unavailable", "NOT_IMPLEMENTED");
+    return prepareTransaction.call(this.chain, {
+      txId: randomUUID(), type, actorIdentity: actor.identityId, actorWallet: actor.walletAddress,
+      payload, timestamp: new Date().toISOString(), signature: "development",
+    });
+  }
+
   assertStateTransition(current: AssetStatus, next: AssetStatus): void {
     const allowed: Record<AssetStatus, AssetStatus[]> = {
       ACTIVE: ["IN_MAINTENANCE", "DECOMMISSIONED"],
@@ -302,8 +349,8 @@ export class AssetsServiceImpl implements AssetsService {
   ): Transaction {
     const signer = this.requireActor(actor);
     const signature = signer.signature?.trim();
-    if (type === "ASSET_MINT" && process.env.BEL_BLOCKCHAIN?.trim().toLowerCase() === "evm" && (!signature || signature === "development")) {
-      throw new BlockchainError("SIGNER", "A device-signed raw transaction is required for EVM asset creation");
+    if (process.env.BEL_BLOCKCHAIN?.trim().toLowerCase() === "evm" && (!signature || signature === "development")) {
+      throw new BlockchainError("SIGNER", `A device-signed raw transaction is required for EVM ${type}`);
     }
     return {
       txId: randomUUID(),

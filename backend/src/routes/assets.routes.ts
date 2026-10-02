@@ -1,6 +1,6 @@
 // Routes for /assets* (docs/API_SPEC.yaml). Owner: Person 2.
 
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import type { Container } from "../container";
 import { requirePermission } from "../auth/rbac.middleware";
 import { requireSession } from "../middleware/session";
@@ -11,6 +11,12 @@ import { randomUUID } from "node:crypto";
 
 export function assetsRouter(c: Container): Router {
   const router = Router();
+
+  const actor = (req: Request) => ({
+    identityId: req.user!.identityId,
+    walletAddress: req.user!.walletAddress,
+    signature: typeof req.body?.signature === "string" ? req.body.signature : undefined,
+  });
 
   router.get("/assets", requireSession, async (_req, res, next) => {
     try {
@@ -65,6 +71,10 @@ export function assetsRouter(c: Container): Router {
     } catch (err) { next(err); }
   });
 
+  async function prepareMutation(req: Request, res: Response, type: "ASSET_TRANSFER" | "ASSET_STATE_CHANGE" | "COMPONENT_ATTACH" | "COMPONENT_REMOVE", input: Record<string, unknown>) {
+    res.json({ transaction: await c.assets.prepare(type, input, actor(req)) });
+  }
+
   // TRANSFER_ASSET is an AUTH cell for ENGINEER. Grants are resolved through
   // the repository-backed grant port wired by the main container.
   router.post(
@@ -109,6 +119,7 @@ export function assetsRouter(c: Container): Router {
           await c.assets.transfer(req.params.id, newOwnerId, newCustodianId, {
             identityId: req.user!.identityId,
             walletAddress: req.user!.walletAddress,
+            signature: typeof req.body?.signature === "string" ? req.body.signature : undefined,
           })
         );
       } catch (err) {
@@ -116,6 +127,18 @@ export function assetsRouter(c: Container): Router {
       }
     }
   );
+
+  router.post("/assets/:id/transfer/prepare", requireSession, requirePermission("TRANSFER_ASSET", async (req) => {
+    const asset = await c.assets.getById(req.params.id);
+    const grants = asset ? await c.repositories.grants.listByIdentityId(req.user!.identityId) : [];
+    let authorized = false;
+    for (const grant of grants) {
+      if (grant.resourceType === "ASSET" && grant.resourceId === asset?.assetId && grant.action === "TRANSFER_ASSET" && grant.status === "ACTIVE" && await c.users.validateGrant(grant.authorizationGrantId, req.user!.identityId, asset!.assetId, "TRANSFER_ASSET")) { authorized = true; break; }
+    }
+    return { explicitlyAuthorized: authorized, resourceOwnerId: asset?.ownerId };
+  }), async (req, res, next) => {
+    try { await prepareMutation(req, res, "ASSET_TRANSFER", { assetId: req.params.id, newOwnerId: req.body?.newOwnerId, newCustodianId: req.body?.newCustodianId }); } catch (err) { next(err); }
+  });
 
   router.post(
     "/assets/:id/state",
@@ -129,12 +152,17 @@ export function assetsRouter(c: Container): Router {
         res.json(await c.assets.changeAssetState(req.params.id, newState as Parameters<typeof c.assets.changeAssetState>[1], {
           identityId: req.user!.identityId,
           walletAddress: req.user!.walletAddress,
+          signature: typeof req.body?.signature === "string" ? req.body.signature : undefined,
         }));
       } catch (err) {
         next(err);
       }
     },
   );
+
+  router.post("/assets/:id/state/prepare", requireSession, requirePermission("REGISTER_ASSET"), async (req, res, next) => {
+    try { await prepareMutation(req, res, "ASSET_STATE_CHANGE", { assetId: req.params.id, newState: req.body?.newState ?? req.body?.status }); } catch (err) { next(err); }
+  });
 
   router.post(
     "/assets/:id/components",
@@ -147,12 +175,17 @@ export function assetsRouter(c: Container): Router {
         res.json(await c.assets.attachComponent(req.params.id, req.body.componentId, {
           identityId: req.user!.identityId,
           walletAddress: req.user!.walletAddress,
+          signature: typeof req.body?.signature === "string" ? req.body.signature : undefined,
         }));
       } catch (err) {
         next(err);
       }
     },
   );
+
+  router.post("/assets/:id/components/prepare", requireSession, requirePermission("REGISTER_ASSET"), async (req, res, next) => {
+    try { await prepareMutation(req, res, "COMPONENT_ATTACH", { parentAssetId: req.params.id, componentId: req.body?.componentId }); } catch (err) { next(err); }
+  });
 
   router.delete(
     "/assets/:id/components/:componentId",
@@ -163,13 +196,18 @@ export function assetsRouter(c: Container): Router {
       try {
         res.json(await c.assets.removeComponent(req.params.id, req.params.componentId, {
           identityId: req.user!.identityId,
-          walletAddress: req.user!.walletAddress,
+            walletAddress: req.user!.walletAddress,
+            signature: typeof req.body?.signature === "string" ? req.body.signature : undefined,
         }));
       } catch (err) {
         next(err);
       }
     },
   );
+
+  router.post("/assets/:id/components/:componentId/prepare", requireSession, requirePermission("REGISTER_ASSET"), async (req, res, next) => {
+    try { await prepareMutation(req, res, "COMPONENT_REMOVE", { parentAssetId: req.params.id, componentId: req.params.componentId }); } catch (err) { next(err); }
+  });
 
   return router;
 }

@@ -32,7 +32,7 @@ export function AssetDetailPage({ assetId, user, onViewAudit }: { assetId: strin
 
   async function run(action: () => Promise<Asset>) {
     setError("");
-    try { setAsset(await action()); } catch (cause) { setError(cause instanceof Error ? cause.message : "Asset operation failed."); }
+    try { await action(); setAsset(await apiClient.getAsset(assetId)); } catch (cause) { setError(cause instanceof Error ? cause.message : "Asset operation failed."); }
   }
   async function transfer() { await run(() => apiClient.transferAsset(assetId, { newOwnerId: ownerId })); setEditing(false); }
   async function changeState() { if (nextState) await run(() => apiClient.changeAssetState(assetId, { newState: nextState })); }

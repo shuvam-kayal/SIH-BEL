@@ -41,11 +41,11 @@ async function deviceSignedWrite<T>(path: string, input: Record<string, unknown>
   return json<T>(path, { ...input, ...prepared.intent, signature }, true);
 }
 
-async function deviceSignedJobWrite<T>(path: string, input: Record<string, unknown>, freshOperation?: string, resourceId?: string): Promise<T> {
+async function deviceSignedMutationWrite<T>(path: string, input: Record<string, unknown>, freshOperation?: string, resourceId?: string, method: "POST" | "DELETE" = "POST"): Promise<T> {
   const headers = freshOperation ? await freshHeaders(freshOperation, resourceId) : undefined;
   const prepared = await request<{ transaction: { to: string; data: string; chainId: number; nonce?: number; gasLimit?: string; value?: string } }>(`${path}/prepare`, { method: "POST", body: JSON.stringify(input), headers }, true);
   const signature = await signDeviceTransaction(prepared.transaction);
-  return request<T>(path, { method: "POST", body: JSON.stringify({ ...input, signature }), headers }, true);
+  return request<T>(path, { method, body: JSON.stringify({ ...input, signature }), headers }, true);
 }
 
 const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || "/api";
@@ -128,22 +128,22 @@ export const apiClient: FrontendApiClient = {
   async getAssets() { return get<Asset[]>("/assets"); },
   async getAsset(id: string) { try { return await get<Asset>(`/assets/${encodeURIComponent(id)}`); } catch (error) { if (error instanceof HttpApiError && error.status === 404) return null; throw error; } },
   async createAsset(input: CreateAssetRequest) { return deviceSignedWrite<Asset>("/assets", input as unknown as Record<string, unknown>); },
-  async transferAsset(id: string, input: TransferAssetRequest) { return freshJson<Asset>(`/assets/${encodeURIComponent(id)}/transfer`, input, "ASSET_TRANSFER", id); },
-  async changeAssetState(id: string, input: ChangeAssetStateRequest) { return freshJson<Asset>(`/assets/${encodeURIComponent(id)}/state`, input, "ASSET_STATE_CHANGE", id); },
-  async attachComponent(id: string, input: AttachComponentRequest) { return freshJson<Asset>(`/assets/${encodeURIComponent(id)}/components`, input, "COMPONENT_ATTACH", id); },
-  async removeComponent(parentId: string, componentId: string) { return freshHeaders("COMPONENT_REMOVE", componentId).then((headers) => request<Asset>(`/assets/${encodeURIComponent(parentId)}/components/${encodeURIComponent(componentId)}`, { method: "DELETE", headers }, true)); },
+  async transferAsset(id: string, input: TransferAssetRequest) { return deviceSignedMutationWrite<Asset>(`/assets/${encodeURIComponent(id)}/transfer`, input as unknown as Record<string, unknown>, "ASSET_TRANSFER", id); },
+  async changeAssetState(id: string, input: ChangeAssetStateRequest) { return deviceSignedMutationWrite<Asset>(`/assets/${encodeURIComponent(id)}/state`, input as unknown as Record<string, unknown>, "ASSET_STATE_CHANGE", id); },
+  async attachComponent(id: string, input: AttachComponentRequest) { return deviceSignedMutationWrite<Asset>(`/assets/${encodeURIComponent(id)}/components`, input as unknown as Record<string, unknown>, "COMPONENT_ATTACH", id); },
+  async removeComponent(parentId: string, componentId: string) { return deviceSignedMutationWrite<Asset>(`/assets/${encodeURIComponent(parentId)}/components/${encodeURIComponent(componentId)}`, {}, "COMPONENT_REMOVE", componentId, "DELETE"); },
   async getGrants(userId: string) { return get<import("../../../shared/types").AuthorizationGrant[]>(`/admin/users/${encodeURIComponent(userId)}/grants`); },
   async createTransferGrant(userId: string, input: CreateTransferGrantRequest) { return freshJson<import("../../../shared/types").AuthorizationGrant>(`/admin/users/${encodeURIComponent(userId)}/grants`, input, "GRANT_CREATE", input.resourceId); },
   async revokeGrant(userId: string, grantId: string) { return freshJson<import("../../../shared/types").AuthorizationGrant>(`/admin/users/${encodeURIComponent(userId)}/grants/${encodeURIComponent(grantId)}/revoke`, undefined, "GRANT_REVOKE", grantId); },
   async getJobs() { return get<Job[]>("/jobs"); },
   async getJob(id: string) { try { return await get<Job>(`/jobs/${encodeURIComponent(id)}`); } catch (error) { if (error instanceof HttpApiError && error.status === 404) return null; throw error; } },
   async createJob(input: CreateJobRequest) { return deviceSignedWrite<Job>("/jobs", input as unknown as Record<string, unknown>); },
-  async assignJob(id: string, input: AssignJobRequest) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/assign`, input as unknown as Record<string, unknown>); },
-  async startJob(id: string) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/start`, {}); },
-  async completeJob(id: string, input: CompleteJobRequest) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/complete`, input as unknown as Record<string, unknown>); },
-  async completeJobWithEvidence(id: string, evidenceId: string) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/complete`, { evidenceId }); },
-  async approveJob(id: string) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/approve`, {}, "JOB_VERIFY", id); },
-  async rejectJob(id: string, input: RejectJobRequest) { return deviceSignedJobWrite<Job>(`/jobs/${encodeURIComponent(id)}/reject`, input as unknown as Record<string, unknown>, "JOB_VERIFY", id); },
+  async assignJob(id: string, input: AssignJobRequest) { return deviceSignedMutationWrite<Job>(`/jobs/${encodeURIComponent(id)}/assign`, input as unknown as Record<string, unknown>); },
+  async startJob(id: string) { return deviceSignedMutationWrite<Job>(`/jobs/${encodeURIComponent(id)}/start`, {}); },
+  async completeJob(id: string, input: CompleteJobRequest) { return deviceSignedMutationWrite<Job>(`/jobs/${encodeURIComponent(id)}/complete`, input as unknown as Record<string, unknown>); },
+  async completeJobWithEvidence(id: string, evidenceId: string) { return deviceSignedMutationWrite<Job>(`/jobs/${encodeURIComponent(id)}/complete`, { evidenceId }); },
+  async approveJob(id: string) { return deviceSignedMutationWrite<Job>(`/jobs/${encodeURIComponent(id)}/approve`, {}, "JOB_VERIFY", id); },
+  async rejectJob(id: string, input: RejectJobRequest) { return deviceSignedMutationWrite<Job>(`/jobs/${encodeURIComponent(id)}/reject`, input as unknown as Record<string, unknown>, "JOB_VERIFY", id); },
   async getAssetAuditTrail(assetId: string) { return get<AuditEvent[]>(`/audit/assets/${encodeURIComponent(assetId)}`); },
   async getBlockchainStatus() { return get<BlockchainStatus>("/blockchain/status", false); },
   async getValidators() { return get<Validator[]>("/blockchain/validators"); },
