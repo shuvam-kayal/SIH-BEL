@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
+import { Wallet } from "ethers";
 import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
@@ -101,7 +102,8 @@ describe("backend HTTP integration surface", () => {
     const technician = users.TECHNICIAN;
     const verifier = users.VERIFIER;
     const assetId = "SURFACE-ASSET";
-    const asset = await request(app).post("/assets").set(auth("ENGINEER")).send({ assetId, assetType: "PUMP", ownerId: technician.identityId, custodianId: technician.identityId });
+    const deviceSignature = await Wallet.createRandom().signTransaction({ to: "0x1111111111111111111111111111111111111111", data: "0x1234", chainId: 31337, nonce: 7, value: 0 });
+    const asset = await request(app).post("/assets").set(auth("ENGINEER")).send({ assetId, assetType: "PUMP", ownerId: technician.identityId, custodianId: technician.identityId, signature: deviceSignature });
     expect(asset.status).toBe(201);
     expect(asset.body).toMatchObject({ assetId, assetType: "PUMP", ownerId: technician.identityId, custodianId: technician.identityId, status: "ACTIVE" });
     expect((await request(app).get("/assets").set(auth("ENGINEER"))).body).toEqual(expect.arrayContaining([expect.objectContaining({ assetId })]));
@@ -114,9 +116,10 @@ describe("backend HTTP integration surface", () => {
     expect(transfer.body).toMatchObject({ assetId, ownerId: engineer.identityId, custodianId: engineer.identityId });
 
     const jobId = "SURFACE-JOB";
-    const created = await request(app).post("/jobs").set(auth("ENGINEER")).send({ jobId, assetId, priority: "HIGH" });
+    const created = await request(app).post("/jobs").set(auth("ENGINEER")).send({ jobId, assetId, priority: "HIGH", signature: deviceSignature });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ jobId, assetId, status: "CREATED" });
+    expect(chain.submitted.filter((tx) => tx.type === "ASSET_MINT" || tx.type === "JOB_CREATE").map((tx) => tx.signature)).toEqual(expect.arrayContaining([deviceSignature, deviceSignature]));
     expect((await request(app).get("/jobs").set(auth("ENGINEER"))).body).toEqual(expect.arrayContaining([expect.objectContaining({ jobId })]));
     expect((await request(app).get(`/jobs/${jobId}`).set(auth("ENGINEER"))).body).toMatchObject({ jobId });
     expect((await request(app).post(`/jobs/${jobId}/assign`).set(auth("ENGINEER")).send({ technicianId: technician.identityId })).body.status).toBe("ASSIGNED");
@@ -124,6 +127,26 @@ describe("backend HTTP integration surface", () => {
     expect((await request(app).post(`/jobs/${jobId}/complete`).set(auth("TECHNICIAN")).send({ evidenceHash: "ab".repeat(32) })).body.status).toBe("COMPLETED");
     expect((await request(app).post(`/jobs/${jobId}/approve`).set(auth("VERIFIER"))).body).toMatchObject({ jobId, status: "VERIFIED" });
     expect(verifier.identityId).toBeTruthy();
+  });
+
+  it("exposes only the current user's active transfer grant", async () => {
+    const engineer = users.ENGINEER;
+    const active = await container.users.createGrant(users.ADMIN.identityId, engineer.identityId, { resourceType: "ASSET", resourceId: "GRANT-ASSET-A", action: "TRANSFER_ASSET" });
+    const authorized = await request(app).get("/users/me/grants").query({ resourceType: "ASSET", resourceId: "GRANT-ASSET-A", action: "TRANSFER_ASSET", actorIdentityId: users.ADMIN.identityId }).set(auth("ENGINEER"));
+    expect(authorized.status).toBe(200);
+    expect(authorized.body).toMatchObject({ authorized: true, grant: { authorizationGrantId: active.authorizationGrantId, resourceId: "GRANT-ASSET-A", status: "ACTIVE" } });
+
+    const otherAsset = await request(app).get("/users/me/grants").query({ resourceType: "ASSET", resourceId: "GRANT-ASSET-OTHER", action: "TRANSFER_ASSET" }).set(auth("ENGINEER"));
+    expect(otherAsset.body).toEqual({ authorized: false, grant: null });
+    await container.users.createGrant(users.ADMIN.identityId, engineer.identityId, { resourceType: "ASSET", resourceId: "GRANT-ASSET-EXPIRED", action: "TRANSFER_ASSET", expiresAt: new Date(Date.now() - 1_000).toISOString() });
+    const expired = await request(app).get("/users/me/grants").query({ resourceType: "ASSET", resourceId: "GRANT-ASSET-EXPIRED", action: "TRANSFER_ASSET" }).set(auth("ENGINEER"));
+    expect(expired.body).toEqual({ authorized: false, grant: null });
+    const revoked = await container.users.createGrant(users.ADMIN.identityId, engineer.identityId, { resourceType: "ASSET", resourceId: "GRANT-ASSET-REVOKED", action: "TRANSFER_ASSET" });
+    await container.users.revokeGrant(users.ADMIN.identityId, revoked.authorizationGrantId);
+    const revokedResponse = await request(app).get("/users/me/grants").query({ resourceType: "ASSET", resourceId: "GRANT-ASSET-REVOKED", action: "TRANSFER_ASSET" }).set(auth("ENGINEER"));
+    expect(revokedResponse.body).toEqual({ authorized: false, grant: null });
+    expect((await request(app).get("/users/me/grants").query({ resourceType: "ASSET", resourceId: "GRANT-ASSET-A", action: "TRANSFER_ASSET" })).status).toBe(401);
+    expect((await request(app).get(`/admin/users/${users.ENGINEER.identityId}/grants`).set(auth("ENGINEER"))).status).toBe(403);
   });
 
   it("covers rejection, audit, blockchain read surfaces, validator administration, and errors", async () => {

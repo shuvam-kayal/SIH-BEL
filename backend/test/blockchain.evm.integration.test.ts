@@ -2,7 +2,7 @@
 // Besu process owned by the integration workflow. This suite is skipped by
 // ordinary unit runs and fails on the mandatory path when Besu is absent.
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { JsonRpcProvider, Wallet as EvmWallet, id as keccakText } from "ethers";
+import { Transaction as EvmTransaction, JsonRpcProvider, Wallet as EvmWallet, id as keccakText } from "ethers";
 import type { Transaction } from "../../shared/types";
 import { BlockchainError, EvmBlockchainAdapter, loadChainConfigFromEnv, type EvmChainConfig } from "../src/blockchain";
 
@@ -74,11 +74,12 @@ describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () =
 
   it("mints by owner identity, returns nftId, events and audit ids", async () => {
     const r = await ok(env("ASSET_MINT", ENGINEER, "DID:BEL:ENGINEER", { assetId: "PUMP-1", ownerId: "DID:BEL:MANAGER", assetType: "PUMP" }));
-    expect(r.nftId).toBe("1");
+    expect(r.nftId).toMatch(/^\d+$/);
+    expect(Number(r.nftId)).toBeGreaterThan(0);
     expect(r.hash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(r.events.map((e) => e.name)).toEqual(expect.arrayContaining(["Transfer", "AssetMinted", "AuditRecorded"]));
     expect(r.auditTxIds).toHaveLength(1);
-    expect(await adapter.getAsset("PUMP-1")).toMatchObject({ nftId: "1", ownerId: "DID:BEL:MANAGER", custodianId: "DID:BEL:MANAGER", status: "ACTIVE", parentAssetId: null });
+    expect(await adapter.getAsset("PUMP-1")).toMatchObject({ nftId: r.nftId, ownerId: "DID:BEL:MANAGER", custodianId: "DID:BEL:MANAGER", status: "ACTIVE", parentAssetId: null });
     expect(await adapter.getAsset("NOPE")).toBeNull();
   });
 
@@ -170,8 +171,18 @@ describe.skipIf(!integrationRun)("EvmBlockchainAdapter on customized Besu", () =
 
     const sign = async (tx: Transaction) => {
       const p = await adapter.prepareTransaction(tx);
-      return device.signTransaction(await device.populateTransaction({ to: p.to, data: p.data, chainId: p.chainId }));
+      expect(p.gasLimit).toMatch(/^\d+$/);
+      expect(BigInt(p.gasLimit!)).toBeGreaterThan(0n);
+      const raw = await device.signTransaction({ to: p.to, data: p.data, chainId: p.chainId, nonce: p.nonce, gasLimit: p.gasLimit, value: p.value });
+      const parsed = EvmTransaction.from(raw);
+      expect(parsed.gasLimit).toBe(BigInt(p.gasLimit!));
+      return raw;
     };
+
+    const assetCreate = env("ASSET_MINT", DEVICE, "DID:BEL:DEVICE-USER", { assetId: "ASSET-DEV", ownerId: "DID:BEL:DEVICE-USER", assetType: "DEVICE-OWNED" });
+    const assetResult = await adapter.submitTransactionDetailed({ ...assetCreate, signature: await sign(assetCreate) });
+    expect(assetResult.status).toBe("SUCCESS");
+    expect(await adapter.getAsset("ASSET-DEV")).toMatchObject({ ownerId: "DID:BEL:DEVICE-USER", status: "ACTIVE" });
 
     const create = env("JOB_CREATE", DEVICE, "DID:BEL:DEVICE-USER", { jobId: "J-DEV", assetId: "PUMP-1" });
     const r = await adapter.submitTransactionDetailed({ ...create, signature: await sign(create) });

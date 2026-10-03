@@ -35,7 +35,7 @@ export class BlockchainError extends HttpError {
   constructor(
     public readonly kind: BlockchainErrorKind,
     message: string,
-    public readonly details?: Record<string, unknown>,
+    public details?: Record<string, unknown>,
     options?: { cause?: unknown },
   ) {
     super(HTTP[kind].status, message, HTTP[kind].code);

@@ -61,6 +61,8 @@ cat > "${CONFIG}/network-config.json" <<EOF
     "config": {
       "chainId": 20260920,
       "berlinBlock": 0,
+      "londonBlock": 0,
+      "zeroBaseFee": true,
       "qbft": {
         "blockperiodseconds": 2,
         "epochlength": 30000,

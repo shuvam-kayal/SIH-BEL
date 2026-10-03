@@ -4,6 +4,7 @@ import net from "node:net";
 import { spawn } from "node:child_process";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
+import { Wallet } from "ethers";
 
 const __filename = fileURLToPath(import.meta.url);
 const scriptsDir = path.dirname(__filename);
@@ -321,6 +322,36 @@ await runChecked(
    * ------------------------------------------------------------
    */
 
+  const e2eKeys = (process.env.BEL_E2E_PRIVATE_KEYS ?? "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean);
+  if (e2eKeys.length > 0) {
+    const admin = new Wallet(e2eKeys[0]);
+    await runChecked(
+      "Development bootstrap admin",
+      process.execPath,
+      [
+        path.join(root, "node_modules", "tsx", "dist", "cli.mjs"),
+        path.join(root, "scripts", "bootstrap-dev.ts"),
+      ],
+      {
+        env: {
+          BEL_ENV: "development",
+          BEL_DEV_BOOTSTRAP: "true",
+          BEL_BLOCKCHAIN: "evm",
+          BEL_RUN_INTEGRATION: "true",
+          BEL_CHAIN_RPC_URL: process.env.BEL_CHAIN_RPC_URL || process.env.BEL_EVM_RPC_URL,
+          BEL_CHAIN_DEPLOYMENT: process.env.BEL_CHAIN_DEPLOYMENT || "besu-prototype",
+          BEL_CHAIN_TX_TIMEOUT_MS: process.env.BEL_CHAIN_TX_TIMEOUT_MS || "120000",
+          BEL_BOOTSTRAP_ADMIN_DID: process.env.BEL_BOOTSTRAP_ADMIN_DID || "DID:BEL:ADMIN",
+          BEL_BOOTSTRAP_WALLET_ADDRESS: admin.address,
+          BEL_BOOTSTRAP_PUBLIC_KEY: `0x${admin.signingKey.publicKey.slice(4)}`,
+        },
+      },
+    );
+  }
+
   const vitestPath = path.join(
     root,
     "node_modules",
@@ -344,6 +375,7 @@ await runChecked(
       cwd: path.join(root, "backend"),
       env: {
         BEL_RUN_INTEGRATION: "true",
+        BEL_CHAIN_TX_TIMEOUT_MS: process.env.BEL_CHAIN_TX_TIMEOUT_MS || "120000",
       },
     }
   );
@@ -402,6 +434,7 @@ await runChecked(
         BEL_CHAIN_RPC_URL: process.env.BEL_CHAIN_RPC_URL || process.env.BEL_EVM_RPC_URL,
         BEL_E2E_RPC_URL: process.env.BEL_E2E_RPC_URL || process.env.BEL_CHAIN_RPC_URL || process.env.BEL_EVM_RPC_URL,
         BEL_CHAIN_DEPLOYMENT: process.env.BEL_CHAIN_DEPLOYMENT || "besu-prototype",
+        BEL_CHAIN_TX_TIMEOUT_MS: process.env.BEL_CHAIN_TX_TIMEOUT_MS || "120000",
         BEL_E2E_PRIVATE_KEYS: process.env.BEL_E2E_PRIVATE_KEYS,
         BEL_E2E_CHAIN_ID: process.env.BEL_E2E_CHAIN_ID,
       },

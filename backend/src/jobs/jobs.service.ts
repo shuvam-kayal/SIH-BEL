@@ -3,16 +3,20 @@
 // State machine per SYSTEM_SPEC.md:
 //   CREATED -> ASSIGNED -> IN_PROGRESS -> COMPLETED -> VERIFIED
 //                                              \-> REJECTED
-import { Job, JobStatus } from "../../../shared/types";
+import { Job, JobStatus, type PreparedTransaction } from "../../../shared/types";
 import { BlockchainService } from "../adapters/BlockchainService";
-import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
+import { ForbiddenError, NotFoundError, NotImplementedError, ValidationError } from "../errors";
 import { randomUUID } from "node:crypto";
 import { MemoryJobRepository, type AssetRepository, type JobRepository } from "../domain/repositories";
+import { BlockchainError } from "../blockchain/errors";
 
 type JobActor = {
   identityId: string;
   walletAddress: string;
+  signature?: string;
 };
+
+type JobMutation = "JOB_ASSIGN" | "JOB_START" | "JOB_COMPLETE" | "JOB_APPROVE" | "JOB_REJECT";
 
 export const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   CREATED: ["ASSIGNED"],
@@ -31,6 +35,7 @@ export interface JobsService {
   complete(id: string, evidenceHash: string, actor: JobActor): Promise<Job>;
   approve(id: string, actor: JobActor): Promise<Job>;
   reject(id: string, reason: string, actor: JobActor): Promise<Job>;
+  prepare(type: JobMutation, id: string, payload: Record<string, unknown>, actor: JobActor): Promise<PreparedTransaction>;
 }
 
 export class JobsServiceImpl implements JobsService {
@@ -215,17 +220,55 @@ export class JobsServiceImpl implements JobsService {
     return job;
   }
 
+  async prepare(type: JobMutation, id: string, payload: Record<string, unknown>, actor: JobActor): Promise<PreparedTransaction> {
+    const job = await this.repository.findById(id);
+    if (!job) throw new NotFoundError(`No job ${id}`);
+
+    switch (type) {
+      case "JOB_ASSIGN": {
+        const technicianId = payload.technicianId;
+        if (typeof technicianId !== "string" || !technicianId.trim()) throw new ValidationError(["technicianId is required"]);
+        if (this.identityExists && !(await this.identityExists(technicianId))) throw new NotFoundError(`No identity ${technicianId}`);
+        this.assertTransition(job.status, "ASSIGNED");
+        break;
+      }
+      case "JOB_START":
+        this.assertTransition(job.status, "IN_PROGRESS");
+        this.requireAssignedTechnician(job, actor);
+        break;
+      case "JOB_COMPLETE":
+        if (typeof payload.evidenceHash !== "string" || !/^[0-9a-f]{64}$/i.test(payload.evidenceHash)) throw new ValidationError(["evidenceHash must be a 64-character SHA-256 hex digest"]);
+        this.assertTransition(job.status, "COMPLETED");
+        this.requireAssignedTechnician(job, actor);
+        break;
+      case "JOB_APPROVE":
+        this.assertTransition(job.status, "VERIFIED");
+        this.requireIndependentVerifier(job, actor);
+        break;
+      case "JOB_REJECT":
+        if (typeof payload.reason !== "string" || !payload.reason.trim()) throw new ValidationError(["reason is required"]);
+        this.assertTransition(job.status, "REJECTED");
+        this.requireIndependentVerifier(job, actor);
+        break;
+    }
+
+    const prepareTransaction = this.chain.prepareTransaction;
+    if (!prepareTransaction) throw new NotImplementedError("Device transaction preparation is unavailable");
+    return prepareTransaction.call(this.chain, {
+      txId: randomUUID(), type, actorIdentity: actor.identityId, actorWallet: actor.walletAddress,
+      payload: { jobId: id, ...payload }, timestamp: new Date().toISOString(), signature: "development",
+    });
+  }
+
   private async submit(
-    type:
-      | "JOB_CREATE"
-      | "JOB_ASSIGN"
-      | "JOB_START"
-      | "JOB_COMPLETE"
-      | "JOB_APPROVE"
-      | "JOB_REJECT",
+    type: "JOB_CREATE" | JobMutation,
     actor: JobActor,
     payload: Record<string, unknown>
   ): Promise<void> {
+    const signature = actor.signature?.trim();
+    if (process.env.BEL_BLOCKCHAIN?.trim().toLowerCase() === "evm" && (!signature || signature === "development")) {
+      throw new BlockchainError("SIGNER", `A device-signed raw transaction is required for EVM ${type}`);
+    }
     const result = await this.chain.submitTransaction({
       txId: randomUUID(),
       type,
@@ -233,7 +276,7 @@ export class JobsServiceImpl implements JobsService {
       actorWallet: actor.walletAddress,
       payload,
       timestamp: new Date().toISOString(),
-      signature: "development",
+      signature: signature || "development",
     });
 
     if (result.status !== "SUCCESS") {

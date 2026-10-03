@@ -176,6 +176,19 @@ export type Transaction = {
   signature: string;
 };
 
+/** Exact unsigned EVM fields returned to a managed device for local signing. */
+export type PreparedTransaction = {
+  from: string;
+  to: string;
+  data: string;
+  chainId: number;
+  nonce?: number;
+  gasLimit?: string;
+  value?: string;
+  contract: string;
+  method: string;
+};
+
 export type Block = {
   height: number;
   leaderId: string;

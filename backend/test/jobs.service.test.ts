@@ -41,6 +41,50 @@ const mockChain: BlockchainService = {
 };
 
 describe("JobsService", () => {
+  it("requires and preserves the raw device signature for EVM job creation", async () => {
+    const previous = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      let submitted: any;
+      const chain: BlockchainService = { ...mockChain, submitTransaction: async (tx) => { submitted = tx; return { txId: "TX-DEVICE", status: "SUCCESS" }; } };
+      const service = new JobsServiceImpl(chain);
+      const input = { assetId: "ASSET-001", createdBy: "IDENTITY-001", priority: "HIGH" as const };
+      await expect(service.create(input, actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await expect(service.create(input, { ...actor, signature: "development" })).rejects.toMatchObject({ kind: "SIGNER" });
+      const raw = "0x02f864" + "cd".repeat(100);
+      await service.create(input, { ...actor, signature: raw });
+      expect(submitted.signature).toBe(raw);
+    } finally {
+      if (previous === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previous;
+    }
+  });
+
+  it("requires a raw device signature for every EVM job mutation", async () => {
+    const previous = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      const service = new JobsServiceImpl(mockChain);
+      const signed = { ...actor, signature: "0x02signed" };
+      await service.create({ assetId: "ASSET-001", createdBy: actor.identityId, priority: "HIGH" }, signed);
+      await expect(service.assign("JOB-1", "TECH-001", actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.assign("JOB-1", "TECH-001", signed);
+      await expect(service.start("JOB-1", { ...actor, identityId: "TECH-001" })).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.start("JOB-1", { ...signed, identityId: "TECH-001" });
+      await expect(service.complete("JOB-1", "ab".repeat(32), { ...actor, identityId: "TECH-001" })).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.complete("JOB-1", "ab".repeat(32), { ...signed, identityId: "TECH-001" });
+      await expect(service.approve("JOB-1", { ...actor, identityId: "VERIFIER-1" })).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.approve("JOB-1", { ...signed, identityId: "VERIFIER-1" });
+      await service.create({ assetId: "ASSET-002", createdBy: actor.identityId, priority: "HIGH" }, signed);
+      await service.assign("JOB-2", "TECH-001", signed);
+      await service.start("JOB-2", { ...signed, identityId: "TECH-001" });
+      await service.complete("JOB-2", "cd".repeat(32), { ...signed, identityId: "TECH-001" });
+      await expect(service.reject("JOB-2", "repeat inspection", { ...actor, identityId: "VERIFIER-1" })).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.reject("JOB-2", "repeat inspection", { ...signed, identityId: "VERIFIER-1" });
+    } finally {
+      if (previous === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previous;
+    }
+  });
+
   it("list() initially returns an empty array", async () => {
     const service = new JobsServiceImpl(mockChain);
 

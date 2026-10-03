@@ -40,6 +40,48 @@ describe("identity, authentication, and wallet lifecycle", () => {
     expect(await auth.validateSession(session.token)).toMatchObject({ employeeId: "EMP001" });
   });
 
+  it("lists active employees and admins without exposing credentials", async () => {
+    await provision("ADMIN-DIRECTORY", "ADMIN");
+    await provision("EMP-DIRECTORY", "ENGINEER");
+    const entries = await users.listActiveEmployees();
+    expect(entries.map((entry) => entry.fullName)).toEqual(expect.arrayContaining(["ADMIN-DIRECTORY", "EMP-DIRECTORY"]));
+    expect(entries.every((entry) => !Object.keys(entry).some((key) => /private|secret|credential/i.test(key)))).toBe(true);
+    identityStore.identities.get(entries.find((entry) => entry.user.employeeId === "EMP-DIRECTORY")!.user.identityId)!.status = "SUSPENDED";
+    expect((await users.listActiveEmployees()).some((entry) => entry.user.employeeId === "EMP-DIRECTORY")).toBe(false);
+  });
+
+  it("resumes activation when the wallet exists for the same DID but role assignment is incomplete", async () => {
+    const previousMode = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      let submitted = 0;
+      const chain = {
+        getWallet: async () => ({ address: "0xWALLET", identityId: "DID:TARGET", deviceId: "D", status: "PENDING", activatedAt: null, revokedAt: null, revokedReason: null, publicKey: null }),
+        getIdentity: async () => null,
+        submitTransaction: async () => { submitted++; return { txId: "tx", status: "SUCCESS" as const }; },
+      } as unknown as BlockchainService;
+      const admin = { identityId: "DID:ADMIN", employeeId: "A", fullName: "Admin", role: "ADMIN" as const, department: "IT", status: "ACTIVE" as const, createdAt: new Date().toISOString() };
+      identityStore.identities.set(admin.identityId, admin);
+      identityStore.users.set(admin.employeeId, { employeeId: admin.employeeId, identityId: admin.identityId, walletAddress: "0xADMIN", role: admin.role, department: admin.department, status: admin.status });
+      identityStore.wallets.set("0xADMIN", { address: "0xADMIN", identityId: admin.identityId, deviceId: "ADMIN-DEVICE", status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: null });
+      const service = new UsersServiceImpl(chain, createMemoryRepositories(identityStore));
+      await (service as any).ensureIdentityCreated(
+        { identityId: "DID:ADMIN", employeeId: "A", fullName: "Admin", role: "ADMIN", department: "IT", status: "ACTIVE", createdAt: new Date().toISOString() },
+        { identityId: "DID:TARGET", employeeId: "E", fullName: "Employee", role: "ENGINEER", department: "OPS", status: "PENDING", createdAt: new Date().toISOString() },
+        "0xWALLET",
+      );
+      expect(submitted).toBe(0);
+      await (service as any).ensureRoleAssigned(
+        { identityId: "DID:ADMIN", employeeId: "A", fullName: "Admin", role: "ADMIN", department: "IT", status: "ACTIVE", createdAt: new Date().toISOString() },
+        { identityId: "DID:TARGET", employeeId: "E", fullName: "Employee", role: "ENGINEER", department: "OPS", status: "PENDING", createdAt: new Date().toISOString() },
+        "0xWALLET",
+      );
+      expect(submitted).toBe(1);
+    } finally {
+      if (previousMode === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previousMode;
+    }
+  });
+
   it("rejects invalid, suspended, and revoked-wallet logins", async () => {
     await provision("EMP002");
     const existingSession = await auth.login("EMP002-CREDENTIAL");

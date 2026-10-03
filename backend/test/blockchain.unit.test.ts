@@ -1,6 +1,6 @@
 // Person 5: blockchain layer tests that need no chain (always run in CI).
 import { describe, expect, it } from "vitest";
-import { Interface } from "ethers";
+import { Interface, Wallet } from "ethers";
 import type { Transaction } from "../../shared/types";
 import { TRANSACTION_TYPES } from "../../shared/enums";
 import { MockBlockchainAdapter } from "../../mocks/mock-blockchain";
@@ -144,6 +144,20 @@ describe("configuration", () => {
 
 describe("adapter failure handling without a chain", () => {
   const adapter = () => new EvmBlockchainAdapter({ ...loadChainConfigFromEnv({ BEL_CHAIN_RPC_URL: "http://127.0.0.1:1" }), txTimeoutMs: 2000 });
+
+  it("parses an independently generated device-wallet raw transaction", async () => {
+    const device = Wallet.createRandom();
+    const to = "0x1111111111111111111111111111111111111111";
+    const raw = await device.signTransaction({ to, data: "0x1234", chainId: 31337, nonce: 7, value: 0 });
+    const parsed = adapter().parseSignedTransaction(raw);
+    expect(parsed?.signature).toBeTruthy();
+    expect(parsed?.from).toBe(device.address);
+    expect(parsed?.to).toBe(to);
+    expect(parsed?.data).toBe("0x1234");
+    expect(parsed?.chainId).toBe(31337n);
+    expect(parsed?.nonce).toBe(7);
+    expect(parsed?.value).toBe(0n);
+  });
 
   it("reports an unreachable RPC as NETWORK on writes and unhealthy on status", async () => {
     const a = adapter();

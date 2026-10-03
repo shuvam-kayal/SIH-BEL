@@ -371,6 +371,12 @@ components:
         createdAt: { type: string, format: date-time }
         verifiedAt: { type: string, format: date-time, nullable: true }
         verifiedBy: { type: string, nullable: true }
+    EmployeeDirectoryEntry:
+      type: object
+      required: [user, fullName]
+      properties:
+        fullName: { type: string }
+        user: { $ref: '#/components/schemas/User' }
   parameters:
     id:
       name: id
@@ -615,6 +621,17 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/PendingRegistration' }
+  /admin/users/active:
+    get:
+      summary: List all active employee and administrator users
+      responses:
+        '200':
+          description: Active employee directory
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EmployeeDirectoryEntry' }
   /admin/users/{id}/verify:
     post:
       summary: Verify a pending employee and assign employee ID/department
@@ -741,6 +758,63 @@ paths:
       responses:
         '200':
           description: Asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+  /assets/{id}/state:
+    post:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newState]
+              properties:
+                newState:
+                  type: string
+                  enum: [ACTIVE, IN_MAINTENANCE, DECOMMISSIONED]
+      responses:
+        '200':
+          description: Asset with the confirmed lifecycle state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+  /assets/{id}/components:
+    post:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [componentId]
+              properties:
+                componentId: { type: string }
+      responses:
+        '200':
+          description: Attached component asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+  /assets/{id}/components/{componentId}:
+    delete:
+      parameters:
+      - $ref: '#/components/parameters/id'
+      - name: componentId
+        in: path
+        required: true
+        schema: { type: string }
+      responses:
+        '200':
+          description: Detached component asset
           content:
             application/json:
               schema:

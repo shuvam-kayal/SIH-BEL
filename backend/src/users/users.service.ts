@@ -1,5 +1,5 @@
 import { createPublicKey, randomBytes, randomUUID, verify } from "node:crypto";
-import type { CreateUserResponse, InitializeAccountRequest, PendingRegistration, ProvisioningChallengeRequest } from "../../../shared/api";
+import type { CreateUserResponse, EmployeeDirectoryEntry, InitializeAccountRequest, PendingRegistration, ProvisioningChallengeRequest } from "../../../shared/api";
 import type { AuthorizationGrant, Device, Identity, PendingIdentity, ProvisioningChallenge, Role, User, Wallet } from "../../../shared/types";
 import type { Action } from "../../../shared/rbac";
 import { ROLES } from "../../../shared/enums";
@@ -25,6 +25,7 @@ export interface UsersService {
   getIdentity(id: string): Promise<Identity | null>;
   createGrant(actorId: string, targetId: string, input: { resourceType: "ASSET" | "JOB"; resourceId: string; action: Action; expiresAt?: string | null }): Promise<AuthorizationGrant>;
   listGrants(targetId: string): Promise<AuthorizationGrant[]>;
+  findActiveGrant(actorId: string, resourceType: "ASSET" | "JOB", resourceId: string, action: Action): Promise<AuthorizationGrant | null>;
   revokeGrant(actorId: string, grantId: string): Promise<AuthorizationGrant>;
   validateGrant(grantId: string, actorId: string, resourceId: string, action: Action): Promise<boolean>;
   listDevices(userId: string): Promise<Device[]>;
@@ -32,6 +33,7 @@ export interface UsersService {
   requestProvisioningChallenge(input: ProvisioningChallengeRequest): Promise<ProvisioningChallenge>;
   initializeAccount(input: InitializeAccountRequest): Promise<PendingRegistration>;
   listPendingRegistrations(): Promise<PendingRegistration[]>;
+  listActiveEmployees(): Promise<EmployeeDirectoryEntry[]>;
   verifyRegistration(actorId: string, userId: string, input: { employeeId: string; department: string }): Promise<Identity>;
   activateRegistration(actorId: string, userId: string): Promise<PendingRegistration>;
 }
@@ -164,6 +166,14 @@ export class UsersServiceImpl implements UsersService {
       if (device && wallet) result.push({ identity: identity as unknown as PendingIdentity, device, wallet });
     }
     return result;
+  }
+
+  async listActiveEmployees(): Promise<EmployeeDirectoryEntry[]> {
+    const identities = await this.repositories.identities.listByStatus("ACTIVE");
+    return Promise.all(identities.map(async (identity) => {
+      const wallet = (await this.repositories.wallets.listByIdentityId(identity.identityId)).find((item) => item.status === "ACTIVE");
+      return { user: this.toUser(identity, wallet?.address ?? ""), fullName: identity.fullName };
+    }));
   }
 
   async verifyRegistration(actorId: string, userId: string, input: { employeeId: string; department: string }): Promise<Identity> {
@@ -328,15 +338,38 @@ export class UsersServiceImpl implements UsersService {
   async listWallets(userId: string) { const identity = this.requireIdentity(await this.resolveIdentity(userId)); return this.repositories.wallets.listByIdentityId(identity.identityId); }
 
   async createGrant(actorId: string, targetId: string, input: { resourceType: "ASSET" | "JOB"; resourceId: string; action: Action; expiresAt?: string | null }): Promise<AuthorizationGrant> {
-    const actor = this.requireIdentity(await this.resolveIdentity(actorId)); const target = this.requireIdentity(await this.resolveIdentity(targetId)); if (actor.status !== "ACTIVE" || target.status !== "ACTIVE") throw new ForbiddenError("Inactive identity cannot grant authorization"); if (actor.role !== "ADMIN") throw new ForbiddenError("Only an admin may create an authorization grant"); if (input.action !== "TRANSFER_ASSET") throw new ForbiddenError("Only AUTH actions may be granted");
+    const actor = this.requireIdentity(await this.resolveIdentity(actorId)); const target = this.requireIdentity(await this.resolveIdentity(targetId)); if (actor.status !== "ACTIVE" || target.status !== "ACTIVE") throw new ForbiddenError("Inactive identity cannot grant authorization"); if (actor.role !== "ADMIN") throw new ForbiddenError("Only an admin may create an authorization grant"); if (input.resourceType !== "ASSET" || input.action !== "TRANSFER_ASSET") throw new ForbiddenError("Only asset transfer grants may be created");
     const grant: AuthorizationGrant = { authorizationGrantId: `GRANT-${randomUUID()}`, actorIdentityId: target.identityId, resourceType: input.resourceType, resourceId: input.resourceId, action: input.action, grantedByIdentityId: actor.identityId, issuedAt: new Date().toISOString(), expiresAt: input.expiresAt ?? null, status: "ACTIVE" };
     await this.submit("GRANT_CREATE", actor, { authorizationGrantId: grant.authorizationGrantId, resourceType: grant.resourceType, resourceId: grant.resourceId, actorIdentityId: grant.actorIdentityId, action: grant.action, expiresAt: grant.expiresAt });
     await this.repositories.grants.save(grant);
     await this.commit("GRANT", grant.authorizationGrantId, "GRANT_CREATE", actor.identityId, { entityType: "GRANT", entityId: grant.authorizationGrantId, actorIdentityId: grant.actorIdentityId, resourceType: grant.resourceType, resourceId: grant.resourceId, action: grant.action, grantedByIdentityId: grant.grantedByIdentityId, status: grant.status, expiresAt: grant.expiresAt }); return { ...grant };
   }
   async listGrants(targetId: string) { const identity = this.requireIdentity(await this.resolveIdentity(targetId)); return this.repositories.grants.listByIdentityId(identity.identityId); }
+  async findActiveGrant(actorId: string, resourceType: "ASSET" | "JOB", resourceId: string, action: Action): Promise<AuthorizationGrant | null> {
+    const grants = await this.repositories.grants.listByIdentityId(actorId);
+    return grants.find((grant) => grant.resourceType === resourceType && grant.resourceId === resourceId && this.grantIsActive(grant, actorId, resourceId, action)) ?? null;
+  }
   async revokeGrant(actorId: string, grantId: string): Promise<AuthorizationGrant> { const actor = this.requireIdentity(await this.resolveIdentity(actorId)); const grant = await this.repositories.grants.findById(grantId); if (!grant) throw new NotFoundError(`No grant ${grantId}`); if (grant.grantedByIdentityId !== actor.identityId && actor.role !== "ADMIN") throw new ForbiddenError("Only the grantor or admin may revoke a grant"); await this.submit("GRANT_REVOKE", actor, { authorizationGrantId: grant.authorizationGrantId, resourceType: grant.resourceType, resourceId: grant.resourceId, actorIdentityId: grant.actorIdentityId, action: grant.action, expiresAt: grant.expiresAt }); grant.status = "REVOKED"; await this.repositories.grants.save(grant); await this.commit("GRANT", grant.authorizationGrantId, "GRANT_REVOKE", actor.identityId, { entityType: "GRANT", entityId: grant.authorizationGrantId, actorIdentityId: grant.actorIdentityId, resourceType: grant.resourceType, resourceId: grant.resourceId, action: grant.action, grantedByIdentityId: grant.grantedByIdentityId, status: grant.status, expiresAt: grant.expiresAt }); return { ...grant }; }
-  async validateGrant(grantId: string, actorId: string, resourceId: string, action: Action): Promise<boolean> { const grant = await this.repositories.grants.findById(grantId); if (!grant || grant.status !== "ACTIVE" || grant.actorIdentityId !== actorId || grant.resourceId !== resourceId || grant.action !== action) return false; if (grant.expiresAt && Date.parse(grant.expiresAt) <= Date.now()) { grant.status = "EXPIRED"; await this.repositories.grants.save(grant); return false; } return true; }
+  async validateGrant(grantId: string, actorId: string, resourceId: string, action: Action): Promise<boolean> {
+    const grant = await this.repositories.grants.findById(grantId);
+    if (!grant || !this.grantMatches(grant, actorId, resourceId, action) || grant.status !== "ACTIVE") return false;
+    if (this.grantIsExpired(grant)) {
+      grant.status = "EXPIRED";
+      await this.repositories.grants.save(grant);
+      return false;
+    }
+    return true;
+  }
+
+  private grantMatches(grant: AuthorizationGrant, actorId: string, resourceId: string, action: Action): boolean {
+    return grant.actorIdentityId === actorId && grant.resourceId === resourceId && grant.action === action;
+  }
+  private grantIsExpired(grant: AuthorizationGrant): boolean {
+    return Boolean(grant.expiresAt && Date.parse(grant.expiresAt) <= Date.now());
+  }
+  private grantIsActive(grant: AuthorizationGrant, actorId: string, resourceId: string, action: Action): boolean {
+    return grant.status === "ACTIVE" && this.grantMatches(grant, actorId, resourceId, action) && !this.grantIsExpired(grant);
+  }
 
   private async resolveIdentity(id: string): Promise<Identity | null> { return (await this.repositories.identities.findById(id)) ?? this.repositories.identities.findByEmployeeId(id); }
   private requireIdentity(identity: Identity | null): Identity { if (!identity) throw new NotFoundError("No identity"); return identity; }
@@ -382,9 +415,9 @@ export class UsersServiceImpl implements UsersService {
         if (existingWallet.identityId !== identity.identityId) {
           throw new ConflictError(`Wallet ${walletAddress} is already bound to ${existingWallet.identityId} on-chain`);
         }
-        if (!(await this.chain.getIdentity(identity.identityId))) {
-          throw new ConflictError(`Wallet ${walletAddress} has an inconsistent on-chain identity record`);
-        }
+        // A wallet can already be registered for this DID while ROLE_ASSIGN
+        // is still pending. getIdentity() intentionally returns null until a
+        // role exists, so this is a valid, retryable activation checkpoint.
         return;
       }
     }

@@ -1,6 +1,6 @@
 // Frozen application API and blockchain adapter contracts.
 // All six workstreams consume these types. Change only through an ADR + spec update.
-import type { Asset, AuditEvent, Block, Identity, Job, PendingIdentity, Transaction, User, Validator, Wallet, Device, ProvisioningChallenge, ValidatorRegistration, ValidatorHistoryRecord } from "./types";
+import type { Asset, AuditEvent, Block, Identity, Job, PendingIdentity, PreparedTransaction, Transaction, User, Validator, Wallet, Device, ProvisioningChallenge, ValidatorRegistration, ValidatorHistoryRecord } from "./types";
 import type { JobPriority, Role } from "./enums";
 
 export type ApiErrorCode = "VALIDATION_FAILED" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "NOT_IMPLEMENTED" | "INTERNAL_ERROR";
@@ -25,6 +25,7 @@ export type InitializeAccountRequest = {
 };
 export type ProvisioningChallengeRequest = { deviceId: string; deviceMetadata: Record<string, unknown> };
 export type PendingRegistration = { identity: Identity | PendingIdentity; device: Device; wallet: Wallet };
+export type EmployeeDirectoryEntry = { user: User; fullName: string };
 export type VerifyRegistrationRequest = { employeeId: string; department: string };
 export type AssignRoleRequest = { role: Role };
 export type RegisterDeviceRequest = { deviceId: string; credential?: string; publicKey?: string };
@@ -33,6 +34,10 @@ export type ActivateWalletRequest = { deviceId: string; walletAddress: string };
 export type WalletActionResponse = { wallet: Wallet };
 export type CreateAssetRequest = { assetId?: string; assetType: string; ownerId: string; custodianId: string; parentAssetId?: string | null };
 export type TransferAssetRequest = { newOwnerId: string; newCustodianId?: string };
+export type ChangeAssetStateRequest = { newState: import("./enums").AssetStatus };
+export type AttachComponentRequest = { componentId: string };
+export type CreateTransferGrantRequest = { resourceType: "ASSET"; resourceId: string; action: "TRANSFER_ASSET"; expiresAt?: string | null };
+export type CurrentUserGrantResponse = { authorized: boolean; grant: { authorizationGrantId: string; resourceType: "ASSET"; resourceId: string; action: "TRANSFER_ASSET"; status: "ACTIVE"; expiresAt: string | null } | null };
 export type CreateJobRequest = { assetId: string; priority: JobPriority; verifierId?: string };
 export type AssignJobRequest = { technicianId: string };
 export type CompleteJobRequest = { evidenceHash: string };
@@ -50,6 +55,7 @@ export interface ApiClient {
   initializeAccount(input: InitializeAccountRequest): Promise<PendingRegistration>;
   requestAuthenticationChallenge(deviceId: string): Promise<ProvisioningChallenge>;
   getPendingRegistrations(): Promise<PendingRegistration[]>;
+  getActiveEmployees(): Promise<EmployeeDirectoryEntry[]>;
   verifyRegistration(id: string, input: VerifyRegistrationRequest): Promise<Identity | PendingIdentity>;
   assignRole(id: string, input: AssignRoleRequest): Promise<User>;
   activateRegistration(id: string): Promise<PendingRegistration>;
@@ -64,10 +70,17 @@ export interface ApiClient {
   logout(): Promise<void>;
   getMe(): Promise<User>;
   getUser(id: string): Promise<User | null>;
+  getCurrentUserGrant(resourceId: string): Promise<CurrentUserGrantResponse>;
   getAssets(): Promise<Asset[]>;
   getAsset(id: string): Promise<Asset | null>;
   createAsset(input: CreateAssetRequest): Promise<Asset>;
   transferAsset(id: string, input: TransferAssetRequest): Promise<Asset>;
+  changeAssetState(id: string, input: ChangeAssetStateRequest): Promise<Asset>;
+  attachComponent(id: string, input: AttachComponentRequest): Promise<Asset>;
+  removeComponent(parentId: string, componentId: string): Promise<Asset>;
+  getGrants(userId: string): Promise<import("./types").AuthorizationGrant[]>;
+  createTransferGrant(userId: string, input: CreateTransferGrantRequest): Promise<import("./types").AuthorizationGrant>;
+  revokeGrant(userId: string, grantId: string): Promise<import("./types").AuthorizationGrant>;
   getJobs(): Promise<Job[]>;
   getJob(id: string): Promise<Job | null>;
   createJob(input: CreateJobRequest): Promise<Job>;
@@ -99,6 +112,8 @@ export type MockBlockchainResult = {
 };
 export interface BlockchainService {
   submitTransaction(tx: Transaction): Promise<MockBlockchainResult>;
+  /** Optional raw-device signing seam implemented by the EVM adapter. */
+  prepareTransaction?(tx: Transaction): Promise<PreparedTransaction>;
   getIdentity(identityId: string): Promise<Identity | null>;
   getWallet(address: string): Promise<Wallet | null>;
   getAsset(id: string): Promise<Asset | null>;

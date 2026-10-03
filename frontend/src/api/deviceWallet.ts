@@ -1,11 +1,13 @@
 export type DeviceWalletIdentity = { deviceId: string; publicKey: string; walletAddress: string };
 export type DeviceSigningOptions = { operation: string; requireUserVerification: true };
 export type DeviceWalletSignature = { signature: string; userVerified?: boolean; developmentUserVerification?: true };
+export type DeviceUnsignedTransaction = { to: string; data: string; chainId: number; nonce?: number; gasLimit?: string; value?: string };
 
 export interface DeviceWalletBridge {
   getIdentity(): Promise<DeviceWalletIdentity>;
   /** Production bridges perform local user verification before returning. */
   sign(challenge: string, options: DeviceSigningOptions): Promise<DeviceWalletSignature>;
+  signTransaction?(transaction: DeviceUnsignedTransaction, options: DeviceSigningOptions): Promise<DeviceWalletSignature>;
 }
 
 declare global { interface Window { belDeviceWallet?: DeviceWalletBridge } }
@@ -20,7 +22,7 @@ export const isDevelopmentWalletEnabled = Boolean(devWalletBase);
 async function unavailable(): Promise<never> { throw new DeviceWalletError("UNAVAILABLE", "Secure device authentication is unavailable on this workstation."); }
 function bridge(): DeviceWalletBridge {
   if (window.belDeviceWallet) return window.belDeviceWallet;
-  if (!devWalletBase) return { getIdentity: unavailable, sign: unavailable };
+  if (!devWalletBase) return { getIdentity: unavailable, sign: unavailable, signTransaction: unavailable };
   return {
     async getIdentity() {
       const response = await fetch(`${devWalletBase}/identity`);
@@ -30,6 +32,13 @@ function bridge(): DeviceWalletBridge {
     async sign(challenge, options) {
       const identity = await this.getIdentity();
       const response = await fetch(`${devWalletBase}/sign`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId: identity.deviceId, challenge, options }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new DeviceWalletError("FAILED", typeof body.message === "string" ? body.message : "Development device-wallet signing failed.");
+      return body as DeviceWalletSignature;
+    },
+    async signTransaction(transaction, options) {
+      const identity = await this.getIdentity();
+      const response = await fetch(`${devWalletBase}/sign-transaction`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId: identity.deviceId, transaction, options }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new DeviceWalletError("FAILED", typeof body.message === "string" ? body.message : "Development device-wallet signing failed.");
       return body as DeviceWalletSignature;
@@ -55,3 +64,11 @@ async function sign(challenge: string, options: DeviceSigningOptions): Promise<s
 }
 
 export const deviceWallet = { getIdentity: () => bridge().getIdentity(), sign };
+export async function signDeviceTransaction(transaction: DeviceUnsignedTransaction): Promise<string> {
+  const signTransaction = bridge().signTransaction;
+  if (!signTransaction) throw new DeviceWalletError("UNAVAILABLE", "Secure device transaction signing is unavailable on this workstation.");
+  const result = await signTransaction.call(bridge(), transaction, { operation: "BLOCKCHAIN_TRANSACTION", requireUserVerification: true });
+  const verified = result?.userVerified === true || (import.meta.env.DEV && result?.developmentUserVerification === true);
+  if (!result || typeof result.signature !== "string" || !verified) throw new DeviceWalletError("UNVERIFIED", "Secure device verification was not completed. The operation was not performed.");
+  return result.signature;
+}

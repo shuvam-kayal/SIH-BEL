@@ -32,6 +32,8 @@ node frontend/dev-wallet/server.mjs
 
 The wallet remains bound to `127.0.0.1` and must never be tunneled or exposed publicly. Developer B opens Developer A's frontend tunnel; the browser reaches Developer A's backend tunnel and Developer B's own `http://127.0.0.1:8787` wallet.
 
+When the backend is connected to the EVM development signer path, the wallet address used by a state-changing actor must be derived from one of that Besu run's disposable `BEL_CHAIN_DEV_SIGNER_KEYS`. A randomly generated employee wallet can authenticate, but it cannot submit backend-signed EVM writes unless its corresponding disposable key is configured locally and in the backend signer set. Never put those keys in the frontend, repository, logs, or tunnels.
+
 To make the development admin wallet correspond to the Besu/bootstrap wallet, set `BEL_DEV_DEVICE_IMPORT_KEY_FILE` once when creating `admin-device`, pointing to the ephemeral Besu test-account key file. The key is read by the local service only and is never sent to the browser or backend. Do not place it in `.env` or source control.
 
 ## Security boundary
