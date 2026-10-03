@@ -186,28 +186,36 @@ export class EvmBlockchainAdapter implements BlockchainService {
 
   /** Unsigned call fields for the device wallet to sign (production path). */
   async prepareTransaction(tx: Transaction): Promise<PreparedTransaction> {
+    return this.buildPreparedTransaction(tx, true);
+  }
+
+  private async buildPreparedTransaction(tx: Transaction, estimateGas: boolean): Promise<PreparedTransaction> {
     const from = this.actorWallet(tx); // validate the envelope before any I/O
     await this.ensureNetwork();
     const plan = await this.plan(tx);
     const to = this.config.deployment.contracts[plan.contract];
     const data = this.interfaces[plan.contract].encodeFunctionData(plan.method, plan.args);
-    const nonce = await this.provider.getTransactionCount(from, "pending");
-    const gasLimit = await this.provider.estimateGas({ from, to, data, value: 0 });
-    return {
+    const prepared: PreparedTransaction = {
       from,
       to,
       data,
       chainId: this.config.deployment.chainId,
-      nonce,
-      gasLimit: gasLimit.toString(),
       value: "0",
       contract: plan.contract,
       method: plan.method,
     };
+    if (estimateGas) {
+      prepared.nonce = await this.provider.getTransactionCount(from, "pending");
+      prepared.gasLimit = (await this.provider.estimateGas({ from, to, data, value: 0 })).toString();
+    }
+    return prepared;
   }
 
   async submitTransactionDetailed(tx: Transaction): Promise<SubmitResult> {
-    const prepared = await this.prepareTransaction(tx);
+    // Do not estimate gas before simulation: rejected contract calls must be
+    // decoded as application-level rejections, not leaked as estimateGas RPC
+    // failures. The public preparation API still estimates gas for devices.
+    const prepared = await this.buildPreparedTransaction(tx, false);
     const raw = tx.signature === "development" ? null : this.parseSignedTransaction(tx.signature);
     if (tx.signature !== "development" && !raw) {
       throw new BlockchainError("SIGNER", "Invalid device-signed raw transaction in tx.signature");
@@ -498,8 +506,6 @@ export class EvmBlockchainAdapter implements BlockchainService {
     if (!raw.to || raw.to.toLowerCase() !== prepared.to.toLowerCase()) problems.push(`target is not ${prepared.contract}`);
     if (raw.data.toLowerCase() !== prepared.data.toLowerCase()) problems.push(`calldata does not match ${prepared.method}(payload)`);
     if (raw.chainId !== BigInt(prepared.chainId)) problems.push("wrong chainId");
-    if (prepared.nonce !== undefined && raw.nonce !== prepared.nonce) problems.push("nonce does not match prepared transaction");
-    if (prepared.gasLimit === undefined || raw.gasLimit !== BigInt(prepared.gasLimit)) problems.push("gasLimit does not match prepared transaction");
     if (raw.value !== 0n) problems.push("value must be 0");
     if (problems.length) {
       throw new BlockchainError("SIGNER", `Signed transaction rejected: ${problems.join("; ")}`, { problems });
@@ -525,7 +531,8 @@ export class EvmBlockchainAdapter implements BlockchainService {
       const nonce = typeof rpc.send === "function"
         ? Number(BigInt(await rpc.send("eth_getTransactionCount", [wallet.address, "pending"])))
         : await this.provider.getTransactionCount(wallet.address, "pending");
-      return (await wallet.sendTransaction({ to: p.to, data: p.data, nonce, gasLimit: p.gasLimit, value: p.value ?? "0" })).hash;
+      const gasLimit = p.gasLimit ?? (await this.provider.estimateGas({ from: wallet.address, to: p.to, data: p.data, value: p.value ?? "0" })).toString();
+      return (await wallet.sendTransaction({ to: p.to, data: p.data, nonce, gasLimit, value: p.value ?? "0" })).hash;
     } finally {
       release();
       if (this.sendQueues.get(key) === tail) this.sendQueues.delete(key); // nothing queued behind us

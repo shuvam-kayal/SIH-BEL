@@ -60,6 +60,10 @@ describe("identity, authentication, and wallet lifecycle", () => {
         getIdentity: async () => null,
         submitTransaction: async () => { submitted++; return { txId: "tx", status: "SUCCESS" as const }; },
       } as unknown as BlockchainService;
+      const admin = { identityId: "DID:ADMIN", employeeId: "A", fullName: "Admin", role: "ADMIN" as const, department: "IT", status: "ACTIVE" as const, createdAt: new Date().toISOString() };
+      identityStore.identities.set(admin.identityId, admin);
+      identityStore.users.set(admin.employeeId, { employeeId: admin.employeeId, identityId: admin.identityId, walletAddress: "0xADMIN", role: admin.role, department: admin.department, status: admin.status });
+      identityStore.wallets.set("0xADMIN", { address: "0xADMIN", identityId: admin.identityId, deviceId: "ADMIN-DEVICE", status: "ACTIVE", activatedAt: new Date().toISOString(), revokedAt: null, revokedReason: null, publicKey: null });
       const service = new UsersServiceImpl(chain, createMemoryRepositories(identityStore));
       await (service as any).ensureIdentityCreated(
         { identityId: "DID:ADMIN", employeeId: "A", fullName: "Admin", role: "ADMIN", department: "IT", status: "ACTIVE", createdAt: new Date().toISOString() },

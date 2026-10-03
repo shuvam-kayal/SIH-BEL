@@ -350,10 +350,25 @@ export class UsersServiceImpl implements UsersService {
     return grants.find((grant) => grant.resourceType === resourceType && grant.resourceId === resourceId && this.grantIsActive(grant, actorId, resourceId, action)) ?? null;
   }
   async revokeGrant(actorId: string, grantId: string): Promise<AuthorizationGrant> { const actor = this.requireIdentity(await this.resolveIdentity(actorId)); const grant = await this.repositories.grants.findById(grantId); if (!grant) throw new NotFoundError(`No grant ${grantId}`); if (grant.grantedByIdentityId !== actor.identityId && actor.role !== "ADMIN") throw new ForbiddenError("Only the grantor or admin may revoke a grant"); await this.submit("GRANT_REVOKE", actor, { authorizationGrantId: grant.authorizationGrantId, resourceType: grant.resourceType, resourceId: grant.resourceId, actorIdentityId: grant.actorIdentityId, action: grant.action, expiresAt: grant.expiresAt }); grant.status = "REVOKED"; await this.repositories.grants.save(grant); await this.commit("GRANT", grant.authorizationGrantId, "GRANT_REVOKE", actor.identityId, { entityType: "GRANT", entityId: grant.authorizationGrantId, actorIdentityId: grant.actorIdentityId, resourceType: grant.resourceType, resourceId: grant.resourceId, action: grant.action, grantedByIdentityId: grant.grantedByIdentityId, status: grant.status, expiresAt: grant.expiresAt }); return { ...grant }; }
-  async validateGrant(grantId: string, actorId: string, resourceId: string, action: Action): Promise<boolean> { const grant = await this.repositories.grants.findById(grantId); if (!grant || !this.grantIsActive(grant, actorId, resourceId, action)) return false; if (grant.expiresAt && Date.parse(grant.expiresAt) <= Date.now()) { grant.status = "EXPIRED"; await this.repositories.grants.save(grant); return false; } return true; }
+  async validateGrant(grantId: string, actorId: string, resourceId: string, action: Action): Promise<boolean> {
+    const grant = await this.repositories.grants.findById(grantId);
+    if (!grant || !this.grantMatches(grant, actorId, resourceId, action) || grant.status !== "ACTIVE") return false;
+    if (this.grantIsExpired(grant)) {
+      grant.status = "EXPIRED";
+      await this.repositories.grants.save(grant);
+      return false;
+    }
+    return true;
+  }
 
+  private grantMatches(grant: AuthorizationGrant, actorId: string, resourceId: string, action: Action): boolean {
+    return grant.actorIdentityId === actorId && grant.resourceId === resourceId && grant.action === action;
+  }
+  private grantIsExpired(grant: AuthorizationGrant): boolean {
+    return Boolean(grant.expiresAt && Date.parse(grant.expiresAt) <= Date.now());
+  }
   private grantIsActive(grant: AuthorizationGrant, actorId: string, resourceId: string, action: Action): boolean {
-    return grant.status === "ACTIVE" && grant.actorIdentityId === actorId && grant.resourceId === resourceId && grant.action === action && (!grant.expiresAt || Date.parse(grant.expiresAt) > Date.now());
+    return grant.status === "ACTIVE" && this.grantMatches(grant, actorId, resourceId, action) && !this.grantIsExpired(grant);
   }
 
   private async resolveIdentity(id: string): Promise<Identity | null> { return (await this.repositories.identities.findById(id)) ?? this.repositories.identities.findByEmployeeId(id); }
