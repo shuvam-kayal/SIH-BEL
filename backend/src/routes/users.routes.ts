@@ -105,6 +105,10 @@ export function usersRouter(c: Container): Router {
     try { res.json(await c.users.listPendingRegistrations()); } catch (err) { next(err); }
   });
 
+  router.get("/admin/users/active", requireSession, requirePermission("CREATE_EMPLOYEE"), async (_req, res, next) => {
+    try { res.json(await c.users.listActiveEmployees()); } catch (err) { next(err); }
+  });
+
   router.post("/admin/users/:id/verify", requireSession, requireRole("ADMIN"), async (req, res, next) => {
     try {
       res.json(await c.users.verifyRegistration(req.user!.identityId, req.params.id, { employeeId: req.body?.employeeId, department: req.body?.department }));
@@ -216,6 +220,29 @@ export function usersRouter(c: Container): Router {
   // GET /users/me
   router.get("/users/me", requireSession, (req, res) => {
     res.json(req.user);
+  });
+
+  router.get("/users/me/grants", requireSession, async (req, res, next) => {
+    try {
+      const resourceType = req.query.resourceType;
+      const resourceId = req.query.resourceId;
+      const action = req.query.action;
+      if (resourceType !== "ASSET" || typeof resourceId !== "string" || !resourceId.trim() || action !== "TRANSFER_ASSET") {
+        throw new ValidationError(["resourceType=ASSET, resourceId, and action=TRANSFER_ASSET are required"]);
+      }
+      const grant = await c.users.findActiveGrant(req.user!.identityId, "ASSET", resourceId, "TRANSFER_ASSET");
+      res.json({
+        authorized: grant !== null,
+        grant: grant ? {
+          authorizationGrantId: grant.authorizationGrantId,
+          resourceType: grant.resourceType,
+          resourceId: grant.resourceId,
+          action: grant.action,
+          status: grant.status,
+          expiresAt: grant.expiresAt,
+        } : null,
+      });
+    } catch (err) { next(err); }
   });
 
   // GET /users/:id

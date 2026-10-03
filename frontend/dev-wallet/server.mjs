@@ -1,5 +1,5 @@
 import http from "node:http";
-import { loadOrCreateDevice, signChallenge } from "./wallet.mjs";
+import { loadOrCreateDevice, signChallenge, signTransaction } from "./wallet.mjs";
 
 const host = "127.0.0.1";
 const port = Number(process.env.BEL_DEV_WALLET_PORT || 8787);
@@ -22,6 +22,7 @@ const server = http.createServer(async (req, res) => {
       return send(req, res, 200, loadOrCreateDevice(deviceId).identity);
     }
     if (req.method === "POST" && url.pathname === "/sign") { const body = await readBody(req); if (body.deviceId !== deviceId) throw new Error("Active development device mismatch"); return send(req, res, 200, await signChallenge(deviceId, body.challenge, body.options)); }
+    if (req.method === "POST" && url.pathname === "/sign-transaction") { const body = await readBody(req); if (body.deviceId !== deviceId) throw new Error("Active development device mismatch"); return send(req, res, 200, await signTransaction(deviceId, body.transaction, body.options)); }
     return send(req, res, 404, { message: "Not found" });
   } catch (error) { return send(req, res, 400, { message: error instanceof Error ? error.message : "Development wallet request failed" }); }
 });

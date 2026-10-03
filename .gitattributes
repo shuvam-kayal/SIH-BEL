@@ -1,0 +1,2 @@
+# Keep shell scripts executable and LF-terminated across Windows/WSL checkouts.
+*.sh text eol=lf

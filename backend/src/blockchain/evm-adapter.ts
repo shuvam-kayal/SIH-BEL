@@ -29,6 +29,7 @@ import {
   type TransactionReceipt,
 } from "ethers";
 import type { BlockchainService, BlockchainStatus, MockBlockchainResult } from "../../../shared/api";
+import type { PreparedTransaction as SharedPreparedTransaction } from "../../../shared/types";
 import type { Asset, AuditEvent, Block, Identity, Job, Transaction, Validator, Wallet } from "../../../shared/types";
 import { ROLES, type AssetStatus, type AuditEntityType, type JobStatus, type Role, type WalletStatus } from "../../../shared/enums";
 import { NotImplementedError } from "../errors";
@@ -60,7 +61,7 @@ export type EvmAdapterOptions = {
 
 export type ChainEvent = { contract: ContractName; name: string; args: Record<string, string | string[]>; logIndex: number };
 
-export type PreparedTransaction = { from: string; to: string; data: string; chainId: number; contract: ContractName; method: string };
+export type PreparedTransaction = SharedPreparedTransaction & { contract: ContractName; method: string };
 
 export type SubmitResult = MockBlockchainResult & {
   /** EVM transaction hash (absent when rejected in simulation). */
@@ -185,41 +186,85 @@ export class EvmBlockchainAdapter implements BlockchainService {
 
   /** Unsigned call fields for the device wallet to sign (production path). */
   async prepareTransaction(tx: Transaction): Promise<PreparedTransaction> {
+    return this.buildPreparedTransaction(tx, true);
+  }
+
+  private async buildPreparedTransaction(tx: Transaction, estimateGas: boolean): Promise<PreparedTransaction> {
     const from = this.actorWallet(tx); // validate the envelope before any I/O
     await this.ensureNetwork();
     const plan = await this.plan(tx);
-    return {
+    const to = this.config.deployment.contracts[plan.contract];
+    const data = this.interfaces[plan.contract].encodeFunctionData(plan.method, plan.args);
+    const prepared: PreparedTransaction = {
       from,
-      to: this.config.deployment.contracts[plan.contract],
-      data: this.interfaces[plan.contract].encodeFunctionData(plan.method, plan.args),
+      to,
+      data,
       chainId: this.config.deployment.chainId,
+      value: "0",
       contract: plan.contract,
       method: plan.method,
     };
+    if (estimateGas) {
+      prepared.nonce = await this.provider.getTransactionCount(from, "pending");
+      prepared.gasLimit = (await this.provider.estimateGas({ from, to, data, value: 0 })).toString();
+    }
+    return prepared;
   }
 
   async submitTransactionDetailed(tx: Transaction): Promise<SubmitResult> {
-    const prepared = await this.prepareTransaction(tx);
-    const raw = this.parseSignedTransaction(tx.signature);
-    if (raw) this.verifySignedTransaction(raw, prepared);
+    // Do not estimate gas before simulation: rejected contract calls must be
+    // decoded as application-level rejections, not leaked as estimateGas RPC
+    // failures. The public preparation API still estimates gas for devices.
+    const prepared = await this.buildPreparedTransaction(tx, false);
+    const raw = tx.signature === "development" ? null : this.parseSignedTransaction(tx.signature);
+    if (tx.signature !== "development" && !raw) {
+      throw new BlockchainError("SIGNER", "Invalid device-signed raw transaction in tx.signature");
+    }
+    if (raw) {
+      try {
+        this.verifySignedTransaction(raw, prepared);
+      } catch (err) {
+        if (err instanceof BlockchainError) {
+          err.details = { ...(err.details ?? {}), txType: tx.type, prepared: this.safeTransactionSummary(prepared), signed: this.safeSignedTransactionSummary(raw) };
+        }
+        throw err;
+      }
+    }
     const signer = raw ? undefined : this.signerFor(prepared.from);
 
-    const revert = await this.simulate(prepared);
+    let revert: DecodedRevert | undefined;
+    try {
+      revert = await this.simulate(prepared);
+    } catch (err) {
+      if (err instanceof BlockchainError) {
+        err.details = { ...(err.details ?? {}), stage: "simulate", txType: tx.type, prepared: this.safeTransactionSummary(prepared) };
+      }
+      throw err;
+    }
     if (revert) return { txId: tx.txId, status: "REJECTED", events: [], revert, auditTxIds: [] };
 
     let hash: string;
     try {
       if (raw) {
-        hash = (await this.provider.broadcastTransaction(tx.signature)).hash;
+        hash = (await this.provider.broadcastTransaction(tx.signature.trim())).hash;
       } else {
-        hash = await this.sendAs(signer!, prepared.to, prepared.data);
+        hash = await this.sendAs(signer!, prepared);
       }
     } catch (err) {
       const decoded = this.decodeRevertFrom(err);
       if (decoded) return { txId: tx.txId, status: "REJECTED", events: [], revert: decoded, auditTxIds: [] };
-      throw classifyError(err, `${tx.type} submission failed`);
+      const failure = classifyError(err, `${tx.type} submission failed`);
+      failure.details = { ...(failure.details ?? {}), stage: "broadcast", txType: tx.type, prepared: this.safeTransactionSummary(prepared), signed: raw ? this.safeSignedTransactionSummary(raw) : undefined };
+      throw failure;
     }
-    return this.awaitResult(tx, hash);
+    try {
+      return await this.awaitResult(tx, hash);
+    } catch (err) {
+      if (err instanceof BlockchainError) {
+        err.details = { ...(err.details ?? {}), stage: "receipt", txType: tx.type, hash, prepared: this.safeTransactionSummary(prepared) };
+      }
+      throw err;
+    }
   }
 
   // -------------------------------------------------------------- reads
@@ -435,14 +480,23 @@ export class EvmBlockchainAdapter implements BlockchainService {
     return buildCallPlan(tx, lookups);
   }
 
-  private parseSignedTransaction(signature: string): EvmTransaction | null {
-    if (typeof signature !== "string" || !/^0x[0-9a-fA-F]{100,}$/.test(signature)) return null;
+  /** Parses the exact serialized transaction returned by the managed device. */
+  parseSignedTransaction(signature: string): EvmTransaction | null {
+    if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/i.test(signature.trim())) return null;
     try {
-      const parsed = EvmTransaction.from(signature);
+      const parsed = EvmTransaction.from(signature.trim());
       return parsed.signature ? parsed : null;
     } catch {
       return null;
     }
+  }
+
+  private safeTransactionSummary(p: PreparedTransaction): Record<string, unknown> {
+    return { from: p.from, to: p.to, chainId: p.chainId, nonce: p.nonce, gasLimit: p.gasLimit, contract: p.contract, method: p.method, dataLength: p.data.length, value: p.value };
+  }
+
+  private safeSignedTransactionSummary(raw: EvmTransaction): Record<string, unknown> {
+    return { from: raw.from, to: raw.to, chainId: raw.chainId?.toString(), nonce: raw.nonce, gasLimit: raw.gasLimit.toString(), type: raw.type, dataLength: raw.data.length, value: raw.value.toString() };
   }
 
   /** A relayed device-signed transaction must be exactly what the envelope claims. */
@@ -464,7 +518,7 @@ export class EvmBlockchainAdapter implements BlockchainService {
    * which can hand back a stale count), and sends from one wallet are queued so
    * two concurrent requests can never claim the same nonce.
    */
-  private async sendAs(wallet: EvmWallet, to: string, data: string): Promise<string> {
+  private async sendAs(wallet: EvmWallet, p: PreparedTransaction): Promise<string> {
     const key = wallet.address.toLowerCase();
     const previous = this.sendQueues.get(key) ?? Promise.resolve();
     let release!: () => void;
@@ -477,7 +531,8 @@ export class EvmBlockchainAdapter implements BlockchainService {
       const nonce = typeof rpc.send === "function"
         ? Number(BigInt(await rpc.send("eth_getTransactionCount", [wallet.address, "pending"])))
         : await this.provider.getTransactionCount(wallet.address, "pending");
-      return (await wallet.sendTransaction({ to, data, nonce })).hash;
+      const gasLimit = p.gasLimit ?? (await this.provider.estimateGas({ from: wallet.address, to: p.to, data: p.data, value: p.value ?? "0" })).toString();
+      return (await wallet.sendTransaction({ to: p.to, data: p.data, nonce, gasLimit, value: p.value ?? "0" })).hash;
     } finally {
       release();
       if (this.sendQueues.get(key) === tail) this.sendQueues.delete(key); // nothing queued behind us

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import request from "supertest";
+import { Wallet as EthersWallet } from "ethers";
 import type { BlockchainService } from "../src/adapters/BlockchainService";
 import { createApp } from "../src/app";
 import { createContainer } from "../src/container";
@@ -81,6 +82,52 @@ async function createSession(container: ReturnType<typeof createContainer>, empl
 }
 
 describe("AssetsServiceImpl", () => {
+  it("requires and preserves the raw device signature for EVM asset creation", async () => {
+    const previous = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      const captured: Transaction[] = [];
+      const chain = Object.assign(new FakeBlockchain(), {
+        submitTransactionDetailed: async (tx: Transaction) => { captured.push(tx); return { txId: tx.txId, status: "SUCCESS" as const, nftId: "701" }; },
+      });
+      const service = new AssetsServiceImpl(chain);
+      const input = { assetId: "AST-EVM-SIGNATURE", assetType: "TOOL", ownerId: "DID:BEL:1", custodianId: "DID:BEL:1" };
+      await expect(service.create(input, actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await expect(service.create(input, { ...actor, signature: "development" })).rejects.toMatchObject({ kind: "SIGNER" });
+      const device = EthersWallet.createRandom();
+      const raw = await device.signTransaction({ to: "0x1111111111111111111111111111111111111111", data: "0x1234", chainId: 31337, nonce: 7, value: 0 });
+      await service.create(input, { identityId: actor.identityId, walletAddress: device.address, signature: raw });
+      expect(captured[0].signature).toBe(raw);
+      expect(captured[0].signature).not.toBe("development");
+    } finally {
+      if (previous === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previous;
+    }
+  });
+
+  it("requires a raw device signature for EVM asset mutations", async () => {
+    const previous = process.env.BEL_BLOCKCHAIN;
+    process.env.BEL_BLOCKCHAIN = "evm";
+    try {
+      const chain = new FakeBlockchain();
+      const service = new AssetsServiceImpl(chain);
+      const device = EthersWallet.createRandom();
+      const raw = await device.signTransaction({ to: "0x1111111111111111111111111111111111111111", data: "0x1234", chainId: 31337, nonce: 7, value: 0 });
+      const signed = { identityId: actor.identityId, walletAddress: device.address, signature: raw };
+      await service.create({ assetId: "AST-MUTATION-PARENT", assetType: "TOOL", ownerId: "DID:BEL:1", custodianId: "DID:BEL:1" }, signed);
+      await service.create({ assetId: "AST-MUTATION-CHILD", assetType: "PART", ownerId: "DID:BEL:1", custodianId: "DID:BEL:1" }, signed);
+      await expect(service.attachComponent("AST-MUTATION-PARENT", "AST-MUTATION-CHILD", actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.attachComponent("AST-MUTATION-PARENT", "AST-MUTATION-CHILD", signed);
+      await expect(service.changeAssetState("AST-MUTATION-PARENT", "IN_MAINTENANCE", actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.changeAssetState("AST-MUTATION-PARENT", "IN_MAINTENANCE", signed);
+      await expect(service.removeComponent("AST-MUTATION-PARENT", "AST-MUTATION-CHILD", actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.removeComponent("AST-MUTATION-PARENT", "AST-MUTATION-CHILD", signed);
+      await expect(service.transfer("AST-MUTATION-PARENT", "DID:BEL:2", undefined, actor)).rejects.toMatchObject({ kind: "SIGNER" });
+      await service.transfer("AST-MUTATION-PARENT", "DID:BEL:2", undefined, signed);
+    } finally {
+      if (previous === undefined) delete process.env.BEL_BLOCKCHAIN; else process.env.BEL_BLOCKCHAIN = previous;
+    }
+  });
+
   it("round-trips a created asset through list and getById", async () => {
     const chain = new FakeBlockchain();
     const service = new AssetsServiceImpl(chain);

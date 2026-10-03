@@ -3,6 +3,10 @@
 
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { createContainer, type Container } from "./container";
 import { HttpError } from "./errors";
 import { attachSession } from "./middleware/session";
@@ -11,9 +15,49 @@ import { chainRouter } from "./routes/chain.routes";
 import { jobsRouter } from "./routes/jobs.routes";
 import { usersRouter } from "./routes/users.routes";
 import { evidenceRouter } from "./routes/evidence.routes";
+import { BlockchainError } from "./blockchain/errors";
+
+type RequestDiagnostics = Request & { requestId?: string };
+
+export async function writeBackendErrorLog(req: RequestDiagnostics, err: unknown): Promise<void> {
+  const body = req.body as Record<string, unknown> | undefined;
+  const signature = typeof body?.signature === "string" ? body.signature : undefined;
+  const status = err instanceof HttpError ? err.status : 500;
+  const entry = {
+    timestamp: new Date().toISOString(),
+    method: req.method,
+    path: req.originalUrl || req.path,
+    requestId: req.requestId,
+    status,
+    errorName: err instanceof Error ? err.name : "UnknownError",
+    message: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? err.stack : undefined,
+    actorIdentity: req.user?.identityId,
+    actorWallet: req.user?.walletAddress,
+    signaturePresent: Boolean(signature),
+    signatureLength: signature?.length ?? 0,
+    transactionType: req.path === "/assets" ? "ASSET_MINT" : req.path === "/jobs" ? "JOB_CREATE" : undefined,
+    blockchainKind: err instanceof BlockchainError ? err.kind : undefined,
+    blockchainDetails: err instanceof BlockchainError ? err.details : undefined,
+  };
+  const path = process.env.BEL_BACKEND_ERROR_LOG?.trim() || fileURLToPath(new URL("../logs/backend-errors.log", import.meta.url));
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await appendFile(path, `${JSON.stringify(entry)}\n`, "utf8");
+  } catch {
+    // Error logging must never turn the original request failure into another failure.
+  }
+}
 
 export function createApp(container: Container = createContainer()): Express {
   const app = express();
+
+  app.use((req, res, next) => {
+    const requestId = randomUUID();
+    (req as RequestDiagnostics).requestId = requestId;
+    res.setHeader("X-Request-Id", requestId);
+    next();
+  });
 
   const origins = (process.env.BEL_CORS_ORIGINS ?? (process.env.BEL_ENV === "production" ? "" : "http://localhost:3000,http://127.0.0.1:3000"))
     .split(",")
@@ -43,7 +87,10 @@ export function createApp(container: Container = createContainer()): Express {
   // Single error serializer. NotImplementedError surfaces as 501 so an
   // unfinished module is visible in the response rather than hidden
   // behind a generic 500.
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    // Persist diagnostics for all HttpErrors (including 502/504) as well as
+    // unexpected 500s. Raw device signatures are intentionally never stored.
+    void writeBackendErrorLog(req as RequestDiagnostics, err);
     if (err instanceof HttpError) {
       return res.status(err.status).json({ code: err.code, message: err.message });
     }

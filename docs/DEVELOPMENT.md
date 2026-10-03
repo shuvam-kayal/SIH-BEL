@@ -35,6 +35,8 @@ For an employee, use a separate local service process, wallet directory, port, a
 
 Development attestation is explicit: configure `BEL_DEVICE_ATTESTATION=mock` and `BEL_MOCK_APPROVED_DEVICE_IDS` with only the local IDs being tested, for example `BEL-DEV-ADMIN-001,BEL-DEV-EMPLOYEE-001`. The dev bootstrap preserves an explicitly supplied allowlist and otherwise approves only its admin wallet device. Production rejects the mock adapter and requires the managed provider configuration.
 
+For the EVM development transaction path, every actor wallet that submits a state-changing request must correspond to one of the disposable private keys in `BEL_CHAIN_DEV_SIGNER_KEYS`; the adapter rejects a development transaction whose `actorWallet` is not configured. The orchestrator imports the first Besu test key into its local admin wallet. Any additional development wallet must be provisioned with another disposable test key through a secure local setup; never commit, log, tunnel, or send that key to the frontend or backend.
+
 ## Remote employee testing
 
 Developer A runs Besu, PostgreSQL, Kubo, the backend, and the frontend, exposing only the frontend and backend through tunnels. Developer B does not run the frontend. Developer B runs only a local dev-wallet service configured with `BEL_DEV_DEVICE_ID=BEL-DEV-EMPLOYEE-001` and `BEL_DEV_WALLET_ALLOWED_ORIGIN=<exact frontend tunnel origin>`, then opens Developer A's frontend tunnel. The shared frontend uses its configured backend tunnel and local `http://127.0.0.1:<wallet-port>` wallet URL; it never embeds Developer B's device ID. The employee initializes a pending account; Developer A verifies, assigns a role, and activates it before employee login.
