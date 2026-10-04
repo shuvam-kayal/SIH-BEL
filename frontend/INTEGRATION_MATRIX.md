@@ -18,6 +18,7 @@ The production device bridge must implement `sign(challenge, { operation, requir
 | `/admin/users/{id}/role`, `/grants` | Roles and grants | Bearer, admin permissions | Backend-defined | JSON | Client methods available; grant UI awaits documented request fields |
 | `GET/POST /assets`, `GET /assets/{id}` | Asset registry | Bearer; create uses `REGISTER_ASSET` | No | JSON | Integrated |
 | `POST /assets/{id}/transfer` | Asset detail | Bearer; RBAC including explicit engineer grant | `ASSET_TRANSFER`, resource id | JSON + `X-BEL-Fresh-Auth` | Integrated |
+| `GET /users/me/grants?resourceType=ASSET&resourceId={assetId}&action=TRANSFER_ASSET` | Asset detail Engineer transfer visibility | Bearer; current session identity only | No | Read-only JSON authorization status | Integrated |
 | `GET/POST /jobs`, `GET /jobs/{id}` | Maintenance list/detail | Bearer; create uses `CREATE_JOB` | No | JSON | Integrated |
 | assign/start/complete/approve/reject job routes | Job detail | Bearer; shared RBAC and state machine | Approve/reject use `JOB_VERIFY`; resource id | JSON; completion selects backend evidence id | Integrated |
 | `POST /jobs/{jobId}/evidence` | Job evidence | Bearer, `PERFORM_MAINTENANCE` | No | Multipart file; browser does not set boundary | Integrated |
@@ -31,7 +32,8 @@ The production device bridge must implement `sign(challenge, { operation, requir
 
 - The frozen `shared/api.ts` does not define evidence methods or `evidenceId` completion. The frontend uses a narrow transport adapter in `src/api/client.ts` for the already documented backend routes; it does not change or fork backend semantics.
 - Device-wallet and platform-authenticator production adapters are deployment-owned. When no bridge is installed, the UI fails clearly and never falls back to a password, seed phrase, private key, or mock production session.
-- No REST boundary is exposed for contract-only component attach/detach operations, so the frontend intentionally does not invent those controls.
+- Component attach/detach use the real `POST /assets/{id}/components` and `DELETE /assets/{id}/components/{componentId}` REST boundary. The Asset Detail page calls the backend APIs; current RBAC and fresh authentication are enforced server-side, component IDs must identify existing assets, and the backend persists the confirmed blockchain-backed result. The smart contract remains an additional enforcement boundary.
+- The Engineer transfer control reads the current session's resource-scoped grant through `GET /users/me/grants`; a grant is not ownership and does not transfer an asset. The transfer endpoint performs the final backend and contract authorization checks.
 - `501 NOT_IMPLEMENTED` responses are surfaced as unavailable backend capability; production code does not substitute mock data.
 
 ## Test coverage

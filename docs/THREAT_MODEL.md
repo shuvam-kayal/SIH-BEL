@@ -77,7 +77,7 @@ Tracked here so they are found deliberately rather than by accident.
 | Development CORS configuration allows broad origins | `backend/src/app.ts` | Cross-origin calls from an unintended site | Restrict allowed origins before shared deployment |
 | Mock chain accepts every transaction and returns SUCCESS | `mocks/mock-blockchain/index.ts` | Writes appear to succeed while nothing is recorded on a real chain | Replace the adapter before blockchain-backed deployment/integration |
 | External BEL device-trust provider is not configured | Production deployment configuration | Onboarding remains unavailable rather than trusting client metadata | Inject the authoritative provider and set `BEL_DEVICE_ATTESTATION_PROVIDER=managed`; keep the rejecting adapter as the fail-closed default |
-| Transfer authorization remains fail-closed until per-asset grants are wired | `backend/src/routes/assets.routes.ts` | Authorized transfer can be rejected even though this is not an authorization bypass | Person 2 implements resource-level grant lookup and tests `AUTH` semantics |
+| Transfer authorization remains fail-closed until a matching per-asset grant is active | `backend/src/routes/assets.routes.ts`, `backend/src/routes/users.routes.ts` | The current-user grant lookup is read-only; the transfer endpoint independently revalidates actor, asset, action, status, and expiry before submission | Backend + smart contract |
 
 ## Authentication/lifecycle invariants for testing
 

@@ -102,7 +102,13 @@ not contain private-key material.
 
 ## AuthorizationGrant
 
-A resource-scoped authorization used for `AUTH` RBAC cells. Ownership alone does not create a grant. The grant may be represented off-chain and referenced by ID in the signed transaction payload; the final contract implementation must verify the authorization proof before changing state.
+A resource-scoped authorization used for `AUTH` RBAC cells. A transfer grant
+authorizes one employee for one asset and the `TRANSFER_ASSET` action; it may
+expire and may be revoked. It does not transfer ownership or custody and is
+not temporary ownership. `GET /users/me/grants` exposes only the current
+session user's minimal active-grant status for frontend visibility. The actual
+transfer endpoint independently revalidates the grant and all other backend,
+fresh-auth, and contract conditions.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -194,9 +200,36 @@ in private IPFS; PostgreSQL stores metadata only.
 Job completion passes this SHA-256 to `JobManager.completeJob`; the document
 itself is never stored in PostgreSQL or on-chain.
 
-## Validator
+## Validator registration and live validator
 
-A node authorized to participate in consensus.
+`ValidatorRegistration` is the application/PostgreSQL governance record for
+validator ADD, scheduled REMOVE, RESTORE, and REMOVE_CANCEL lifecycle
+operations. It is not itself proof that a node is currently participating in
+live Besu/QBFT consensus.
+
+| Field | Type | Notes |
+|---|---|---|
+| registrationId | string | Application registration identifier |
+| validatorId | string | Application-level validator identifier; validated as an EVM address by the current implementation |
+| identityId / walletAddress | string | Administrative actor/identity metadata associated with the registration |
+| nodeId / nodeAddress | string | Validator node metadata supplied by infrastructure |
+| publicKey | string | Consensus/public identity key material |
+| signingPublicKey | string | Signing public key material required by the registration contract/API |
+| status | `PENDING` \| `ACTIVE` \| `REMOVAL_SCHEDULED` \| `REMOVED` | Application lifecycle status |
+| requestedAt / activationHeight | string / number | Registration request time and scheduled/effective chain height |
+| removalHeight / removalReason | number \| null / string \| null | Removal lifecycle metadata |
+| txHash / blockNumber | string \| null / number \| null | Confirmed transaction metadata |
+
+The live validator population and committee are separate Besu/QBFT runtime
+state, exposed through `bel_getValidators` and `bel_getCommittee` via the
+consensus source. A live validator is not automatically an application
+registration, and an application registration does not automatically prove
+current consensus participation.
+
+## Live Validator
+
+A node authorized to participate in consensus according to the running Besu
+consensus implementation.
 
 | Field | Type | Notes |
 |---|---|---|

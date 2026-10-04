@@ -279,6 +279,42 @@ components:
         joinedAt:
           type: string
           format: date-time
+    ValidatorRegistration:
+      type: object
+      required: [registrationId, validatorId, identityId, walletAddress, nodeId, nodeAddress, publicKey, signingPublicKey, status, requestedAt, activationHeight, removalHeight, removalReason, txHash, blockNumber]
+      properties:
+        registrationId: { type: string }
+        validatorId: { type: string, description: Application-level validator identifier; the current implementation validates it as an EVM address. }
+        identityId: { type: string }
+        walletAddress: { type: string }
+        nodeId: { type: string }
+        nodeAddress: { type: string, description: Validator node/network address supplied by validator infrastructure. }
+        publicKey: { type: string, description: Consensus/public identity key supplied by validator provisioning. }
+        signingPublicKey: { type: string, description: Signing public key material required by the registration API/contract. Never submit private key material. }
+        status: { type: string, enum: [PENDING, ACTIVE, REMOVAL_SCHEDULED, REMOVED] }
+        requestedAt: { type: string, format: date-time }
+        activationHeight: { type: integer, minimum: 1, description: Blockchain height at which activation is scheduled or effective. }
+        removalHeight: { type: integer, nullable: true }
+        removalReason: { type: string, nullable: true }
+        txHash: { type: string, nullable: true }
+        blockNumber: { type: integer, nullable: true }
+    CurrentUserGrantStatus:
+      type: object
+      required: [authorized, grant]
+      properties:
+        authorized: { type: boolean, description: True only when the authenticated current user has a matching active, non-expired grant. }
+        grant:
+          nullable: true
+          oneOf:
+          - type: object
+            required: [authorizationGrantId, resourceType, resourceId, action, status, expiresAt]
+            properties:
+              authorizationGrantId: { type: string }
+              resourceType: { type: string, enum: [ASSET] }
+              resourceId: { type: string }
+              action: { type: string, enum: [TRANSFER_ASSET] }
+              status: { type: string, enum: [ACTIVE] }
+              expiresAt: { type: string, format: date-time, nullable: true }
     BlockchainStatus:
       type: object
       required:
@@ -674,6 +710,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+  /users/me/grants:
+    get:
+      summary: Read the current user's asset transfer grant status
+      description: Read-only authorization-status lookup for the authenticated session identity. It never accepts an arbitrary employee identity, creates or revokes a grant, transfers an asset, or changes owner/custodian state. Absence, expiry, or revocation produces authorized=false. The backend transfer endpoint remains authoritative.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: resourceType
+        in: query
+        required: true
+        schema: { type: string, enum: [ASSET] }
+      - name: resourceId
+        in: query
+        required: true
+        schema: { type: string }
+      - name: action
+        in: query
+        required: true
+        schema: { type: string, enum: [TRANSFER_ASSET] }
+      responses:
+        '200':
+          description: Current-session grant status for the requested asset.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentUserGrantStatus' }
+        '401': { description: Missing or invalid bearer session }
+        '400': { description: Invalid resourceType, resourceId, or action query }
   /users/{id}:
     get:
       summary: User by employee id
@@ -786,6 +849,9 @@ paths:
                 $ref: '#/components/schemas/Asset'
   /assets/{id}/components:
     post:
+      summary: Attach an existing component asset
+      description: Requires bearer authentication, REGISTER_ASSET authorization, and fresh authentication bound to the parent asset. The backend verifies that componentId refers to an existing asset, submits the real blockchain operation, and persists the confirmed result; the smart contract remains authoritative.
+      security: [{ bearerAuth: [] }]
       parameters:
       - $ref: '#/components/parameters/id'
       requestBody:
@@ -806,6 +872,9 @@ paths:
                 $ref: '#/components/schemas/Asset'
   /assets/{id}/components/{componentId}:
     delete:
+      summary: Detach an existing component asset
+      description: Requires bearer authentication, REGISTER_ASSET authorization, and fresh authentication bound to the component. The backend submits the real blockchain operation and persists the confirmed result; the smart contract remains authoritative.
+      security: [{ bearerAuth: [] }]
       parameters:
       - $ref: '#/components/parameters/id'
       - name: componentId
@@ -1032,6 +1101,8 @@ paths:
                 $ref: '#/components/schemas/BlockchainStatus'
   /blockchain/validators:
     get:
+      summary: Read live validator metadata from the configured Besu consensus source
+      description: This is live customized Besu/QBFT runtime state obtained through bel_getValidators. It is distinct from the ADMIN-only application validator registrations at /admin/validators and does not by itself establish an application registration relationship.
       responses:
         '200':
           description: Validators
@@ -1046,14 +1117,35 @@ paths:
       summary: List validators for the ADMIN validator-management page
       security: [{ bearerAuth: [] }]
       responses:
-        '200': { description: Current validator registrations }
+        '200':
+          description: Application validator registrations from the backend/PostgreSQL lifecycle record. This does not by itself prove live Besu/QBFT participation.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ValidatorRegistration' } }
         '403': { description: Requires MANAGE_VALIDATORS (ADMIN only) }
     post:
       summary: Add a validator after receipt/event confirmation
       security: [{ bearerAuth: [] }]
-      description: Requires MANAGE_VALIDATORS and a single-use fresh-auth proof bound to VALIDATOR_ADD and validatorId.
+      description: Requires MANAGE_VALIDATORS and a single-use fresh-auth proof bound to VALIDATOR_ADD and validatorId. The administrator submits infrastructure-provisioned validator metadata; validatorId is an application-level identifier, nodeAddress is the node/network address, publicKey and signingPublicKey are the public key materials required by the current registration API/contract, and activationHeight is the scheduled/effective blockchain height. These values are not arbitrary application-generated credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [validatorId, nodeAddress, publicKey, signingPublicKey, activationHeight]
+              properties:
+                validatorId: { type: string, description: Application-level validator identifier; validated as an EVM address by the current implementation. }
+                nodeAddress: { type: string }
+                publicKey: { type: string, description: Consensus/public identity key from validator provisioning. }
+                signingPublicKey: { type: string, description: Signing public key material required by the registration contract/API; never private key material. }
+                activationHeight: { type: integer, minimum: 1 }
       responses:
-        '201': { description: Validator registration and transaction metadata }
+        '201':
+          description: Application validator registration and transaction metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidatorRegistration' }
         '401': { description: Missing or invalid fresh authentication }
         '403': { description: ADMIN only }
         '409': { description: Duplicate/current-state conflict }
@@ -1078,8 +1170,30 @@ paths:
       description: Requires fresh auth bound to VALIDATOR_RESTORE and the validator id. Prior REMOVE history is never deleted.
       responses:
         '200': { description: Active validator state and restore transaction metadata }
+  /admin/validators/{id}/remove/cancel:
+    post:
+      summary: Cancel a scheduled validator removal
+      security: [{ bearerAuth: [] }]
+      description: Requires MANAGE_VALIDATORS and fresh authentication bound to VALIDATOR_REMOVE_CANCEL and the registration id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          description: Active validator registration after cancellation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidatorRegistration' }
   /blockchain/committee/{height}:
     get:
+      summary: Read the live finalized Besu/QBFT committee at a height
+      description: This is runtime committee state obtained through the configured Besu consensus source, not the PostgreSQL application validator-registration list.
       parameters:
       - name: height
         in: path
